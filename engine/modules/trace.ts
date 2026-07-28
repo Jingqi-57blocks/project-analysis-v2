@@ -83,9 +83,22 @@ function walk(
 ): { steps: TraceStep[]; truncation: TruncationReason; detail: string | null } {
   const steps: TraceStep[] = [];
   const visited = new Set<SymbolId>([entry.id]);
-  let queue: { symbol: SymbolRecord; depth: number; resolution: ResolutionClass }[] = [
+  // Parent links, so a re-encountered symbol can be checked for being an
+  // *ancestor* rather than merely already-seen. Bounded by the depth limit,
+  // so walking it is cheap.
+  const parents = new Map<SymbolId, SymbolId>();
+  const queue: { symbol: SymbolRecord; depth: number; resolution: ResolutionClass }[] = [
     { symbol: entry, depth: 0, resolution: entry.provenance.resolutionClass },
   ];
+
+  const isAncestor = (candidate: SymbolId, from: SymbolId): boolean => {
+    let current: SymbolId | undefined = from;
+    while (current !== undefined) {
+      if (current === candidate) return true;
+      current = parents.get(current);
+    }
+    return false;
+  };
   let truncation: TruncationReason = "completed";
   let detail: string | null = null;
 
@@ -131,9 +144,13 @@ function walk(
         continue;
       }
       if (visited.has(edge.calleeId)) {
-        if (truncation === "completed") {
+        // Only a back-edge to an ancestor is a cycle. Two branches converging
+        // on one shared helper is ordinary structure — a diamond — and calling
+        // that a cycle would mark a complete trace as truncated and inflate
+        // the partial-trace signal on a very common code shape.
+        if (truncation === "completed" && isAncestor(edge.calleeId, current.symbol.id)) {
           truncation = "cycle";
-          detail = `already visited ${edge.calleeName}`;
+          detail = `${edge.calleeName} calls back into its own caller chain`;
         }
         continue;
       }
@@ -142,6 +159,7 @@ function walk(
       if (!callee) continue;
 
       visited.add(edge.calleeId);
+      parents.set(edge.calleeId, current.symbol.id);
       queue.push({
         symbol: callee,
         depth: current.depth + 1,

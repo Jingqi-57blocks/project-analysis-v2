@@ -12,6 +12,7 @@
  * actually moved. A reader can rank on whichever signal matters to them.
  */
 
+import { joinKey } from "../structural/identity.js";
 import type { LinkResult } from "../linking/types.js";
 import type { Trace } from "../modules/trace.js";
 import type { ProductModule, TechnicalComponent, DispositionCounts } from "../modules/form.js";
@@ -61,17 +62,34 @@ export function findRootCycles(links: LinkResult): readonly string[][] {
   }
 
   const cycles: string[][] = [];
+  // Keyed through the shared escaping helper: root names are directory
+  // basenames and routinely contain spaces, so an unescaped join lets two
+  // genuinely different cycles collapse into one and silently disappear.
   const seen = new Set<string>();
 
-  for (const [from, targets] of edges) {
-    for (const to of targets) {
-      if (!edges.get(to)?.has(from)) continue;
-      const key = [from, to].sort().join(" ");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      cycles.push([from, to].sort());
+  // Depth-first, so a cycle of any length is found. A three-service loop
+  // A→B→C→A has no mutual pair anywhere, and a mutual-pair check would report
+  // "no two roots call each other" — true, and misleading.
+  const visit = (start: string, current: string, path: string[]): void => {
+    for (const next of edges.get(current) ?? []) {
+      if (next === start) {
+        const rotated = [...path];
+        const smallest = rotated.indexOf([...rotated].sort()[0]!);
+        const canonical = [...rotated.slice(smallest), ...rotated.slice(0, smallest)];
+        const key = joinKey(canonical);
+        if (!seen.has(key)) {
+          seen.add(key);
+          cycles.push(canonical);
+        }
+        continue;
+      }
+      if (path.includes(next)) continue;
+      if (path.length >= 6) continue; // bounded, like every other traversal here
+      visit(start, next, [...path, next]);
     }
-  }
+  };
+
+  for (const root of edges.keys()) visit(root, root, [root]);
 
   return cycles;
 }
@@ -106,10 +124,10 @@ export function computeSignals(input: HealthInput): readonly HealthSignal[] {
     title: "Services that call each other",
     finding:
       cycles.length === 0
-        ? "No two roots were found calling each other."
-        : `${cycles.length} pair(s) of roots call each other, which couples their deployment and change cycles.`,
+        ? "No circular call relationships were found between roots."
+        : `${cycles.length} circular call relationship(s) between roots, which couples their deployment and change cycles.`,
     severity: cycles.length > 0 ? "concern" : "info",
-    evidence: cycles.map((cycle) => cycle.join(" ↔ ")),
+    evidence: cycles.map((cycle) => [...cycle, cycle[0]].join(" → ")),
     value: cycles.length,
   });
 

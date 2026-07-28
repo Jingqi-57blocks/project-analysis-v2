@@ -56,6 +56,34 @@ describe("findRootCycles", () => {
     expect(cycles).toHaveLength(1);
   });
 
+  it("finds a cycle longer than two roots", () => {
+    // A three-service loop has no mutual pair anywhere. A mutual-pair check
+    // would report "no two roots call each other" — true, and misleading.
+    const cycles = findRootCycles({
+      links: [link("a", "b"), link("b", "c"), link("c", "a")],
+      unlinked: [],
+      considered: 3,
+    });
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]!.sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps two distinct cycles apart when root names contain spaces", () => {
+    // Root names are directory basenames. An unescaped join collapses two
+    // genuinely different cycles into one, which silently disappears.
+    const cycles = findRootCycles({
+      links: [
+        link("Order Service", "Payment"),
+        link("Payment", "Order Service"),
+        link("Order", "Service Payment"),
+        link("Service Payment", "Order"),
+      ],
+      unlinked: [],
+      considered: 4,
+    });
+    expect(cycles).toHaveLength(2);
+  });
+
   it("does not report a one-way dependency as a cycle", () => {
     expect(findRootCycles({ links: [link("a", "b")], unlinked: [], considered: 1 })).toEqual([]);
   });
