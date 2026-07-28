@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Analysis output — the knowledge base is always rebuildable from source.
+.analysis/
+
+# Derived target variants. Real targets live outside this repository and are
+# never vendored into it; derivations are working copies only.
+.targets/
+
+.DS_Store

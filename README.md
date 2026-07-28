@@ -27,9 +27,46 @@ scripts/    development tooling
 
 ## Development
 
+Requires Node 22+ and pnpm 10+.
+
 ```bash
-npm install
-npm test
-npm run typecheck
-npm run fixture:setup     # prepare git state in the demo fixture
+pnpm install
+pnpm test
+pnpm run typecheck
+pnpm run fixture:setup            # materialise a runnable copy of the demo fixture
+pnpm run fixture:setup -- --force # rebuild it, discarding local edits
 ```
+
+### Targets
+
+The engine is developed and graded against **real projects**, not a hand-authored
+fixture. A fixture is not per-target — analyzing a new project never requires one
+— but a synthetic workspace would be code written to be *convenient to analyze*,
+which flatters the tool and predicts nothing about real behavior.
+
+Known targets are declared in `engine/targets/registry.ts`. They live outside
+this repository and are **never vendored into it**. Paths are per-machine and
+overridable:
+
+```bash
+PA_TARGET_WCP_V2=/somewhere/else pnpm test
+```
+
+A target that is absent is a normal state: tests skip and print why, so a
+skipped run explains itself rather than looking green.
+
+**Targets are read-only.** Nothing in this tool writes to them. `resolveTarget`
+and `digestDirectory` only stat and read, and `deriveVariant` refuses any output
+path that overlaps a source root, sits inside a registered target, or points at
+a non-empty directory it did not create. Those guards are enforced and tested,
+not assumed.
+
+Cases the real targets don't supply are produced by derivation:
+
+```bash
+pnpm run target:derive -- --target wcp-v2 --root wcp-auth --without-manifest
+```
+
+Derived copies land in the gitignored `.targets/` directory. `missing-root` and
+`single-root` need no derivation at all — they are workspace selection against a
+real target, which the engine has to support regardless.
