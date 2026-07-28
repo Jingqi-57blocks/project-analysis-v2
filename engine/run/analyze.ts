@@ -92,7 +92,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
   try {
     handle = timer.time(
       "begin-snapshot",
-      () => beginSnapshot(store, selection.workspacePath, rootSnapshots, now),
+      () => beginSnapshot(store, selection.workspacePath, rootSnapshots, now, options.runId),
       (h) => ({ items: h.roots.length }),
     );
 
@@ -153,6 +153,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
 
     return {
       snapshotId: handle.snapshotId,
+      runId: handle.runId,
       identity: handle.identity,
       workspacePath: selection.workspacePath,
       roots: rootResults,

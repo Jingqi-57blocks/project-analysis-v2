@@ -187,6 +187,96 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX extraction_failures_snapshot ON extraction_failures(snapshot_id);
     `,
   },
+  {
+    version: 4,
+    name: "semantic-evidence",
+    up: `
+      -- Text developers already wrote, stored as written. A summary derived
+      -- from it can always be produced again; the original cannot be
+      -- recovered once discarded, so the raw text is what is kept.
+      --
+      -- Keyed by source rather than by module: modules do not exist at this
+      -- stage, and binding evidence to them would make it unusable for any
+      -- template querying by another axis.
+      CREATE TABLE evidence_items (
+        id                INTEGER PRIMARY KEY,
+        snapshot_id       INTEGER NOT NULL REFERENCES snapshots(id),
+        source_root_id    INTEGER NOT NULL REFERENCES source_roots(id),
+        kind              TEXT    NOT NULL,
+        item_key          TEXT    NOT NULL,
+        text              TEXT    NOT NULL,
+        label             TEXT,
+        -- Null whenever no structural model was available. Semantic collection
+        -- must never require one.
+        symbol_id         TEXT,
+        rel_path          TEXT    NOT NULL,
+        start_line        INTEGER,
+        start_column      INTEGER,
+        resolution_class  TEXT    NOT NULL
+                          CHECK (resolution_class IN ('declared','resolved','inferred','unresolved')),
+        confidence        TEXT,
+        UNIQUE (snapshot_id, item_key)
+      );
+      CREATE INDEX evidence_items_kind ON evidence_items(snapshot_id, kind);
+      CREATE INDEX evidence_items_path ON evidence_items(source_root_id, rel_path);
+
+      CREATE TABLE evidence_attributions (
+        id                 INTEGER PRIMARY KEY,
+        item_id            INTEGER NOT NULL REFERENCES evidence_items(id),
+        collector_id       TEXT    NOT NULL,
+        collector_version  TEXT    NOT NULL,
+        UNIQUE (item_id, collector_id, collector_version)
+      );
+
+      -- Where collectors disagree about the same text, every reading survives.
+      -- Silently preferring one is a claim this stage cannot support.
+      --
+      -- The text is part of the uniqueness key, not just the collector: one
+      -- collector can legitimately produce several divergent readings for one
+      -- item, and keying on the collector alone would keep only the last.
+      CREATE TABLE evidence_conflicts (
+        id            INTEGER PRIMARY KEY,
+        item_id       INTEGER NOT NULL REFERENCES evidence_items(id),
+        collector_id  TEXT    NOT NULL,
+        text          TEXT    NOT NULL,
+        UNIQUE (item_id, collector_id, text)
+      );
+
+      CREATE TABLE evidence_gaps (
+        id              INTEGER PRIMARY KEY,
+        snapshot_id     INTEGER NOT NULL REFERENCES snapshots(id),
+        source_root_id  INTEGER NOT NULL REFERENCES source_roots(id),
+        collector_id    TEXT    NOT NULL,
+        kind            TEXT    NOT NULL,
+        language        TEXT    NOT NULL,
+        reason          TEXT    NOT NULL
+      );
+      CREATE INDEX evidence_gaps_snapshot ON evidence_gaps(snapshot_id);
+    `,
+  },
+  {
+    version: 5,
+    name: "run-identity",
+    up: `
+      -- Identity of an invocation, as distinct from identity of what was
+      -- analyzed. \`identity\` is a content digest, so two runs over unchanged
+      -- source share it — which is what makes drift detection work, and what
+      -- makes it useless for telling runs apart.
+      --
+      -- Runs need telling apart: a user analyzes the same project repeatedly,
+      -- and an overview and a module report generated separately must be
+      -- recognizable as belonging to the same run rather than being mixed
+      -- across two.
+      --
+      -- Added as a nullable column with a unique index rather than NOT NULL,
+      -- because SQLite cannot add a NOT NULL column to an existing table
+      -- without a default, and any default here would be a lie. Snapshots
+      -- written before this migration keep a null run id, which is honest:
+      -- they predate the concept.
+      ALTER TABLE snapshots ADD COLUMN run_id TEXT;
+      CREATE UNIQUE INDEX snapshots_run_id ON snapshots(run_id);
+    `,
+  },
 ];
 
 export const SUPPORTED_SCHEMA_VERSION: number =

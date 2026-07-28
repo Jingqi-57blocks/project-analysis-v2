@@ -8,6 +8,7 @@ interface WorkspaceRow {
 interface SnapshotRow {
   readonly id: number;
   readonly identity: string;
+  readonly run_id: string | null;
   readonly published_at: string;
 }
 
@@ -42,7 +43,7 @@ interface ProviderCheckRow {
  * here, the same principle used for target resolution throughout this
  * project.
  */
-export function getStatus(store: Store, workspacePath: string): StatusReport {
+export function getStatus(store: Store, workspacePath: string, runId?: string): StatusReport {
   const workspace = store.get<WorkspaceRow>("SELECT id FROM workspaces WHERE path = ?", [workspacePath]);
   if (!workspace) return { workspacePath, analyzed: false };
 
@@ -52,12 +53,18 @@ export function getStatus(store: Store, workspacePath: string): StatusReport {
   // that is a property of the current query plan, not of the query — an added
   // index or a changed schema could flip it silently. Stating the tie-break
   // makes "latest" mean the same thing regardless of how it gets executed.
-  const snapshot = store.get<SnapshotRow>(
-    `SELECT id, identity, published_at FROM snapshots
-     WHERE workspace_id = ? AND published_at IS NOT NULL
-     ORDER BY published_at DESC, id DESC LIMIT 1`,
-    [workspace.id],
-  );
+  const snapshot = runId
+    ? store.get<SnapshotRow>(
+        `SELECT id, identity, run_id, published_at FROM snapshots
+         WHERE workspace_id = ? AND run_id = ? AND published_at IS NOT NULL`,
+        [workspace.id, runId],
+      )
+    : store.get<SnapshotRow>(
+        `SELECT id, identity, run_id, published_at FROM snapshots
+         WHERE workspace_id = ? AND published_at IS NOT NULL
+         ORDER BY published_at DESC, id DESC LIMIT 1`,
+        [workspace.id],
+      );
   if (!snapshot) return { workspacePath, analyzed: false };
 
   const sourceRoots = store.all<SourceRootRow>(
@@ -98,6 +105,7 @@ export function getStatus(store: Store, workspacePath: string): StatusReport {
     workspacePath,
     analyzed: true,
     snapshotId: snapshot.id,
+    runId: snapshot.run_id,
     identity: snapshot.identity,
     publishedAt: snapshot.published_at,
     roots,

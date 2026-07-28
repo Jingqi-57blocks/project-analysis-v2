@@ -2,6 +2,7 @@ export type { SourceRef, ResolutionClass, Confidence, Provenance } from "./prove
 export {
   fileRef,
   lineRef,
+  offsetRef,
   declared,
   resolved,
   inferred,

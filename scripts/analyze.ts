@@ -69,6 +69,7 @@ function main(argv: readonly string[]): number {
   });
 
   console.log(`Analyzed ${result.workspacePath}`);
+  console.log(`  run ${result.runId}`);
   console.log(`  snapshot ${result.snapshotId} (${result.identity})`);
   for (const root of result.roots) {
     const c = root.counts;
