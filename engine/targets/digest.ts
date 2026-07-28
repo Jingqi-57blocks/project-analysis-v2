@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { ANALYSIS_ARTIFACT_DIRECTORIES } from "../artifacts.js";
 
 /**
  * Entries never contributing to a content digest. Version-control internals and
@@ -10,6 +11,11 @@ export const IGNORED_ENTRIES: ReadonlySet<string> = new Set([
   ".git",
   "node_modules",
   ".DS_Store",
+  // Analysis output this tool writes into the root. Ignored here or indexing
+  // would change the digest mid-run and publishing would refuse with a drift
+  // error naming our own output. This narrows what counts as source; it does
+  // not weaken drift detection, which still fires on any real source change.
+  ...ANALYSIS_ARTIFACT_DIRECTORIES,
 ]);
 
 /** Files under `dir`, relative to it, sorted so hashing is order-independent. */

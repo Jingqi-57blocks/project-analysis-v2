@@ -2,6 +2,7 @@ import { openSync, readSync, closeSync, readdirSync, statSync, type Dirent } fro
 import { join, relative } from "node:path";
 
 import { classifyPath, looksGenerated, DEPENDENCY_DIRECTORIES, type Classification } from "./classify.js";
+import { ANALYSIS_ARTIFACT_DIRECTORIES, ANALYSIS_ARTIFACT_REASON } from "../artifacts.js";
 
 const DEPENDENCY_DIR_REASON = "dependency-manager-owned directory, not walked";
 const VCS_DIR_REASON = "version-control internals, not walked";
@@ -18,6 +19,7 @@ const NOISE_FILE_REASON = "OS/editor metadata file";
  * excluded row with a reason — nothing here disappears without a trace.
  */
 const VCS_DIRECTORIES: ReadonlySet<string> = new Set([".git"]);
+
 
 /** Noise files with no project-content meaning, excluded individually with a reason. */
 const NOISE_FILENAMES: ReadonlySet<string> = new Set([".DS_Store"]);
@@ -140,6 +142,10 @@ export function walkRoot(rootPath: string): WalkResult {
         }
         if (VCS_DIRECTORIES.has(entry.name)) {
           excludeSubtree(full, relPath, VCS_DIR_REASON);
+          continue;
+        }
+        if (ANALYSIS_ARTIFACT_DIRECTORIES.has(entry.name)) {
+          excludeSubtree(full, relPath, ANALYSIS_ARTIFACT_REASON);
           continue;
         }
         visit(full);
