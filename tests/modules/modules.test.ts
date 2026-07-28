@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_LIMITS, buildTraces, type Trace } from "../../engine/modules/trace.js";
 import {
   assignDispositions,
+  qualifiedFile,
   formComponents,
   formModules,
   looksInfrastructural,
@@ -356,15 +357,17 @@ describe("disposition accounting", () => {
       },
     ];
 
-    const files = ["orders.go", "auth.go", "vendor/lib.go", "unused.go"];
+    const files = ["orders.go", "auth.go", "vendor/lib.go", "unused.go"].map((f) =>
+      qualifiedFile("svc", f),
+    );
     const { dispositions, counts } = assignDispositions(files, traces, symbols, [
       { id: "c1", name: "vendor", rootName: "svc", signals: [], memberPaths: ["vendor/lib.go"] },
     ]);
 
-    expect(dispositions.get("orders.go")).toBe("behavioral-source");
-    expect(dispositions.get("auth.go")).toBe("shared-infrastructure");
-    expect(dispositions.get("vendor/lib.go")).toBe("technical-only");
-    expect(dispositions.get("unused.go")).toBe("unclassified");
+    expect(dispositions.get(qualifiedFile("svc", "orders.go"))).toBe("behavioral-source");
+    expect(dispositions.get(qualifiedFile("svc", "auth.go"))).toBe("shared-infrastructure");
+    expect(dispositions.get(qualifiedFile("svc", "vendor/lib.go"))).toBe("technical-only");
+    expect(dispositions.get(qualifiedFile("svc", "unused.go"))).toBe("unclassified");
 
     expect(
       counts.behavioralSource + counts.technicalOnly + counts.sharedInfrastructure + counts.unclassified,
@@ -373,8 +376,43 @@ describe("disposition accounting", () => {
   });
 
   it("treats unclassified as a state rather than a failure", () => {
-    const { counts } = assignDispositions(["a.go"], [], new Map<SymbolId, SymbolRecord>(), []);
+    const { counts } = assignDispositions(
+      [qualifiedFile("svc", "a.go")],
+      [],
+      new Map<SymbolId, SymbolRecord>(),
+      [],
+    );
     expect(counts.unclassified).toBe(1);
     expect(counts.total).toBe(1);
+  });
+
+  it("keeps two roots' identically-named files apart", () => {
+    // Every Go service has main.go. Keying on the path alone lets the second
+    // silently overwrite the first, so a file vanishes and the total it is
+    // counted in comes out short.
+    const traced = sym("Handle", "main.go");
+    const symbols = new Map([[traced.id, traced]]);
+
+    const traces: Trace[] = [
+      {
+        entryKey: "k",
+        entryRoot: "svc-a",
+        entryMethod: "GET",
+        entryPath: "/x",
+        steps: [
+          { symbolId: traced.id, name: "Handle", depth: 0, rootName: "svc", resolution: "declared" },
+        ],
+        truncation: "completed",
+        truncationDetail: null,
+        partial: false,
+      },
+    ];
+
+    const files = [qualifiedFile("svc-a", "main.go"), qualifiedFile("svc-b", "main.go")];
+    const { dispositions, counts } = assignDispositions(files, traces, symbols, []);
+
+    expect(dispositions.size).toBe(2);
+    expect(counts.total).toBe(2);
+    expect(dispositions.get(qualifiedFile("svc-b", "main.go"))).toBe("unclassified");
   });
 });

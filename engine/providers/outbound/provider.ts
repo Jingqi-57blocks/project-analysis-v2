@@ -70,45 +70,113 @@ const NON_ENDPOINT_HOSTS: readonly string[] = [
 function isEndpoint(url: string): boolean {
   if (NON_ENDPOINT_HOSTS.some((prefix) => url.startsWith(prefix))) return false;
 
-  // A host with no dot is a placeholder, not a destination. Measured on real
-  // source: `new URL(path, "http://local")` is a parsing trick, and reporting
-  // "local" as a service this system calls is a claim about the architecture
-  // that nothing supports. Loopback and explicit localhost are kept, since
-  // those are genuine local calls.
-  const host = /^[a-zA-Z][\w+.-]*:\/\/([^/:]+)/.exec(url)?.[1] ?? "";
-  return host.includes(".") || host === "localhost";
+  // A bare single word with no dot, no port and no hyphen is a placeholder
+  // rather than a destination — `new URL(path, "http://local")` is a parsing
+  // trick, not a service.
+  //
+  // But a dot alone is the wrong test: `http://auth-service:8080` is how
+  // container and Kubernetes networking names a peer, and requiring a dot
+  // would make this tool blind to exactly the service-to-service traffic a
+  // multi-root analysis exists to show.
+  const authority = /^[a-zA-Z][\w+.-]*:\/\/([^/]+)/.exec(url)?.[1] ?? "";
+  const host = authority.split(":")[0] ?? "";
+  const hasPort = authority.includes(":");
+  return host.includes(".") || host.includes("-") || hasPort || host === "localhost";
 }
 
 /**
- * Whether the offset falls inside a comment.
+ * A one-pass scan classifying every offset as code, comment, or string.
  *
- * Measured on real source: a Swagger `@host` annotation and an `@termsOfService`
- * line are doc comments, not calls — and `@host` is the address this service is
- * *reached at*, so reporting it as outbound reverses the direction. Presenting
- * either beside a genuine `api.openai.com` call, at equal weight, is the single
- * most misleading thing this detector can do.
+ * Replaces three separate heuristics that were each wrong. Looking backwards
+ * for `//` misread `a * b` and a SQL `-- filter` as comment starts and dropped
+ * the real URL after them. Searching backwards for an unclosed `/*` treated a
+ * glob like "src/**​/*.ts" as opening a comment, which blacked out every URL in
+ * the rest of the file — silently, with no failure recorded. And doing either
+ * per match re-scanned the file from zero each time, which measured 45 seconds
+ * on a file with 15,000 matches.
+ *
+ * Scanning once, forwards, with string state, fixes all three: it cannot
+ * mistake a delimiter inside a string for syntax, and every later lookup is a
+ * constant-time array read.
  */
-function inComment(content: string, index: number): boolean {
-  const lineStart = content.lastIndexOf("\n", index - 1) + 1;
-  const line = content.slice(lineStart, index);
+interface SourceMap {
+  /** True where the character at that offset is inside a comment. */
+  readonly comment: Uint8Array;
+  /** Offset at which each line starts, for constant-time position lookup. */
+  readonly lineStarts: readonly number[];
+}
 
-  if (/(^|\s)(\/\/|#|\*|--)/.test(line)) return true;
+export function scanSource(content: string): SourceMap {
+  const comment = new Uint8Array(content.length);
+  const lineStarts: number[] = [0];
 
-  // A block comment opened earlier and not yet closed before this point.
-  const before = content.slice(0, index);
-  const opened = before.lastIndexOf("/*");
-  return opened !== -1 && before.indexOf("*/", opened) === -1;
+  type State = "code" | "line-comment" | "block-comment" | "single" | "double" | "backtick";
+  let state: State = "code";
+
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i]!;
+    const next = content[i + 1];
+
+    if (char === "\n") lineStarts.push(i + 1);
+
+    switch (state) {
+      case "code":
+        if (char === "/" && next === "/") state = "line-comment";
+        else if (char === "/" && next === "*") state = "block-comment";
+        else if (char === "#") state = "line-comment";
+        else if (char === "'") state = "single";
+        else if (char === '"') state = "double";
+        else if (char === "`") state = "backtick";
+        break;
+      case "line-comment":
+        if (char === "\n") state = "code";
+        break;
+      case "block-comment":
+        if (char === "*" && next === "/") {
+          comment[i] = 1;
+          comment[i + 1] = 1;
+          i += 1;
+          state = "code";
+          continue;
+        }
+        break;
+      case "single":
+      case "double":
+      case "backtick":
+        if (char === "\\") {
+          i += 1;
+          continue;
+        }
+        if (
+          (state === "single" && char === "'") ||
+          (state === "double" && char === '"') ||
+          (state === "backtick" && char === "`")
+        ) {
+          state = "code";
+        }
+        break;
+    }
+
+    if (state === "line-comment" || state === "block-comment") comment[i] = 1;
+  }
+
+  return { comment, lineStarts };
+}
+
+function positionAt(map: SourceMap, index: number): { line: number; column: number } {
+  let low = 0;
+  let high = map.lineStarts.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (map.lineStarts[mid]! <= index) low = mid;
+    else high = mid - 1;
+  }
+  return { line: low + 1, column: index - map.lineStarts[low]! + 1 };
 }
 
 function kindFor(url: string): OutboundKind {
   if (url.startsWith("http")) return "http";
   return "unknown";
-}
-
-function lineAt(content: string, index: number): number {
-  let line = 1;
-  for (let i = 0; i < index && i < content.length; i++) if (content[i] === "\n") line += 1;
-  return line;
 }
 
 export function outboundCapabilities(): ProviderCapabilities {
@@ -122,7 +190,7 @@ export function outboundCapabilities(): ProviderCapabilities {
           "absolute URL literals only; relative paths and base-URL composition are not detected",
           "destinations built at runtime are recorded as unresolved, never guessed",
           "URLs inside comments are skipped, since a doc annotation is not a call — and an inbound @host annotation would otherwise be reported with its direction reversed",
-          "hosts without a dot are treated as placeholders rather than destinations",
+          "a bare single-word host with no port or hyphen is treated as a placeholder rather than a destination",
           "XML namespace, schema and licence URIs are excluded as identifiers rather than destinations",
           "the calling symbol is not resolved here; it is attached later from source ranges",
           "this is never a complete list of what a service talks to",
@@ -132,26 +200,14 @@ export function outboundCapabilities(): ProviderCapabilities {
   };
 }
 
-function columnAt(content: string, index: number): number {
-  const lineStart = content.lastIndexOf("\n", index - 1) + 1;
-  return index - lineStart + 1;
-}
-
-function refAt(rootName: string, relPath: string, content: string, index: number) {
-  return {
-    rootName,
-    relPath,
-    startLine: lineAt(content, index),
-    endLine: lineAt(content, index),
-    // Column included so two URLs on one line stay two facts. Without it they
-    // share a record key and the second is silently dropped at persistence.
-    startColumn: columnAt(content, index),
-    endColumn: null,
-  };
+function refAt(rootName: string, relPath: string, map: SourceMap, index: number) {
+  const { line, column } = positionAt(map, index);
+  return { rootName, relPath, startLine: line, endLine: line, startColumn: column, endColumn: null };
 }
 
 function scan(root: StructuralRootInput, relPath: string, content: string): OutboundCallRecord[] {
   const found: OutboundCallRecord[] = [];
+  const map = scanSource(content);
 
   // Character ranges already claimed by a dynamic match. Range-granular rather
   // than line-granular: suppressing a whole line would discard a genuine static
@@ -159,7 +215,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
   const dynamicRanges: { start: number; end: number }[] = [];
 
   for (const match of content.matchAll(DYNAMIC_URL)) {
-    if (inComment(content, match.index)) continue;
+    if (map.comment[match.index] === 1) continue;
     dynamicRanges.push({ start: match.index, end: match.index + match[0].length });
     found.push({
       rootName: root.name,
@@ -167,7 +223,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
       kind: "http",
       callerSymbolId: null,
       provenance: unresolved(
-        refAt(root.name, relPath, content, match.index),
+        refAt(root.name, relPath, map, match.index),
         `destination is built at runtime from "${match[1]}…"`,
       ),
     });
@@ -176,7 +232,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
   for (const match of content.matchAll(ABSOLUTE_URL)) {
     const start = match.index;
     if (dynamicRanges.some((range) => start >= range.start && start < range.end)) continue;
-    if (inComment(content, start)) continue;
+    if (map.comment[start] === 1) continue;
 
     const url = match[1]!;
     if (!isEndpoint(url)) continue;
@@ -186,7 +242,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
       target: url,
       kind: kindFor(url),
       callerSymbolId: null,
-      provenance: inferred(refAt(root.name, relPath, content, start), "medium"),
+      provenance: inferred(refAt(root.name, relPath, map, start), "medium"),
     });
   }
 
