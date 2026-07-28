@@ -27,9 +27,20 @@ scripts/    development tooling
 
 ## Development
 
+Requires Node 22+ and pnpm 10+.
+
 ```bash
-npm install
-npm test
-npm run typecheck
-npm run fixture:setup     # prepare git state in the demo fixture
+pnpm install
+pnpm test
+pnpm run typecheck
+pnpm run fixture:setup            # materialise a runnable copy of the demo fixture
+pnpm run fixture:setup -- --force # rebuild it, discarding local edits
 ```
+
+### Fixtures
+
+`fixtures/demo-workspace/` is committed source and contains no `.git` anywhere —
+a nested `.git` would make this repository treat the fixture root as a submodule.
+`fixture:setup` copies it to `fixtures/.prepared/` (gitignored) and initialises
+real git roots there, leaving one root deliberately dirty. That prepared copy is
+what the engine analyses.
