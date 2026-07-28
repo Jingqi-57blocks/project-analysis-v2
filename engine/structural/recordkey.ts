@@ -10,9 +10,13 @@ import { joinKey } from "./identity.js";
 import type { StructuralKind, StructuralRecords } from "./kinds.js";
 import type { SourceRef, Provenance } from "./provenance.js";
 
-function position(provenance: Provenance): string {
-  const source: SourceRef = provenance.source;
+/** Full location. Column included: two facts can share a line. */
+function location(source: SourceRef): string {
   return joinKey([source.relPath, source.startLine, source.startColumn]);
+}
+
+function position(provenance: Provenance): string {
+  return location(provenance.source);
 }
 
 /** A map rather than a switch, so the compiler requires an entry for every kind. */
@@ -47,12 +51,21 @@ const KEY_BUILDERS: {
   "outbound-call": (r) => joinKey([r.rootName, r.callerSymbolId, r.target, position(r.provenance)]),
   "external-call": (r) => joinKey([r.rootName, r.callerSymbolId, r.packageName, r.memberName]),
   "data-access": (r) => joinKey([r.rootName, r.symbolId, r.entity, r.operation, position(r.provenance)]),
+  // The five kinds below all carry an explicit `source`, and all of them are
+  // supplied today by providers that leave `symbolId` null. Their keys must
+  // therefore include the full location: without `relPath` the key collapses to
+  // the label alone, so every `binding:"..."` tag in a repository would merge
+  // into one record, and two files whose `if err != nil {` land on the same line
+  // number would merge into one. Nothing downstream could detect that, because a
+  // merge records an extra attribution rather than a conflict.
   "auth-annotation": (r) =>
-    joinKey([r.rootName, r.symbolId, r.mechanism, r.requirement, r.source.startLine]),
+    joinKey([r.rootName, r.symbolId, r.mechanism, r.requirement, location(r.source)]),
   "test-relation": (r) => joinKey([r.rootName, r.testSymbolId, r.targetSymbolId ?? r.targetName]),
-  "validation-rule": (r) => joinKey([r.rootName, r.subjectSymbolId, r.field, r.rule]),
-  "transaction-boundary": (r) => joinKey([r.rootName, r.symbolId, r.mechanism, r.source.startLine]),
-  "error-handling": (r) => joinKey([r.rootName, r.symbolId, r.scope, r.source.startLine]),
+  "validation-rule": (r) =>
+    joinKey([r.rootName, r.subjectSymbolId, r.field, r.rule, r.expression, location(r.source)]),
+  "transaction-boundary": (r) =>
+    joinKey([r.rootName, r.symbolId, r.mechanism, location(r.source)]),
+  "error-handling": (r) => joinKey([r.rootName, r.symbolId, r.scope, location(r.source)]),
 };
 
 /** The identity of one record of a given kind. */

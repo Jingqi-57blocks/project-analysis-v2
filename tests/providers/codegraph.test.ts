@@ -193,3 +193,52 @@ describe("declared capabilities", () => {
     expect(PROVIDER_ID).toBe("codegraph");
   });
 });
+
+describe("callee resolution", () => {
+  it("leaves an ambiguous name unresolved rather than picking a winner", () => {
+    // Two symbols in one file can share a simple name — User.Save and
+    // Account.Save are both "Save" in models.go — and a callee relation
+    // carries only the simple name. Resolving to whichever was indexed last
+    // would record a wrong callee as `declared`.
+    const save1 = node({ kind: "method", name: "Save", qualifiedName: "User::Save", filePath: "models.go", signature: "(u *User) error" });
+    const save2 = node({ kind: "method", name: "Save", qualifiedName: "Account::Save", filePath: "models.go", signature: "(a *Account) error" });
+
+    const byName = new Map<string, ReturnType<typeof nodeSymbolId>>();
+    const ambiguous = new Set<string>();
+    for (const n of [save1, save2]) {
+      const key = `${n.filePath}::${n.name}`;
+      if (byName.has(key)) ambiguous.add(key);
+      else byName.set(key, nodeSymbolId("svc", n));
+    }
+
+    const resolve = (r: { name: string; filePath: string }) => {
+      const key = `${r.filePath}::${r.name}`;
+      return ambiguous.has(key) ? null : (byName.get(key) ?? null);
+    };
+
+    const edge = toCallEdge(
+      "svc",
+      nodeSymbolId("svc", node()),
+      { name: "Save", kind: "method", filePath: "models.go", startLine: 80 },
+      resolve,
+    );
+
+    expect(edge.calleeId).toBeNull();
+    expect(edge.provenance.resolutionClass).toBe("unresolved");
+    expect(edge.calleeName).toBe("Save");
+  });
+
+  it("does not fabricate line 1 when the callee's line is unknown", () => {
+    // The model documents that an unknown location stays null rather than
+    // being faked into a real-looking one.
+    const edge = toCallEdge(
+      "svc",
+      nodeSymbolId("svc", node()),
+      { name: "Helper", kind: "function", filePath: "util.go", startLine: null },
+      () => null,
+    );
+
+    expect(edge.provenance.source.startLine).toBeNull();
+    expect(edge.provenance.source.relPath).toBe("util.go");
+  });
+});

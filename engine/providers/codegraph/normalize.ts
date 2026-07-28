@@ -8,7 +8,7 @@
  */
 
 import { symbolId, type SymbolId } from "../../structural/identity.js";
-import { declared, inferred, lineRef, unresolved, type Provenance } from "../../structural/provenance.js";
+import { declared, fileRef, inferred, lineRef, unresolved, type Provenance } from "../../structural/provenance.js";
 import type {
   ImportRecord,
   SourceFileRecord,
@@ -173,7 +173,13 @@ export function toCallEdge(
   resolve: (relation: CodeGraphRelation) => SymbolId | null,
 ): CallEdgeRecord {
   const calleeId = resolve(callee);
-  const source = lineRef(rootName, callee.filePath, callee.startLine ?? 1);
+  // A null line stays null rather than becoming 1. The model documents
+  // exactly this — an unknown location must not be faked into a real-looking
+  // one that sends a reader to a line saying nothing.
+  const source =
+    callee.startLine === null
+      ? fileRef(rootName, callee.filePath)
+      : lineRef(rootName, callee.filePath, callee.startLine);
 
   return {
     callerId,

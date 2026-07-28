@@ -167,3 +167,18 @@ describe("declared capabilities", () => {
     expect(patternsFor(".zig").some((p) => p.label === "sql")).toBe(true);
   });
 });
+
+describe("two matches on one line", () => {
+  it("records a column, so facts sharing a line stay distinct when persisted", () => {
+    // `db.Where(...).Find(...)` is two matches on one line. Without a column
+    // they share a record key and the second is silently dropped at
+    // persistence, with no gap and no conflict recorded.
+    write("r.go", "db.Where(&q).Find(&users)\n");
+
+    const access = extract(["r.go"]).records["data-access"];
+    expect(access).toHaveLength(2);
+    expect(access[0]!.provenance.source.startColumn).not.toBe(
+      access[1]!.provenance.source.startColumn,
+    );
+  });
+});

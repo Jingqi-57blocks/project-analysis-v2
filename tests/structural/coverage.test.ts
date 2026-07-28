@@ -239,3 +239,49 @@ describe("test relations", () => {
     expect(deriveTestRelations("svc", { symbols: [symbol("A", "a.go")], callEdges: [] })).toEqual([]);
   });
 });
+
+describe("gaps across languages", () => {
+  it("shows every language's gap for a kind, not just the first", () => {
+    // A polyglot repo can report an unreadable Podfile and an unreadable
+    // build.gradle; matching on kind alone would drop the second.
+    const matrix = buildCoverageMatrix([
+      report({
+        contribution: {
+          ...report().contribution,
+          gaps: [
+            { kind: "package-dependency", language: "cocoapods", reason: "Podfile unreadable" },
+            { kind: "package-dependency", language: "gradle", reason: "build.gradle unreadable" },
+          ],
+        },
+      }),
+    ]);
+
+    const cells = matrix.kinds.find((k) => k.kind === "package-dependency")!.cells;
+    expect(cells.map((c) => c.language).sort()).toEqual(["cocoapods", "gradle"]);
+    expect(cells.map((c) => c.gapReason).sort()).toEqual([
+      "Podfile unreadable",
+      "build.gradle unreadable",
+    ]);
+  });
+
+  it("matches a gap to the declaration of the same language", () => {
+    const matrix = buildCoverageMatrix([
+      report({
+        capabilities: {
+          declarations: [
+            { kind: "route", language: "go", support: "partial", limits: [] },
+            { kind: "route", language: "swift", support: "partial", limits: [] },
+          ],
+        },
+        contribution: {
+          ...report().contribution,
+          gaps: [{ kind: "route", language: "swift", reason: "no Swift framework knowledge" }],
+        },
+      }),
+    ]);
+
+    const cells = matrix.kinds.find((k) => k.kind === "route")!.cells;
+    expect(cells.find((c) => c.language === "go")!.gapReason).toBeNull();
+    expect(cells.find((c) => c.language === "swift")!.gapReason).toBe("no Swift framework knowledge");
+  });
+});

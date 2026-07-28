@@ -20,6 +20,7 @@ import {
 import type { PreflightResult } from "../types.js";
 import type { SymbolId } from "../../structural/identity.js";
 import {
+  CALLEE_LIMIT,
   NODE_LIMIT,
   VERIFIED_VERSION,
   calleesOf,
@@ -77,6 +78,7 @@ export function codegraphCapabilities(): ProviderCapabilities {
           "only calls to indexed symbols are reported; calls into dependencies do not appear at all",
           "dynamic dispatch and reflection are reported as unresolved where they surface",
           "one subprocess call per callable symbol, so extraction time grows with symbol count",
+          `at most ${CALLEE_LIMIT} callees are read per symbol; hitting the cap is recorded as a failure`,
         ],
       },
       {
@@ -171,23 +173,47 @@ function extractFrom(root: StructuralRootInput): Extraction {
   const usableNodes = nodes.filter((node) => included(node.filePath));
 
   const symbolNodes = usableNodes.filter(isSymbolNode);
+
+  // A callee relation carries only a simple name and file, so resolution keys
+  // on those. Two symbols in one file can share a simple name — `User.Save`
+  // and `Account.Save` are both `Save` in `models.go` — and picking whichever
+  // was indexed last would attach the call to an arbitrary one of them, then
+  // record it as `declared`: a wrong fact asserted as directly observed.
+  //
+  // Ambiguous names are therefore marked and left unresolved. An edge that
+  // says "calls something named Save, target ambiguous" is worth more than one
+  // confidently naming the wrong function.
   const symbolsByName = new Map<string, SymbolId>();
+  const ambiguousNames = new Set<string>();
   for (const node of symbolNodes) {
-    // Last write wins; ambiguous names are resolved conservatively below by
-    // requiring the file path to match as well.
-    symbolsByName.set(`${node.filePath}::${node.name}`, nodeSymbolId(root.name, node));
+    const key = `${node.filePath}::${node.name}`;
+    if (symbolsByName.has(key)) ambiguousNames.add(key);
+    else symbolsByName.set(key, nodeSymbolId(root.name, node));
   }
 
-  const resolveCallee = (relation: CodeGraphRelation): SymbolId | null =>
-    symbolsByName.get(`${relation.filePath}::${relation.name}`) ?? null;
+  const resolveCallee = (relation: CodeGraphRelation): SymbolId | null => {
+    const key = `${relation.filePath}::${relation.name}`;
+    if (ambiguousNames.has(key)) return null;
+    return symbolsByName.get(key) ?? null;
+  };
 
   const callEdges = [];
   for (const node of symbolNodes) {
     if (!CALLABLE_KINDS.has(node.kind)) continue;
     try {
       const callerId = nodeSymbolId(root.name, node);
-      for (const callee of calleesOf(root.path, node.name)) {
+      const callees = calleesOf(root.path, node.name);
+      for (const callee of callees) {
         callEdges.push(toCallEdge(root.name, callerId, callee, resolveCallee));
+      }
+      // The query is capped, and a full page back means there were probably
+      // more. Recorded rather than left silent: a hub function quietly losing
+      // its edges past the cap would understate fan-out with no trace.
+      if (callees.length >= CALLEE_LIMIT) {
+        failures.push({
+          scope: `${node.filePath}::${node.name}`,
+          reason: `callee list reached the ${CALLEE_LIMIT} result cap, so further edges from this symbol were not read`,
+        });
       }
     } catch (error) {
       // One symbol's callee query failing must not discard every other edge.

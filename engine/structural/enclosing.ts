@@ -16,9 +16,17 @@ import type { SourceRef } from "./provenance.js";
 
 interface Range {
   readonly id: SymbolId;
-  readonly relPath: string;
   readonly startLine: number;
   readonly endLine: number;
+}
+
+/**
+ * Keyed by root as well as path. Two roots analyzed together can both contain
+ * `src/main.go`, and keying on the path alone would attach a fact from one
+ * service to a symbol in another.
+ */
+function fileKey(rootName: string, relPath: string): string {
+  return `${rootName}\u0000${relPath}`;
 }
 
 export interface EnclosingIndex {
@@ -40,20 +48,20 @@ export function buildEnclosingIndex(symbols: readonly SymbolRecord[]): Enclosing
     const source = symbol.provenance.source;
     if (source.startLine === null) continue;
 
-    const ranges = byFile.get(source.relPath) ?? [];
+    const key = fileKey(source.rootName, source.relPath);
+    const ranges = byFile.get(key) ?? [];
     ranges.push({
       id: symbol.id,
-      relPath: source.relPath,
       startLine: source.startLine,
       endLine: source.endLine ?? source.startLine,
     });
-    byFile.set(source.relPath, ranges);
+    byFile.set(key, ranges);
   }
 
   return {
     find(source: SourceRef): SymbolId | null {
       if (source.startLine === null) return null;
-      const ranges = byFile.get(source.relPath);
+      const ranges = byFile.get(fileKey(source.rootName, source.relPath));
       if (!ranges) return null;
 
       let best: Range | null = null;
@@ -66,4 +74,47 @@ export function buildEnclosingIndex(symbols: readonly SymbolRecord[]): Enclosing
       return best?.id ?? null;
     },
   };
+}
+
+/**
+ * Fields naming the symbol a fact sits inside, by kind.
+ *
+ * Text-scanning providers know where a fact is but not whose body it is in,
+ * because symbol ranges come from a different provider entirely. Filling these
+ * in is therefore an assembly-time step, not something either provider could
+ * do alone.
+ */
+const ENCLOSING_FIELDS: Readonly<Record<string, string>> = {
+  "outbound-call": "callerSymbolId",
+  "data-access": "symbolId",
+  "auth-annotation": "symbolId",
+  "validation-rule": "subjectSymbolId",
+  "transaction-boundary": "symbolId",
+  "error-handling": "symbolId",
+};
+
+/**
+ * Fills in the enclosing symbol for one record, where the kind has such a
+ * field, it is still null, and a symbol's range actually contains the fact.
+ *
+ * Returns the record unchanged when there is no match — an unattributed fact
+ * is honest, and attaching it to the nearest symbol would credit calls to
+ * functions that never make them.
+ */
+export function attachEnclosingSymbol(
+  kind: string,
+  record: unknown,
+  index: EnclosingIndex,
+): unknown {
+  const field = ENCLOSING_FIELDS[kind];
+  if (!field) return record;
+
+  const fields = record as Record<string, unknown> & { provenance?: { source: SourceRef }; source?: SourceRef };
+  if (fields[field] != null) return record;
+
+  const source = fields.source ?? fields.provenance?.source;
+  if (!source) return record;
+
+  const enclosing = index.find(source);
+  return enclosing === null ? record : { ...fields, [field]: enclosing };
 }

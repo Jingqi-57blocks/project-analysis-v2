@@ -11,7 +11,7 @@
  */
 
 import { STRUCTURAL_KINDS, isUniversalKind, type StructuralKind } from "./kinds.js";
-import type { CapabilityGap, ProviderCapabilities, StructuralContribution } from "./provider.js";
+import { ANY_LANGUAGE, type CapabilityGap, type ProviderCapabilities, type StructuralContribution } from "./provider.js";
 
 export type CoverageLevel = "full" | "partial" | "absent" | "unclaimed";
 
@@ -51,8 +51,21 @@ export interface ProviderReport {
   readonly contribution: StructuralContribution;
 }
 
-function gapFor(gaps: readonly CapabilityGap[], kind: StructuralKind): CapabilityGap | undefined {
-  return gaps.find((gap) => gap.kind === kind);
+/**
+ * Matched on language too. A polyglot repository can report several gaps for
+ * one kind — an unreadable Podfile and an unreadable build.gradle both produce
+ * a package-dependency gap — and matching on kind alone would show the first
+ * and silently drop the rest from the matrix.
+ */
+function gapFor(
+  gaps: readonly CapabilityGap[],
+  kind: StructuralKind,
+  language: string,
+): CapabilityGap | undefined {
+  return (
+    gaps.find((gap) => gap.kind === kind && gap.language === language) ??
+    gaps.find((gap) => gap.kind === kind && gap.language === ANY_LANGUAGE)
+  );
 }
 
 export function buildCoverageMatrix(reports: readonly ProviderReport[]): CoverageMatrix {
@@ -65,26 +78,14 @@ export function buildCoverageMatrix(reports: readonly ProviderReport[]): Coverag
 
     for (const report of reports) {
       const declarations = report.capabilities.declarations.filter((d) => d.kind === kind);
+      // Records carry no language, so this is the kind's total for the
+      // provider rather than a per-language figure. Stated plainly because a
+      // reader could otherwise mistake it for one.
       const recordCount = report.contribution.records[kind].length;
-      const gap = gapFor(report.contribution.gaps, kind);
+      const kindGaps = report.contribution.gaps.filter((gap) => gap.kind === kind);
       totalRecords += recordCount;
 
-      if (declarations.length === 0) {
-        // Silence is not the same as a declared "none": a kind nobody
-        // considered should not read as a deliberate refusal.
-        if (gap) {
-          cells.push({
-            kind,
-            providerId: report.providerId,
-            language: gap.language,
-            level: "absent",
-            recordCount,
-            limits: [],
-            gapReason: gap.reason,
-          });
-        }
-        continue;
-      }
+      const covered = new Set<string>();
 
       for (const declaration of declarations) {
         const level: CoverageLevel =
@@ -93,6 +94,8 @@ export function buildCoverageMatrix(reports: readonly ProviderReport[]): Coverag
             : declaration.support === "partial"
               ? "partial"
               : "full";
+        const gap = gapFor(kindGaps, kind, declaration.language);
+        if (gap) covered.add(gap.language);
 
         cells.push({
           kind,
@@ -102,6 +105,23 @@ export function buildCoverageMatrix(reports: readonly ProviderReport[]): Coverag
           recordCount,
           limits: declaration.limits,
           gapReason: gap?.reason ?? null,
+        });
+      }
+
+      // Gaps for languages no declaration mentioned still belong in the matrix.
+      // Silence is not the same as a declared "none": a kind nobody considered
+      // should not read as a deliberate refusal.
+      for (const gap of kindGaps) {
+        if (covered.has(gap.language)) continue;
+        covered.add(gap.language);
+        cells.push({
+          kind,
+          providerId: report.providerId,
+          language: gap.language,
+          level: "absent",
+          recordCount,
+          limits: [],
+          gapReason: gap.reason,
         });
       }
     }
