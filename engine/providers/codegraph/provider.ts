@@ -89,7 +89,11 @@ export function codegraphCapabilities(): ProviderCapabilities {
         kind: "route",
         language: ANY_LANGUAGE,
         support: "partial",
-        limits: ["routes are not linked to their handler symbols"],
+        limits: [
+          "framework router-group prefixes are not resolved, so paths may be incomplete",
+          "routes are not linked to their handler symbols",
+          "routes registered through a wrapper or closure may be missed entirely",
+        ],
       },
       // Declared as unsupported rather than left silent, so the assembler and
       // the coverage matrix can tell a refusal from an oversight.

@@ -1,21 +1,16 @@
 /**
  * The dependency graph above the symbol level.
  *
- * This exists for its own sake, not only as an aid to tracing. It is what lets
- * technical components be identified *structurally* — from containment and
- * dependency clustering — rather than only as whatever behaviour fails to
- * explain itself. A later stage inferring components from residue would be
- * guessing at something the manifests state outright.
+ * Exists for its own sake, not only to aid tracing: it lets technical
+ * components be identified structurally rather than inferred from whatever
+ * behaviour fails to explain itself.
  */
 
 import type { Provenance, SourceRef } from "./provenance.js";
 
 /**
- * Conventional package ecosystems. Open, and importantly so: this is the
- * field most likely to meet something unplanned — Swift Package Manager,
- * CocoaPods, Gradle, Cargo, Hex, CPAN, Conan, an in-house resolver. A closed
- * union here would mean a new language requires an engine change, which is
- * precisely the coupling the provider architecture exists to prevent.
+ * The field most likely to meet something unplanned. A closed union here would
+ * mean a new language requires an engine change.
  */
 export const CONVENTIONAL_ECOSYSTEMS = [
   "npm",
@@ -48,11 +43,7 @@ export const CONVENTIONAL_DEPENDENCY_SCOPES = [
 
 export type DependencyScope = (typeof CONVENTIONAL_DEPENDENCY_SCOPES)[number] | (string & {});
 
-/**
- * Closed: whether a dependency is declared by this project or pulled in by
- * something else is our distinction, not a language's, and there is no third
- * case.
- */
+/** Closed: our distinction, not a language's, and there is no third case. */
 export type Directness = "direct" | "transitive";
 
 export interface PackageDependencyRecord {
@@ -69,11 +60,7 @@ export interface PackageDependencyRecord {
   readonly provenance: Provenance;
 }
 
-/**
- * Conventional build target kinds. Open: an iOS scheme, a container image, a
- * Bazel rule, a firmware artifact and a shared library are all build targets,
- * and no closed list survives contact with the next build system.
- */
+/** Open: no closed list survives contact with the next build system. */
 export const CONVENTIONAL_BUILD_TARGET_KINDS = [
   "binary",
   "library",
@@ -109,11 +96,8 @@ export const CONVENTIONAL_CONTAINMENT_KINDS = [
 export type ContainmentKind = (typeof CONVENTIONAL_CONTAINMENT_KINDS)[number] | (string & {});
 
 /**
- * How the code is organised into units.
- *
- * Folder containment is always available for any project in any language,
- * which makes this the one dependency-graph fact that never comes back empty
- * — a useful floor for a project whose build system nothing understands yet.
+ * Folder containment is available for any project in any language, making this
+ * the one dependency-graph fact that never comes back empty.
  */
 export interface ModuleContainmentRecord {
   readonly rootName: string;
