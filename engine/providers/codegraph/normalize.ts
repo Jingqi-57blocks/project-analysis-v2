@@ -1,17 +1,14 @@
 /**
- * Translates CodeGraph's vocabulary into the Structural Model's.
- *
- * The direction matters: the model was defined first, and this file bends
- * CodeGraph's shapes to fit it. Nothing here may push a vendor concept upward
- * into the model.
+ * Translates CodeGraph's vocabulary into the model's. The direction matters:
+ * the model was defined first, and nothing here may push a vendor concept
+ * upward into it.
  *
  * Everything the model can hold is normalized, not only what today's reports
- * consume. Filtering at extraction is unrecoverable — a fact dropped here
- * cannot be recovered by any later stage without re-indexing every root.
+ * consume — filtering at extraction cannot be undone without re-indexing.
  */
 
 import { symbolId, type SymbolId } from "../../structural/identity.js";
-import { declared, lineRef, unresolved, type Provenance } from "../../structural/provenance.js";
+import { declared, inferred, lineRef, unresolved, type Provenance } from "../../structural/provenance.js";
 import type {
   ImportRecord,
   SourceFileRecord,
@@ -23,20 +20,15 @@ import type { RouteRecord } from "../../structural/boundaries.js";
 import type { CodeGraphFile, CodeGraphNode, CodeGraphRelation } from "./cli.js";
 
 /**
- * Node kinds that are not symbols in our sense and are handled separately.
- * Anything else — including a kind this adapter has never seen — becomes a
- * symbol, which is what lets an unfamiliar language degrade to an honest
- * label rather than being dropped.
+ * Handled separately. Anything else — including a kind never seen before —
+ * becomes a symbol, so an unfamiliar language degrades to an honest label
+ * rather than being dropped.
  */
 const NON_SYMBOL_KINDS: ReadonlySet<string> = new Set(["file", "import", "route"]);
 
 /**
- * CodeGraph's spelling to ours, where they differ.
- *
- * Only genuine spelling differences are mapped. A kind absent from this table
- * passes through unchanged rather than being coerced to "unknown": the model's
- * symbol-kind union is open precisely so a Rust trait or a Swift protocol
- * keeps its own name instead of being forced into the nearest wrong one.
+ * Only genuine spelling differences. A kind absent here passes through
+ * unchanged rather than being coerced to "unknown".
  */
 const KIND_SPELLINGS: Readonly<Record<string, SymbolKind>> = {
   type_alias: "type-alias",
@@ -102,10 +94,9 @@ export function toSymbol(rootName: string, node: CodeGraphNode): SymbolRecord {
     name: node.name,
     qualifiedName: node.qualifiedName,
     kind: normalizeKind(node.kind),
-    // Go encodes visibility in capitalization rather than a keyword, so
-    // CodeGraph reports null. "unknown" is the honest label — claiming
-    // "public" from an uppercase initial would be our inference presented as
-    // the provider's observation.
+    // Go encodes visibility in capitalization, so CodeGraph reports null.
+    // Deriving "public" from an uppercase initial would be our inference
+    // presented as the provider's observation.
     visibility: node.visibility ?? "unknown",
     signature: node.signature ?? null,
     containerId: null,
@@ -118,8 +109,7 @@ export function toImport(rootName: string, node: CodeGraphNode): ImportRecord {
     rootName,
     relPath: node.filePath,
     specifier: node.name,
-    // CodeGraph does not report where a specifier resolved to, so this stays
-    // null rather than being guessed from path arithmetic.
+    // Not reported by CodeGraph; guessing via path arithmetic would be wrong.
     resolvedPath: null,
     importedNames: [],
     isTypeOnly: false,
@@ -127,43 +117,54 @@ export function toImport(rootName: string, node: CodeGraphNode): ImportRecord {
   };
 }
 
-/**
- * Splits CodeGraph's `"GET /users"` route name into method and path.
- *
- * A name with no leading method is treated as an all-methods route with a null
- * method, matching the model's decision not to use a `"*"` sentinel that every
- * consumer would have to special-case.
- */
+/** A name with no leading method is an all-methods route, with a null method. */
 export function parseRouteName(name: string): { method: string | null; path: string } {
   const match = /^([A-Z]+)\s+(.*)$/.exec(name);
   if (!match) return { method: null, path: name };
   return { method: match[1]!, path: match[2]! };
 }
 
+/**
+ * CodeGraph reports the literal path at the registration site, not the path the
+ * service serves. Measured against hand-verified ground truth: 13 of 15 routes
+ * sit inside a router group, so `/authorize` is reported where the service
+ * serves `/oauth/authorize` — a *wrong* fact, which survives review better than
+ * an absent one.
+ *
+ * Hence `inferred` at low confidence, so nothing filtering on directly-observed
+ * facts repeats a path that may be missing its prefix. Resolving prefixes needs
+ * framework-aware traversal and belongs in a route-specific provider.
+ */
 export function toRoute(rootName: string, node: CodeGraphNode): RouteRecord {
   const { method, path } = parseRouteName(node.name);
+  const source =
+    node.startLine === null
+      ? { rootName, relPath: node.filePath, startLine: null, endLine: null, startColumn: null, endColumn: null }
+      : {
+          rootName,
+          relPath: node.filePath,
+          startLine: node.startLine,
+          endLine: node.endLine,
+          startColumn: node.startColumn,
+          endColumn: node.endColumn,
+        };
+
   return {
     rootName,
     method,
     path,
-    // CodeGraph's route node does not name its handler symbol. Left null and
-    // unresolved rather than guessed from proximity, which would attach
-    // handlers to routes confidently and sometimes wrongly.
+    // Not named by CodeGraph. Guessing from proximity would attach handlers to
+    // routes confidently and sometimes wrongly.
     handlerSymbolId: null,
     handlerName: null,
     middleware: [],
-    provenance: provenanceFor(rootName, node),
+    provenance: inferred(source, "low"),
   };
 }
 
 /**
- * Builds a call edge from a caller symbol to one of its callees.
- *
- * The callee is matched to a known symbol id where the target is in the
- * indexed set. When it is not — a call into a dependency, or a target
- * CodeGraph could not resolve — the edge is kept with a null `calleeId` and an
- * unresolved provenance. Dropping it would erase the fact that a call exists,
- * shrinking the graph exactly where the code is hardest to reason about.
+ * An unresolvable callee keeps its edge with a null id and unresolved
+ * provenance; dropping it would erase the fact that a call exists.
  */
 export function toCallEdge(
   rootName: string,

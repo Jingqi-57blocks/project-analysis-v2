@@ -1,15 +1,10 @@
 /**
- * The entire CodeGraph surface this tool touches.
+ * The entire CodeGraph surface this tool touches. If `grep -r codegraph engine/`
+ * hits anything outside this directory, the boundary has leaked.
  *
- * Everything vendor-specific is confined to this directory: if
- * `grep -r codegraph engine/` hits anything outside `providers/codegraph/`,
- * the boundary has leaked and the vendor has become load-bearing somewhere it
- * should not be.
- *
- * Queries go through the documented CLI with `--json`. The index database
- * inside `.codegraph/` is never read directly — that store is theirs to change
- * between versions, and reading it would couple us to something they never
- * promised to keep stable.
+ * Queries go through the documented CLI. The index database inside
+ * `.codegraph/` is never read — that store is theirs to change between
+ * versions.
  */
 
 import { execFileSync } from "node:child_process";
@@ -22,13 +17,7 @@ export const VERIFIED_VERSION = "1.5.0";
 /** Where CodeGraph puts its index. Named here only to detect prior indexing — never opened. */
 const INDEX_DIRECTORY = ".codegraph";
 
-/**
- * Upper bound on nodes fetched in one query.
- *
- * A cap rather than unbounded paging, and declared as a capability limit so a
- * repository large enough to hit it reports a truncation rather than silently
- * describing part of itself as the whole.
- */
+/** Declared as a capability limit, so hitting it reports truncation rather than a partial whole. */
 export const NODE_LIMIT = 100_000;
 
 export interface CodeGraphNode {
@@ -71,12 +60,8 @@ function run(args: readonly string[], cwd?: string): string {
 }
 
 /**
- * Parses CLI JSON, tolerating the banner lines the tool prints alongside it.
- *
- * The CLI mixes human-facing notices (telemetry notice, update checks) with
- * `--json` output, so the payload is located rather than assumed to start at
- * byte zero. Assuming would make the adapter break on an unrelated day when a
- * new notice appears.
+ * The CLI mixes human-facing notices with `--json` output, so the payload is
+ * located rather than assumed to start at byte zero.
  */
 function parseJson<T>(output: string): T {
   const trimmed = output.trim();
@@ -99,12 +84,9 @@ export function isIndexed(rootPath: string): boolean {
 }
 
 /**
- * Builds or refreshes the index for a root.
- *
- * This writes `.codegraph/` inside the analyzed root — CodeGraph offers no
- * flag to relocate it. That is an accepted, bounded exception to the read-only
- * guarantee toward analyzed source: `.codegraph/` is excluded from content
- * digests and recorded as an excluded entry in inventory, so indexing cannot
+ * Writes `.codegraph/` inside the analyzed root, which CodeGraph offers no flag
+ * to relocate. An accepted, bounded exception: the directory is excluded from
+ * content digests and recorded as excluded in inventory, so indexing cannot
  * masquerade as a source change or as project content.
  */
 export function ensureIndexed(rootPath: string): void {
@@ -112,13 +94,9 @@ export function ensureIndexed(rootPath: string): void {
 }
 
 /**
- * Every node in the index, in one call.
- *
- * An empty search with no kind filter returns all kinds, including ones this
- * adapter has never heard of. That matters for a tool meant to read any
- * language: a per-kind enumeration would silently omit whatever the next
- * language introduces, whereas this carries unknown kinds through to the
- * model's open unions.
+ * An empty search with no kind filter returns every kind, including ones this
+ * adapter has never heard of. A per-kind enumeration would silently omit
+ * whatever the next language introduces.
  */
 export function queryNodes(rootPath: string, limit: number = NODE_LIMIT): readonly CodeGraphNode[] {
   const raw = parseJson<{ node: CodeGraphNode }[]>(
@@ -131,12 +109,7 @@ export function listFiles(rootPath: string): readonly CodeGraphFile[] {
   return parseJson<CodeGraphFile[]>(run(["files", "--json", "-p", rootPath]));
 }
 
-/**
- * What a symbol calls.
- *
- * Callees rather than callers: one direction is enough to build the edge set,
- * and querying both would double the subprocess cost for the same graph.
- */
+/** Callees rather than callers: one direction builds the same edge set at half the cost. */
 export function calleesOf(rootPath: string, symbol: string, limit = 200): readonly CodeGraphRelation[] {
   const parsed = parseJson<{ callees?: CodeGraphRelation[] }>(
     run(["callees", symbol, "--limit", String(limit), "--json", "-p", rootPath]),

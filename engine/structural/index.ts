@@ -122,3 +122,6 @@ export type {
 } from "./assemble.js";
 export { assemble, extractAll } from "./assemble.js";
 export { recordAssembledModel, readConflicts } from "./persist.js";
+
+export type { ReferenceRoute, RouteDisposition, GradedRoute, RouteGrade } from "./routegate.js";
+export { gradeRoutes, everyRouteAccountedFor } from "./routegate.js";
