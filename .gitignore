@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Analysis output — the knowledge base is always rebuildable from source.
+.analysis/
+
+# Prepared fixtures. The committed fixture source contains no .git anywhere;
+# scripts/setup-fixture.ts materialises runnable copies here with real git
+# roots. Committing a nested .git would turn the fixture into a submodule.
+fixtures/.prepared/
+
+.DS_Store
