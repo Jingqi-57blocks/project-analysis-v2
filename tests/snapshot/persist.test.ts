@@ -54,6 +54,24 @@ describe("beginSnapshot", () => {
     expect(rootRows.every((r) => r.vcs === "none")).toBe(true);
   });
 
+  it("returns a row id for every persisted root, matching the database", () => {
+    const roots = [makeRoot("alpha"), makeRoot("beta")];
+    const handle = beginSnapshot(store, workDir, roots, "2020-01-01T00:00:00.000Z");
+
+    expect(handle.roots.map((r) => r.name).sort()).toEqual(["alpha", "beta"]);
+
+    for (const persisted of handle.roots) {
+      const row = store.get<{ id: number }>("SELECT id FROM source_roots WHERE id = ? AND name = ?", [
+        persisted.id,
+        persisted.name,
+      ]);
+      expect(row?.id, `no source_roots row for ${persisted.name}`).toBe(persisted.id);
+    }
+
+    // ids are distinct — a real requirement, since inventory attaches files by id.
+    expect(new Set(handle.roots.map((r) => r.id)).size).toBe(handle.roots.length);
+  });
+
   it("reuses the same workspace row across snapshots of the same path", () => {
     const first = beginSnapshot(store, workDir, [makeRoot("alpha")], "2020-01-01T00:00:00.000Z");
     const second = beginSnapshot(store, workDir, [makeRoot("alpha")], "2020-01-02T00:00:00.000Z");
