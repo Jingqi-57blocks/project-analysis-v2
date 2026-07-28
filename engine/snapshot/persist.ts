@@ -3,10 +3,17 @@ import { checkDrift } from "./drift.js";
 import { workspaceIdentity } from "./identity.js";
 import type { RootSnapshot } from "./rootsnapshot.js";
 
+export interface PersistedRoot {
+  readonly name: string;
+  readonly id: number;
+}
+
 export interface SnapshotHandle {
   readonly workspaceId: number;
   readonly snapshotId: number;
   readonly identity: string;
+  /** Row ids for the roots just persisted — inventory attaches `files` rows to these. */
+  readonly roots: readonly PersistedRoot[];
 }
 
 export class DriftDetectedError extends Error {
@@ -64,6 +71,7 @@ export function beginSnapshot(
     );
     if (!snapshotRow) throw new Error("Failed to read back the snapshot row just inserted");
 
+    const persistedRoots: PersistedRoot[] = [];
     for (const root of roots) {
       store.run(
         `INSERT INTO source_roots
@@ -80,9 +88,15 @@ export function beginSnapshot(
           root.dirty === null ? null : root.dirty ? 1 : 0,
         ],
       );
+      const rootRow = store.get<{ id: number }>(
+        "SELECT id FROM source_roots WHERE snapshot_id = ? AND name = ?",
+        [snapshotRow.id, root.name],
+      );
+      if (!rootRow) throw new Error(`Failed to read back the source_roots row for ${root.name}`);
+      persistedRoots.push({ name: root.name, id: rootRow.id });
     }
 
-    return { workspaceId, snapshotId: snapshotRow.id, identity };
+    return { workspaceId, snapshotId: snapshotRow.id, identity, roots: persistedRoots };
   });
 }
 

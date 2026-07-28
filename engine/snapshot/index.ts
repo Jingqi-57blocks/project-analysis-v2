@@ -7,4 +7,5 @@ export {
   publishOrRefuse,
   DriftDetectedError,
   type SnapshotHandle,
+  type PersistedRoot,
 } from "./persist.js";
