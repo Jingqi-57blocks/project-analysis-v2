@@ -159,9 +159,38 @@ describe("linkCalls", () => {
     expect(result.unlinked[0]!.reason).toBe("no-matching-route");
   });
 
-  it("records a destination that is not a path at all", () => {
+  it("does not call an unparsed destination external", () => {
+    // A queue name or relative reference is unparsed. Calling it external
+    // asserts a boundary nobody established.
     const result = linkCalls([call("ui", "some-queue-name")], []);
-    expect(result.unlinked[0]!.reason).toBe("external-destination");
+    expect(result.unlinked[0]!.reason).toBe("unparsed-destination");
+  });
+
+  it("does not let a wildcard route with trailing segments beat a precise match", () => {
+    // routeMatches stops at the wildcard, so segments written after it were
+    // never compared to anything. Scoring them would let a decoy outrank the
+    // correct route and — since the winner is a plain maximum — win silently.
+    const result = linkCalls(
+      [call("ui", "https://api/webhooks/stripe")],
+      [
+        route("api", "GET", "/webhooks/:provider"),
+        route("other", "GET", "/webhooks/*/final/step/extra/tokens"),
+      ],
+    );
+
+    expect(result.links).toHaveLength(1);
+    expect(result.links[0]!.toRoot).toBe("api");
+    expect(result.links[0]!.toPath).toBe("/webhooks/:provider");
+  });
+
+  it("requires the literal prefix before a wildcard to actually match", () => {
+    // A wildcard consumes the remainder, including nothing — /orders/* serving
+    // /orders is normal framework behaviour. What it must not do is match a
+    // path that never reaches its literal prefix.
+    expect(routeMatches("/orders/*", "/orders/1/confirm")).toBe(true);
+    expect(routeMatches("/orders/*", "/orders")).toBe(true);
+    expect(routeMatches("/orders/items/*", "/orders")).toBe(false);
+    expect(routeMatches("/billing/*", "/orders/1")).toBe(false);
   });
 
   it("accounts for every call considered", () => {
@@ -186,6 +215,17 @@ describe("linkCalls", () => {
 });
 
 describe("rootDependencies", () => {
+  it("keeps two root pairs apart when their names contain spaces", () => {
+    // Root names are directory basenames and routinely contain spaces. An
+    // unescaped join would collapse two different pairs into one.
+    const result = linkCalls(
+      [call("Order Service", "https://a/x"), call("Order", "https://b/x")],
+      [route("Payment", "GET", "/x"), route("Service Payment", "GET", "/x")],
+    );
+    const deps = rootDependencies(result);
+    for (const dep of deps) expect(dep.calls).toBe(1);
+  });
+
   it("counts calls between each pair of roots", () => {
     const result = linkCalls(
       [call("ui", "https://api/users"), call("ui", "https://api/orders"), call("worker", "https://api/users")],

@@ -197,10 +197,15 @@ function overviewPage(model: ReportModel, pages: readonly string[][]): RenderedP
     <h2 id="health">${escapeHtml(s.health)}</h2>
     ${model.signals
       .map(
-        (signal) => `<div class="card ${signal.severity}">
+        (signal) => `<div class="card ${escapeHtml(signal.severity)}">
       <span class="tag">${escapeHtml(severityLabel(signal.severity, s))}</span>
       <h3>${escapeHtml(signal.title)}</h3>
       <p>${escapeHtml(signal.finding)}</p>
+      ${
+        signal.evidence.length === 0
+          ? ""
+          : `<ul class="note">${signal.evidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+      }
     </div>`,
       )
       .join("\n")}

@@ -61,6 +61,26 @@ describe("bounded traversal", () => {
     expect(result.traces[0]!.partial).toBe(true);
   });
 
+  it("does not call a diamond a cycle", () => {
+    // Two branches converging on one shared helper is ordinary structure.
+    // Calling it a cycle marks a complete trace as truncated and inflates the
+    // partial-trace signal on a very common code shape.
+    const a = sym("Handle");
+    const b = sym("BranchB");
+    const c = sym("BranchC");
+    const d = sym("Shared");
+
+    const result = buildTraces({
+      routes: [route("/a", a)],
+      symbols: [a, b, c, d],
+      callEdges: [edge(a, b), edge(a, c), edge(b, d), edge(c, d)],
+    });
+
+    expect(result.traces[0]!.steps).toHaveLength(4);
+    expect(result.traces[0]!.truncation).toBe("completed");
+    expect(result.traces[0]!.partial).toBe(false);
+  });
+
   it("stops at the depth limit", () => {
     const chain = Array.from({ length: 10 }, (_, i) => sym(`Step${i}`));
     const edges = chain.slice(0, -1).map((from, i) => edge(from, chain[i + 1]!));
@@ -212,6 +232,30 @@ describe("what must never merge modules", () => {
 
     expect(modules[0]!.symbolIds).toContain(orders.id);
     expect(modules[0]!.symbolIds).not.toContain(auth.id);
+  });
+
+  it("does not collapse every feature into one when routes share a prefix", () => {
+    // Most APIs prefix every route with /api or /api/v1. Anchoring on the
+    // first segment would give every feature the same anchor — the same
+    // useless outcome the shared-middleware rule exists to prevent.
+    const make = (path: string): Trace => ({
+      entryKey: `svc:GET ${path}`,
+      entryRoot: "svc",
+      entryMethod: "GET",
+      entryPath: path,
+      steps: [],
+      truncation: "completed",
+      truncationDetail: null,
+      partial: false,
+    });
+
+    const modules = formModules([
+      make("/api/orders/:id"),
+      make("/api/users/:id/profile"),
+      make("/api/payments/charge"),
+    ]);
+
+    expect(modules.map((m) => m.name).sort()).toEqual(["orders", "payments", "users"]);
   });
 
   it("gives a module a stable id that survives a path change", () => {

@@ -30,7 +30,14 @@ export type UnlinkedReason =
   | "target-not-resolved"
   | "no-matching-route"
   | "ambiguous-match"
-  | "external-destination";
+  | "external-destination"
+  /**
+   * A destination that could not be parsed into a path — a relative reference,
+   * a queue name, something else entirely. Distinct from `external-destination`
+   * because calling it external states a fact about the system's boundary that
+   * was never established.
+   */
+  | "unparsed-destination";
 
 export interface CrossRootLink {
   readonly fromRoot: string;
