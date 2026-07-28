@@ -187,6 +187,69 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX extraction_failures_snapshot ON extraction_failures(snapshot_id);
     `,
   },
+  {
+    version: 4,
+    name: "semantic-evidence",
+    up: `
+      -- Text developers already wrote, stored as written. A summary derived
+      -- from it can always be produced again; the original cannot be
+      -- recovered once discarded, so the raw text is what is kept.
+      --
+      -- Keyed by source rather than by module: modules do not exist at this
+      -- stage, and binding evidence to them would make it unusable for any
+      -- template querying by another axis.
+      CREATE TABLE evidence_items (
+        id                INTEGER PRIMARY KEY,
+        snapshot_id       INTEGER NOT NULL REFERENCES snapshots(id),
+        source_root_id    INTEGER NOT NULL REFERENCES source_roots(id),
+        kind              TEXT    NOT NULL,
+        item_key          TEXT    NOT NULL,
+        text              TEXT    NOT NULL,
+        label             TEXT,
+        -- Null whenever no structural model was available. Semantic collection
+        -- must never require one.
+        symbol_id         TEXT,
+        rel_path          TEXT    NOT NULL,
+        start_line        INTEGER,
+        start_column      INTEGER,
+        resolution_class  TEXT    NOT NULL
+                          CHECK (resolution_class IN ('declared','resolved','inferred','unresolved')),
+        confidence        TEXT,
+        UNIQUE (snapshot_id, item_key)
+      );
+      CREATE INDEX evidence_items_kind ON evidence_items(snapshot_id, kind);
+      CREATE INDEX evidence_items_path ON evidence_items(source_root_id, rel_path);
+
+      CREATE TABLE evidence_attributions (
+        id                 INTEGER PRIMARY KEY,
+        item_id            INTEGER NOT NULL REFERENCES evidence_items(id),
+        collector_id       TEXT    NOT NULL,
+        collector_version  TEXT    NOT NULL,
+        UNIQUE (item_id, collector_id, collector_version)
+      );
+
+      -- Where two collectors disagree about the same text, both survive.
+      -- Silently preferring one is a claim this stage cannot support.
+      CREATE TABLE evidence_conflicts (
+        id            INTEGER PRIMARY KEY,
+        item_id       INTEGER NOT NULL REFERENCES evidence_items(id),
+        collector_id  TEXT    NOT NULL,
+        text          TEXT    NOT NULL,
+        UNIQUE (item_id, collector_id)
+      );
+
+      CREATE TABLE evidence_gaps (
+        id              INTEGER PRIMARY KEY,
+        snapshot_id     INTEGER NOT NULL REFERENCES snapshots(id),
+        source_root_id  INTEGER NOT NULL REFERENCES source_roots(id),
+        collector_id    TEXT    NOT NULL,
+        kind            TEXT    NOT NULL,
+        language        TEXT    NOT NULL,
+        reason          TEXT    NOT NULL
+      );
+      CREATE INDEX evidence_gaps_snapshot ON evidence_gaps(snapshot_id);
+    `,
+  },
 ];
 
 export const SUPPORTED_SCHEMA_VERSION: number =

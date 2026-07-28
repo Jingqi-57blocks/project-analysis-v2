@@ -84,10 +84,18 @@ afterEach(() => store.close());
 
 describe("the structural-model migration", () => {
   it("is additive, leaving the earlier versions in place", () => {
+    // Asserts the earlier migrations are untouched rather than pinning the
+    // whole list, which would break on every future migration for no reason.
     const applied = store.all<{ version: number; name: string }>(
       "SELECT version, name FROM schema_migrations ORDER BY version",
     );
-    expect(applied.map((m) => m.name)).toEqual(["base-tables", "provider-checks", "structural-model"]);
+
+    expect(applied.slice(0, 3).map((m) => m.name)).toEqual([
+      "base-tables",
+      "provider-checks",
+      "structural-model",
+    ]);
+    expect(applied.map((m) => m.version)).toEqual([...applied.map((m) => m.version)].sort((a, b) => a - b));
   });
 });
 
