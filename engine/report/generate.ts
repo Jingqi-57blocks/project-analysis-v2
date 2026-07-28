@@ -99,12 +99,21 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     const analyzedFiles = walk.analyzed.map((file) => file.relPath);
     allFiles.push(...analyzedFiles);
 
+    // Generated files hold example payloads and mock URLs that are not calls
+    // the system makes. Inventory already classified them, so the provider
+    // never has to guess.
+    const generated = new Set(
+      walk.analyzed.filter((file) => file.classification === "generated").map((f) => f.relPath),
+    );
     const input = { name: root.name, path: root.path, analyzedFiles };
     const model = assemble(root.name, extractAll(structuralProviders, input));
 
     for (const record of model.records) {
       if (record.kind === "route") routes.push(record.record as RouteRecord);
-      else if (record.kind === "outbound-call") calls.push(record.record as OutboundCallRecord);
+      else if (record.kind === "outbound-call") {
+        const call = record.record as OutboundCallRecord;
+        if (!generated.has(call.provenance.source.relPath)) calls.push(call);
+      }
       else if (record.kind === "symbol") symbols.push(record.record as SymbolRecord);
       else if (record.kind === "call-edge") callEdges.push(record.record as CallEdgeRecord);
       else if (record.kind === "module-containment") {
@@ -193,6 +202,24 @@ export function generateReport(options: GenerateOptions): GenerateResult {
         subject: kind,
         note: `No provider in this run supplies ${consequence}. This is a gap in the analysis, not a property of the project.`,
       });
+    }
+  }
+
+  // Partial support is where the report is most likely to mislead: a kind that
+  // is *mostly* extracted looks complete. Only fully-unsupported kinds were
+  // surfaced before, so the limits that actually distort what a reader sees —
+  // route paths missing their framework prefix, routes registered through a
+  // closure being missed entirely — never reached the page describing them.
+  const seenLimits = new Set<string>();
+  for (const provider of structuralProviders) {
+    for (const declaration of provider.structuralCapabilities().declarations) {
+      if (declaration.support !== "partial") continue;
+      for (const limit of declaration.limits) {
+        const key = `${declaration.kind}:${limit}`;
+        if (seenLimits.has(key)) continue;
+        seenLimits.add(key);
+        coverageNotes.push({ subject: declaration.kind, note: limit });
+      }
     }
   }
 

@@ -54,6 +54,7 @@ export interface ReportStrings {
   readonly moduleCount: string;
   readonly entities: string;
   readonly endpoint: string;
+  readonly mapCaveat: string;
   readonly descriptionFrom: string;
   readonly languageFallback: string | null;
 }
@@ -100,6 +101,8 @@ const EN: ReportStrings = {
   moduleCount: "features",
   entities: "data entities",
   endpoint: "Endpoint",
+  mapCaveat:
+    "External destinations are read from URLs written in source. A URL in configuration or documentation can appear here even where no call is made, so treat this as what the code mentions rather than a verified list of live traffic.",
   descriptionFrom: "Taken from",
   languageFallback: null,
 };
@@ -146,6 +149,8 @@ const ZH: ReportStrings = {
   moduleCount: "个功能模块",
   entities: "个数据实体",
   endpoint: "接口",
+  mapCaveat:
+    "外部依赖来自源码中出现的 URL。配置或文档中的 URL 也可能出现在此处，即使并未真正发起调用，因此应将其视为代码中提及的内容，而非已验证的实际流量。",
   descriptionFrom: "摘自",
   languageFallback: null,
 };

@@ -227,6 +227,7 @@ function overviewPage(model: ReportModel, pages: readonly string[][]): RenderedP
 
     <h2 id="map">${escapeHtml(s.projectMap)}</h2>
     ${diagram}
+    <p class="note">${escapeHtml(s.mapCaveat)}</p>
 
     <h2 id="features">${escapeHtml(s.modules)}</h2>
     ${
