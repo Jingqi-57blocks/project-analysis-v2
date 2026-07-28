@@ -128,3 +128,6 @@ export { gradeRoutes, everyRouteAccountedFor } from "./routegate.js";
 
 export type { EnclosingIndex } from "./enclosing.js";
 export { buildEnclosingIndex } from "./enclosing.js";
+
+export type { CoverageLevel, CoverageCell, KindCoverage, CoverageMatrix, ProviderReport } from "./coverage.js";
+export { buildCoverageMatrix, renderCoverageMatrix } from "./coverage.js";
