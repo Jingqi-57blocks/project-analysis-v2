@@ -42,6 +42,19 @@ export interface ReportStrings {
   readonly unclassified: string;
   readonly serves: string;
   readonly calls: string;
+  readonly projectMap: string;
+  readonly whatItIs: string;
+  readonly dataTouched: string;
+  readonly callsOutward: string;
+  readonly external: string;
+  readonly datastore: string;
+  readonly noAttention: string;
+  readonly noEvidence: string;
+  readonly noRoutes: string;
+  readonly moduleCount: string;
+  readonly entities: string;
+  readonly endpoint: string;
+  readonly descriptionFrom: string;
   readonly languageFallback: string | null;
 }
 
@@ -75,6 +88,19 @@ const EN: ReportStrings = {
   unclassified: "Not classified",
   serves: "Serves",
   calls: "calls",
+  projectMap: "How the system fits together",
+  whatItIs: "What this is",
+  dataTouched: "Data it works with",
+  callsOutward: "What it calls",
+  external: "outside this workspace",
+  datastore: "data store",
+  noAttention: "Nothing was found that needs attention.",
+  noEvidence: "The code carries no description of this area.",
+  noRoutes: "No entry points were resolved for this feature.",
+  moduleCount: "features",
+  entities: "data entities",
+  endpoint: "Endpoint",
+  descriptionFrom: "Taken from",
   languageFallback: null,
 };
 
@@ -108,6 +134,19 @@ const ZH: ReportStrings = {
   unclassified: "未归类",
   serves: "服务于",
   calls: "次调用",
+  projectMap: "系统结构",
+  whatItIs: "这是什么",
+  dataTouched: "涉及的数据",
+  callsOutward: "对外调用",
+  external: "工作区之外",
+  datastore: "数据存储",
+  noAttention: "未发现需要关注的问题。",
+  noEvidence: "代码中没有关于该部分的描述。",
+  noRoutes: "未解析出该功能的入口。",
+  moduleCount: "个功能模块",
+  entities: "个数据实体",
+  endpoint: "接口",
+  descriptionFrom: "摘自",
   languageFallback: null,
 };
 

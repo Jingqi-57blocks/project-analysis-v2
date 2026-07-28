@@ -4,4 +4,4 @@ export type {
   PrimaryDisposition, ProductModule, TechnicalComponent, DispositionCounts,
   FormationResult, ComponentInput,
 } from "./form.js";
-export { formModel, formModules, formComponents, assignDispositions, looksInfrastructural } from "./form.js";
+export { formModel, formModules, formModulesFromRoutes, formComponents, assignDispositions, looksInfrastructural } from "./form.js";

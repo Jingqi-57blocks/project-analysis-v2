@@ -26,14 +26,40 @@ export interface ReportRootSummary {
   readonly excluded: number;
 }
 
+export interface ModuleEntryPoint {
+  readonly method: string | null;
+  readonly path: string;
+  readonly rootName: string;
+}
+
 export interface ReportModule {
   readonly id: string;
   readonly name: string;
   readonly entryPoints: readonly string[];
+  /** The entry points broken out, so a page can show what the feature exposes. */
+  readonly routes: readonly ModuleEntryPoint[];
   readonly rootNames: readonly string[];
   readonly symbolCount: number;
+  /** Data entities this feature's roots declare, by name. */
+  readonly dataEntities: readonly string[];
+  /** Destinations this feature's roots call outward, deduplicated. */
+  readonly outboundTargets: readonly string[];
   /** Prose the developers already wrote, quoted rather than paraphrased. */
   readonly evidence: readonly string[];
+}
+
+/**
+ * One edge of the project map.
+ *
+ * `kind` separates a call between our own roots from a call to something
+ * outside, because a reader needs to see the boundary of the system before
+ * anything inside it makes sense.
+ */
+export interface MapEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: "internal" | "external" | "datastore";
+  readonly detail: string | null;
 }
 
 export interface ReportComponent {
@@ -73,7 +99,13 @@ export interface ReportModel {
   readonly modules: readonly ReportModule[];
   readonly components: readonly ReportComponent[];
   readonly integrations: readonly ReportIntegration[];
+  /** The system's shape: our roots, what they call, and what is outside. */
+  readonly map: readonly MapEdge[];
+  /** Data entities recovered from schemas and migrations. */
+  readonly dataEntities: readonly string[];
   readonly signals: readonly HealthSignal[];
+  /** Only the signals worth a reader's attention — minor noise is filtered out. */
+  readonly attentionSignals: readonly HealthSignal[];
   readonly dispositions: DispositionCounts;
   /**
    * What this report cannot tell you, in words.
@@ -96,9 +128,14 @@ export interface AssembleReportInput {
   readonly modules: readonly ProductModule[];
   readonly components: readonly TechnicalComponent[];
   readonly integrations: readonly ReportIntegration[];
+  readonly map: readonly MapEdge[];
+  readonly dataEntities: readonly string[];
   readonly signals: readonly HealthSignal[];
   readonly dispositions: DispositionCounts;
   readonly evidenceByModule: ReadonlyMap<string, readonly string[]>;
+  readonly routesByModule: ReadonlyMap<string, readonly ModuleEntryPoint[]>;
+  readonly dataByModule: ReadonlyMap<string, readonly string[]>;
+  readonly outboundByModule: ReadonlyMap<string, readonly string[]>;
   readonly coverageNotes: readonly CoverageNote[];
 }
 
@@ -115,8 +152,11 @@ export function assembleReport(input: AssembleReportInput): ReportModel {
       id: module.id,
       name: module.name,
       entryPoints: module.entryKeys,
+      routes: input.routesByModule.get(module.id) ?? [],
       rootNames: module.rootNames,
       symbolCount: module.symbolIds.length,
+      dataEntities: input.dataByModule.get(module.id) ?? [],
+      outboundTargets: input.outboundByModule.get(module.id) ?? [],
       evidence: input.evidenceByModule.get(module.id) ?? [],
     })),
     components: input.components.map((component) => ({
@@ -127,7 +167,12 @@ export function assembleReport(input: AssembleReportInput): ReportModel {
       memberCount: component.memberPaths.length,
     })),
     integrations: input.integrations,
+    map: input.map,
+    dataEntities: input.dataEntities,
     signals: input.signals,
+    // Minor observations are noise in a summary; a list nobody finishes
+    // reading is a list nobody acts on.
+    attentionSignals: input.signals.filter((signal) => signal.severity !== "info"),
     dispositions: input.dispositions,
     coverageNotes: input.coverageNotes,
   };
