@@ -2,6 +2,7 @@ import { openSync, readSync, closeSync, readdirSync, statSync, type Dirent } fro
 import { join, relative } from "node:path";
 
 import { classifyPath, looksGenerated, DEPENDENCY_DIRECTORIES, type Classification } from "./classify.js";
+import { ANALYSIS_ARTIFACT_DIRECTORIES, ANALYSIS_ARTIFACT_REASON } from "../artifacts.js";
 
 const DEPENDENCY_DIR_REASON = "dependency-manager-owned directory, not walked";
 const VCS_DIR_REASON = "version-control internals, not walked";
@@ -19,17 +20,6 @@ const NOISE_FILE_REASON = "OS/editor metadata file";
  */
 const VCS_DIRECTORIES: ReadonlySet<string> = new Set([".git"]);
 
-/**
- * Directories this tool itself writes into an analyzed root.
- *
- * Only `.codegraph`, the index the CodeGraph provider creates because it
- * offers no flag to put it elsewhere. Given its own reason rather than being
- * folded into dependency or VCS exclusions: it is neither, and a reader
- * seeing it in the inventory deserves to know the analyzer put it there
- * rather than wondering what part of the project did.
- */
-const ANALYSIS_ARTIFACT_DIRECTORIES: ReadonlySet<string> = new Set([".codegraph"]);
-const ANALYSIS_ARTIFACT_REASON = "analysis index written by this tool, not project content";
 
 /** Noise files with no project-content meaning, excluded individually with a reason. */
 const NOISE_FILENAMES: ReadonlySet<string> = new Set([".DS_Store"]);
