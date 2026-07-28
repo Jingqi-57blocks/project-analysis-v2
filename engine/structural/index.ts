@@ -125,3 +125,6 @@ export { recordAssembledModel, readConflicts } from "./persist.js";
 
 export type { ReferenceRoute, RouteDisposition, GradedRoute, RouteGrade } from "./routegate.js";
 export { gradeRoutes, everyRouteAccountedFor } from "./routegate.js";
+
+export type { EnclosingIndex } from "./enclosing.js";
+export { buildEnclosingIndex } from "./enclosing.js";
