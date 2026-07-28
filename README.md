@@ -37,10 +37,36 @@ pnpm run fixture:setup            # materialise a runnable copy of the demo fixt
 pnpm run fixture:setup -- --force # rebuild it, discarding local edits
 ```
 
-### Fixtures
+### Targets
 
-`fixtures/demo-workspace/` is committed source and contains no `.git` anywhere —
-a nested `.git` would make this repository treat the fixture root as a submodule.
-`fixture:setup` copies it to `fixtures/.prepared/` (gitignored) and initialises
-real git roots there, leaving one root deliberately dirty. That prepared copy is
-what the engine analyses.
+The engine is developed and graded against **real projects**, not a hand-authored
+fixture. A fixture is not per-target — analyzing a new project never requires one
+— but a synthetic workspace would be code written to be *convenient to analyze*,
+which flatters the tool and predicts nothing about real behavior.
+
+Known targets are declared in `engine/targets/registry.ts`. They live outside
+this repository and are **never vendored into it**. Paths are per-machine and
+overridable:
+
+```bash
+PA_TARGET_WCP_V2=/somewhere/else pnpm test
+```
+
+A target that is absent is a normal state: tests skip and print why, so a
+skipped run explains itself rather than looking green.
+
+**Targets are read-only.** Nothing in this tool writes to them. `resolveTarget`
+and `digestDirectory` only stat and read, and `deriveVariant` refuses any output
+path that overlaps a source root, sits inside a registered target, or points at
+a non-empty directory it did not create. Those guards are enforced and tested,
+not assumed.
+
+Cases the real targets don't supply are produced by derivation:
+
+```bash
+pnpm run target:derive -- --target wcp-v2 --root wcp-auth --without-manifest
+```
+
+Derived copies land in the gitignored `.targets/` directory. `missing-root` and
+`single-root` need no derivation at all — they are workspace selection against a
+real target, which the engine has to support regardless.
