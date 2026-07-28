@@ -98,6 +98,95 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX provider_checks_snapshot ON provider_checks(snapshot_id);
     `,
   },
+  {
+    version: 3,
+    name: "structural-model",
+    up: `
+      -- One row per distinct structural fact. The model has many kinds and
+      -- would otherwise need many near-identical tables; a kind column plus a
+      -- JSON payload keeps the schema small while the denormalized columns
+      -- below keep the common queries indexable. Provider-specific shapes
+      -- never reach this table — everything is already normalized to the
+      -- model by the time it arrives.
+      CREATE TABLE structural_records (
+        id                INTEGER PRIMARY KEY,
+        snapshot_id       INTEGER NOT NULL REFERENCES snapshots(id),
+        source_root_id    INTEGER NOT NULL REFERENCES source_roots(id),
+        kind              TEXT    NOT NULL,
+        -- Deterministic identity, so two providers finding the same fact
+        -- converge on one row instead of double-counting it.
+        record_key        TEXT    NOT NULL,
+        payload           TEXT    NOT NULL,
+        resolution_class  TEXT    NOT NULL
+                          CHECK (resolution_class IN ('declared','resolved','inferred','unresolved')),
+        confidence        TEXT,
+        -- Denormalized from provenance so "what is in this file" does not
+        -- require parsing every payload.
+        rel_path          TEXT,
+        start_line        INTEGER,
+        UNIQUE (snapshot_id, kind, record_key)
+      );
+      CREATE INDEX structural_records_kind ON structural_records(snapshot_id, kind);
+      CREATE INDEX structural_records_root ON structural_records(source_root_id, kind);
+      CREATE INDEX structural_records_path ON structural_records(source_root_id, rel_path);
+
+      -- Many-to-one on purpose: when two providers supply the same fact it
+      -- becomes one record with both attributions, never one record whose
+      -- second source was discarded.
+      CREATE TABLE structural_attributions (
+        id                INTEGER PRIMARY KEY,
+        record_id         INTEGER NOT NULL REFERENCES structural_records(id),
+        provider_id       TEXT    NOT NULL,
+        provider_version  TEXT    NOT NULL,
+        UNIQUE (record_id, provider_id, provider_version)
+      );
+
+      -- Retained, never resolved. Two providers disagreeing about the same
+      -- fact is information; silently picking a winner would produce reports
+      -- that are confidently wrong, which is worse than reports that say the
+      -- sources disagree.
+      CREATE TABLE structural_conflicts (
+        id            INTEGER PRIMARY KEY,
+        record_id     INTEGER NOT NULL REFERENCES structural_records(id),
+        provider_id   TEXT    NOT NULL,
+        field         TEXT    NOT NULL,
+        value         TEXT,
+        UNIQUE (record_id, provider_id, field)
+      );
+
+      -- What each capability actually produced, per provider per root. A
+      -- capability with no row here was never asked, which is a different
+      -- state from one that was asked and supplied nothing — conflating them
+      -- would let a silent gap read as a confident finding of emptiness.
+      CREATE TABLE capability_results (
+        id                INTEGER PRIMARY KEY,
+        snapshot_id       INTEGER NOT NULL REFERENCES snapshots(id),
+        source_root_id    INTEGER NOT NULL REFERENCES source_roots(id),
+        provider_id       TEXT    NOT NULL,
+        provider_version  TEXT    NOT NULL,
+        kind              TEXT    NOT NULL,
+        language          TEXT    NOT NULL,
+        outcome           TEXT    NOT NULL CHECK (outcome IN ('supplied','partial','absent')),
+        reason            TEXT,
+        record_count      INTEGER NOT NULL,
+        UNIQUE (snapshot_id, source_root_id, provider_id, kind, language)
+      );
+      CREATE INDEX capability_results_snapshot ON capability_results(snapshot_id, kind);
+
+      -- One provider failing on one file degrades only that capability. The
+      -- same per-item isolation already proven for one unreadable file in the
+      -- inventory walker and one broken provider in preflight.
+      CREATE TABLE extraction_failures (
+        id              INTEGER PRIMARY KEY,
+        snapshot_id     INTEGER NOT NULL REFERENCES snapshots(id),
+        source_root_id  INTEGER NOT NULL REFERENCES source_roots(id),
+        provider_id     TEXT    NOT NULL,
+        scope           TEXT    NOT NULL,
+        reason          TEXT    NOT NULL
+      );
+      CREATE INDEX extraction_failures_snapshot ON extraction_failures(snapshot_id);
+    `,
+  },
 ];
 
 export const SUPPORTED_SCHEMA_VERSION: number =

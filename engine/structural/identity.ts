@@ -75,3 +75,17 @@ export function symbolId(parts: SymbolIdParts): SymbolId {
 export function fileId(rootName: string, relPath: string): string {
   return [rootName, relPath].map(escape).join(DELIMITER);
 }
+
+/**
+ * Joins arbitrary components into one key with the same escaping guarantee.
+ *
+ * Shared with record identity (`recordkey.ts`) so every key in the model is
+ * built the same way — a second, subtly different join would reintroduce the
+ * forged-boundary collision this escaping exists to prevent.
+ *
+ * Null and undefined components become the empty string rather than the text
+ * "null", so an absent value cannot be impersonated by a literal one.
+ */
+export function joinKey(parts: readonly (string | number | null | undefined)[]): string {
+  return parts.map((part) => escape(part == null ? "" : String(part))).join(DELIMITER);
+}

@@ -101,3 +101,13 @@ export type {
   StructuralProvider,
 } from "./provider.js";
 export { ANY_LANGUAGE, declaredKinds, capabilityFor, supports } from "./provider.js";
+
+export { recordKey, recordProvenance } from "./recordkey.js";
+export type { CapabilityOutcome, CapabilityResult, PersistCounts, StoredRecord } from "./persist.js";
+export {
+  recordContribution,
+  summarizeCapabilities,
+  readRecords,
+  readCapabilityResults,
+  wasAttempted,
+} from "./persist.js";
