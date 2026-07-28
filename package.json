@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "target:derive": "tsx scripts/derive-variant.ts"
+    "target:derive": "tsx scripts/derive-variant.ts",
+    "analyze": "tsx scripts/analyze.ts",
+    "status": "tsx scripts/status.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
