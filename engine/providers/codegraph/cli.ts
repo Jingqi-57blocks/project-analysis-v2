@@ -110,7 +110,13 @@ export function listFiles(rootPath: string): readonly CodeGraphFile[] {
 }
 
 /** Callees rather than callers: one direction builds the same edge set at half the cost. */
-export function calleesOf(rootPath: string, symbol: string, limit = 200): readonly CodeGraphRelation[] {
+export const CALLEE_LIMIT = 200;
+
+export function calleesOf(
+  rootPath: string,
+  symbol: string,
+  limit: number = CALLEE_LIMIT,
+): readonly CodeGraphRelation[] {
   const parsed = parseJson<{ callees?: CodeGraphRelation[] }>(
     run(["callees", symbol, "--limit", String(limit), "--json", "-p", rootPath]),
   );

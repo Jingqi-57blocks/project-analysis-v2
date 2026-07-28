@@ -13,7 +13,7 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import { emptyRecords } from "../../structural/kinds.js";
-import { inferred, lineRef } from "../../structural/provenance.js";
+import { inferred, type SourceRef } from "../../structural/provenance.js";
 import {
   ANY_LANGUAGE,
   declaredKinds,
@@ -97,6 +97,26 @@ function lineAt(content: string, index: number): number {
   return line;
 }
 
+/**
+ * Location including the column.
+ *
+ * A line alone is not enough to tell two facts apart: `db.Where(...).Find(...)`
+ * is two matches on one line, and without a column they share a record key and
+ * the second is silently dropped when persisted.
+ */
+function refAt(rootName: string, relPath: string, content: string, index: number): SourceRef {
+  const line = lineAt(content, index);
+  const lineStart = content.lastIndexOf("\n", index - 1) + 1;
+  return {
+    rootName,
+    relPath,
+    startLine: line,
+    endLine: line,
+    startColumn: index - lineStart + 1,
+    endColumn: null,
+  };
+}
+
 function scanFile(root: StructuralRootInput, relPath: string, content: string, found: Found): void {
   const extension = extname(relPath).toLowerCase();
 
@@ -107,7 +127,7 @@ function scanFile(root: StructuralRootInput, relPath: string, content: string, f
     let match: RegExpExecArray | null;
 
     while ((match = regex.exec(content)) !== null) {
-      const source = lineRef(root.name, relPath, lineAt(content, match.index));
+      const source = refAt(root.name, relPath, content, match.index);
       const provenance = inferred(source, pattern.confidence);
       const detail = pattern.detailGroup ? (match[pattern.detailGroup] ?? null) : null;
 

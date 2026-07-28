@@ -6,7 +6,7 @@ Generated from declared capabilities and observed record counts. Do not edit by 
 | --- | --- | --- | --- | --- | --- |
 | `source-file` | codegraph | * | full | 44 | — |
 | `symbol` | codegraph | * | full | 295 | at most 100000 nodes per root |
-| `call-edge` | codegraph | * | partial | 371 | only functions and methods are queried for callees; only calls to indexed symbols are reported; calls into dependencies do not appear at all; dynamic dispatch and reflection are reported as unresolved where they surface; one subprocess call per callable symbol, so extraction time grows with symbol count |
+| `call-edge` | codegraph | * | partial | 371 | only functions and methods are queried for callees; only calls to indexed symbols are reported; calls into dependencies do not appear at all; dynamic dispatch and reflection are reported as unresolved where they surface; one subprocess call per callable symbol, so extraction time grows with symbol count; at most 200 callees are read per symbol; hitting the cap is recorded as a failure |
 | `import` | codegraph | * | partial | 140 | import specifiers are not resolved to files; imported names are not itemized |
 | `export` | codegraph | * | absent | 0 | CodeGraph does not expose export records |
 | `reference` | codegraph | * | absent | 0 | CodeGraph does not expose reference sites |

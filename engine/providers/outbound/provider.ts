@@ -14,7 +14,7 @@ import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import { emptyRecords } from "../../structural/kinds.js";
-import { inferred, lineRef, unresolved } from "../../structural/provenance.js";
+import { inferred, unresolved } from "../../structural/provenance.js";
 import {
   ANY_LANGUAGE,
   declaredKinds,
@@ -102,30 +102,49 @@ export function outboundCapabilities(): ProviderCapabilities {
   };
 }
 
+function columnAt(content: string, index: number): number {
+  const lineStart = content.lastIndexOf("\n", index - 1) + 1;
+  return index - lineStart + 1;
+}
+
+function refAt(rootName: string, relPath: string, content: string, index: number) {
+  return {
+    rootName,
+    relPath,
+    startLine: lineAt(content, index),
+    endLine: lineAt(content, index),
+    // Column included so two URLs on one line stay two facts. Without it they
+    // share a record key and the second is silently dropped at persistence.
+    startColumn: columnAt(content, index),
+    endColumn: null,
+  };
+}
+
 function scan(root: StructuralRootInput, relPath: string, content: string): OutboundCallRecord[] {
   const found: OutboundCallRecord[] = [];
-  const dynamicLines = new Set<number>();
+
+  // Character ranges already claimed by a dynamic match. Range-granular rather
+  // than line-granular: suppressing a whole line would discard a genuine static
+  // URL that happens to sit beside an interpolated one.
+  const dynamicRanges: { start: number; end: number }[] = [];
 
   for (const match of content.matchAll(DYNAMIC_URL)) {
-    const line = lineAt(content, match.index);
-    dynamicLines.add(line);
+    dynamicRanges.push({ start: match.index, end: match.index + match[0].length });
     found.push({
       rootName: root.name,
       target: null,
       kind: "http",
       callerSymbolId: null,
       provenance: unresolved(
-        lineRef(root.name, relPath, line),
+        refAt(root.name, relPath, content, match.index),
         `destination is built at runtime from "${match[1]}…"`,
       ),
     });
   }
 
   for (const match of content.matchAll(ABSOLUTE_URL)) {
-    const line = lineAt(content, match.index);
-    // Already recorded as dynamic; recording it again as a fixed target would
-    // assert an endpoint the code never calls.
-    if (dynamicLines.has(line)) continue;
+    const start = match.index;
+    if (dynamicRanges.some((range) => start >= range.start && start < range.end)) continue;
 
     const url = match[1]!;
     if (!isEndpoint(url)) continue;
@@ -135,7 +154,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
       target: url,
       kind: kindFor(url),
       callerSymbolId: null,
-      provenance: inferred(lineRef(root.name, relPath, line), "medium"),
+      provenance: inferred(refAt(root.name, relPath, content, start), "medium"),
     });
   }
 

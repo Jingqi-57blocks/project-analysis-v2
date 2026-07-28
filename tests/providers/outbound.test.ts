@@ -192,3 +192,46 @@ describe("URLs that are not destinations", () => {
     expect(extract(["a.ts"]).records["outbound-call"][0]!.target).toBe("http://localhost:8080/api");
   });
 });
+
+describe("two URLs on one line", () => {
+  it("keeps two dynamic URLs on one line as two distinct facts", () => {
+    // Without a column they share a record key and the second is dropped at
+    // persistence, with nothing recorded.
+    write("a.ts", "fetch(`https://a.dev/x/${p}`); fetch(`https://b.dev/y/${q}`);\n");
+
+    const calls = extract(["a.ts"]).records["outbound-call"];
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.provenance.source.startColumn).not.toBe(
+      calls[1]!.provenance.source.startColumn,
+    );
+  });
+
+  it("does not suppress a real static URL sharing a line with a dynamic one", () => {
+    write("a.ts", 'fetch(`https://a.dev/${p}`); fetch("https://static.example.com/b");\n');
+
+    const calls = extract(["a.ts"]).records["outbound-call"];
+    expect(calls).toHaveLength(2);
+    expect(calls.some((c) => c.target === "https://static.example.com/b")).toBe(true);
+    expect(calls.some((c) => c.target === null)).toBe(true);
+  });
+});
+
+describe("enclosing index across roots", () => {
+  it("does not attach a fact from one root to a symbol in another", () => {
+    // Two services analyzed together can both contain src/main.go.
+    const inA: SymbolRecord = {
+      id: symbolId({ rootName: "a", relPath: "src/main.go", kind: "function", qualifiedName: "Run", signature: null }),
+      name: "Run",
+      qualifiedName: "Run",
+      kind: "function",
+      visibility: "unknown",
+      signature: null,
+      containerId: null,
+      provenance: declared(lineRef("a", "src/main.go", 1, 100)),
+    };
+
+    const index = buildEnclosingIndex([inA]);
+    expect(index.find(lineRef("a", "src/main.go", 10))).toBe(inA.id);
+    expect(index.find(lineRef("b", "src/main.go", 10))).toBeNull();
+  });
+});
