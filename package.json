@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "target:derive": "tsx scripts/derive-variant.ts",
     "analyze": "tsx scripts/analyze.ts",
-    "status": "tsx scripts/status.ts"
+    "status": "tsx scripts/status.ts",
+    "report": "tsx scripts/report.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
