@@ -77,7 +77,7 @@ export function recordEvidence(
 
       for (const conflict of assembled.conflictingText) {
         store.run(
-          "INSERT OR REPLACE INTO evidence_conflicts (item_id, collector_id, text) VALUES (?, ?, ?)",
+          "INSERT OR IGNORE INTO evidence_conflicts (item_id, collector_id, text) VALUES (?, ?, ?)",
           [itemId, conflict.collectorId, conflict.text],
         );
         conflicts += 1;

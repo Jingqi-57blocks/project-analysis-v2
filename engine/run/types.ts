@@ -9,6 +9,8 @@ export interface AnalyzeOptions {
   /** Where the knowledge base lives. Never inside an analyzed target. */
   readonly dbPath: string;
   readonly providers?: readonly Provider[];
+  /** Overrides the generated run id. For tests and for resuming a named run. */
+  readonly runId?: string;
   /** Provider ids that must be available. Missing ones refuse the run before publish. */
   readonly requiredProviderIds?: readonly string[];
 }
@@ -23,6 +25,9 @@ export interface AnalyzedRootResult {
 
 export interface AnalysisResult {
   readonly snapshotId: number;
+  /** Identity of this invocation — the key later reports bind themselves to. */
+  readonly runId: string;
+  /** Content digest of the source. Two runs of unchanged source share it. */
   readonly identity: string;
   readonly workspacePath: string;
   readonly roots: readonly AnalyzedRootResult[];
@@ -64,6 +69,7 @@ export interface StatusReport {
   readonly workspacePath: string;
   readonly analyzed: boolean;
   readonly snapshotId?: number;
+  readonly runId?: string | null;
   readonly identity?: string;
   readonly publishedAt?: string;
   readonly roots?: readonly StatusRoot[];

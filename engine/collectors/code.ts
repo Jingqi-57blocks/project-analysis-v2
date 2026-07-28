@@ -14,7 +14,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
-import { declared, inferred, lineRef } from "../structural/provenance.js";
+import { declared, inferred, offsetRef } from "../structural/provenance.js";
 import type {
   CollectionFailure,
   CollectorCapabilities,
@@ -48,9 +48,30 @@ const HASH_COMMENT_EXTENSIONS: ReadonlySet<string> = new Set([".py", ".rb", ".sh
  */
 const TEST_NAME_PATTERNS: readonly RegExp[] = [
   /(?<![.\w])(?:it|test|describe|context)\s*\(\s*["'`]([^"'`]{3,200})["'`]/g,
+  // Go requires the exported `Test` prefix; Swift's XCTest uses lowercase
+  // `test`. One pattern covering both would match any function starting with
+  // "test" in every language, so they stay separate and explicit.
   /\bfunc\s+(Test[A-Za-z0-9_]{2,120})\s*\(/g,
+  /\bfunc\s+(test[A-Za-z0-9_]{2,120})\s*\(/g,
   /\bdef\s+(test_[A-Za-z0-9_]{2,120})\s*\(/g,
+  // JUnit and friends annotate rather than name-prefix, so the following
+  // method name is the test's identity.
+  /@Test\b[\s\S]{0,200}?\b(?:void|fun)\s+([A-Za-z_][A-Za-z0-9_]{2,120})\s*\(/g,
+  /#\[test\][\s\S]{0,200}?\bfn\s+([A-Za-z_][A-Za-z0-9_]{2,120})\s*\(/g,
 ];
+
+/**
+ * Languages whose test conventions the patterns above cover.
+ *
+ * A file in a comment-supported language absent from this list gets a declared
+ * gap rather than silence: `doc-comment` support is not `test-name` support,
+ * and letting the second ride on the first would report a project as untested
+ * when nobody looked.
+ */
+const TEST_CONVENTION_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py",
+  ".swift", ".java", ".kt", ".rs",
+]);
 
 /** Markup attributes and elements that carry text a user actually sees. */
 const UI_LABEL_PATTERNS: readonly RegExp[] = [
@@ -73,8 +94,11 @@ function lineAt(content: string, index: number): number {
  * thought, and splitting it into five fragments would lose the thought while
  * keeping the words.
  */
-export function docComments(content: string, extension: string): readonly { text: string; line: number }[] {
-  const found: { text: string; line: number }[] = [];
+export function docComments(
+  content: string,
+  extension: string,
+): readonly { text: string; line: number; index: number }[] {
+  const found: { text: string; line: number; index: number }[] = [];
 
   if (SLASH_COMMENT_EXTENSIONS.has(extension)) {
     for (const match of content.matchAll(/\/\*\*?([\s\S]*?)\*\//g)) {
@@ -83,36 +107,46 @@ export function docComments(content: string, extension: string): readonly { text
         .map((line) => line.replace(/^\s*\*?\s?/, "").trimEnd())
         .join("\n")
         .trim();
-      if (text.length >= 3) found.push({ text, line: lineAt(content, match.index) });
+      if (text.length >= 3) found.push({ text, line: lineAt(content, match.index), index: match.index });
     }
 
     const lines = content.split("\n");
     let buffer: string[] = [];
     let start = 0;
+    let startOffset = 0;
+    let offset = 0;
     lines.forEach((line, index) => {
+      const lineOffset = offset;
+      offset += line.length + 1;
       const match = /^\s*\/\/\s?(.*)$/.exec(line);
       if (match) {
-        if (buffer.length === 0) start = index + 1;
+        if (buffer.length === 0) {
+          start = index + 1;
+          startOffset = lineOffset;
+        }
         buffer.push(match[1]!.trim());
         return;
       }
       if (buffer.length > 0) {
         const text = buffer.join(" ").trim();
-        if (text.length >= 3) found.push({ text, line: start });
+        if (text.length >= 3) found.push({ text, line: start, index: startOffset });
         buffer = [];
       }
     });
     if (buffer.length > 0) {
       const text = buffer.join(" ").trim();
-      if (text.length >= 3) found.push({ text, line: start });
+      if (text.length >= 3) found.push({ text, line: start, index: startOffset });
     }
   }
 
   if (HASH_COMMENT_EXTENSIONS.has(extension)) {
+    let offset = 0;
     content.split("\n").forEach((line, index) => {
+      const lineOffset = offset;
+      offset += line.length + 1;
       const match = /^\s*#\s?(.+)$/.exec(line);
       if (match && match[1]!.trim().length >= 3) {
-        found.push({ text: match[1]!.trim(), line: index + 1 });
+        found.push({ text: match[1]!.trim(), line: index + 1, index: lineOffset });
       }
     });
   }
@@ -167,6 +201,7 @@ export function createCodeTextCollector(): SemanticCollector {
       const failures: CollectionFailure[] = [];
       const gaps: EvidenceGap[] = [];
       const unknownExtensions = new Set<string>();
+      const noTestConvention = new Set<string>();
 
       for (const relPath of root.analyzedFiles) {
         const extension = extname(relPath).toLowerCase();
@@ -175,6 +210,9 @@ export function createCodeTextCollector(): SemanticCollector {
         if (!known && !UI_EXTENSIONS.has(extension)) {
           if (extension !== "") unknownExtensions.add(extension);
           continue;
+        }
+        if (known && !TEST_CONVENTION_EXTENSIONS.has(extension)) {
+          noTestConvention.add(extension);
         }
 
         const full = join(root.path, relPath);
@@ -186,7 +224,7 @@ export function createCodeTextCollector(): SemanticCollector {
           const content = readFileSync(full, "utf8");
 
           for (const comment of docComments(content, extension)) {
-            const source = lineRef(root.name, relPath, comment.line);
+            const source = offsetRef(root.name, relPath, content, comment.index);
             items.push({
               rootName: root.name,
               kind: "doc-comment",
@@ -202,7 +240,7 @@ export function createCodeTextCollector(): SemanticCollector {
             const regex = new RegExp(pattern.source, pattern.flags);
             let match: RegExpExecArray | null;
             while ((match = regex.exec(content)) !== null) {
-              const source = lineRef(root.name, relPath, lineAt(content, match.index));
+              const source = offsetRef(root.name, relPath, content, match.index);
               items.push({
                 rootName: root.name,
                 kind: "test-name",
@@ -226,7 +264,7 @@ export function createCodeTextCollector(): SemanticCollector {
               while ((match = regex.exec(content)) !== null) {
                 const text = match[1]!.trim();
                 if (text === "") continue;
-                const source = lineRef(root.name, relPath, lineAt(content, match.index));
+                const source = offsetRef(root.name, relPath, content, match.index);
                 items.push({
                   rootName: root.name,
                   kind: "ui-label",
@@ -255,6 +293,17 @@ export function createCodeTextCollector(): SemanticCollector {
           kind: "doc-comment",
           language: extension,
           reason: `comment syntax for ${extension} files is not recognized, so their comments were not read`,
+        });
+      }
+
+      // Comment support is not test support. Without this, a project in one of
+      // these languages would report no tests rather than reporting that
+      // nobody looked for them.
+      for (const extension of [...noTestConvention].sort()) {
+        gaps.push({
+          kind: "test-name",
+          language: extension,
+          reason: `no test-naming convention is recognized for ${extension} files, so their tests were not identified`,
         });
       }
 
