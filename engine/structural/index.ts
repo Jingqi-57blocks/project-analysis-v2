@@ -111,3 +111,14 @@ export {
   readCapabilityResults,
   wasAttempted,
 } from "./persist.js";
+
+export type {
+  RecordAttribution,
+  FieldConflict,
+  AssembledRecord,
+  AttributedGap,
+  AttributedFailure,
+  AssembledModel,
+} from "./assemble.js";
+export { assemble, extractAll } from "./assemble.js";
+export { recordAssembledModel, readConflicts } from "./persist.js";
