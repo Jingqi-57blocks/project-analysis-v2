@@ -76,6 +76,28 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: "provider-checks",
+    up: `
+      -- Run metadata, not analysis content — the same category as
+      -- phase_metrics, not the knowledge-base layer's domain entities.
+      -- Recorded per snapshot rather than globally: a provider's
+      -- availability and version can change between runs (installed,
+      -- upgraded, removed), and reproducibility depends on knowing which
+      -- state was true for a given knowledge base.
+      CREATE TABLE provider_checks (
+        id            INTEGER PRIMARY KEY,
+        snapshot_id   INTEGER NOT NULL REFERENCES snapshots(id),
+        provider_id   TEXT    NOT NULL,
+        version       TEXT,
+        available     INTEGER NOT NULL,
+        reason        TEXT,
+        checked_at    TEXT    NOT NULL
+      );
+      CREATE INDEX provider_checks_snapshot ON provider_checks(snapshot_id);
+    `,
+  },
 ];
 
 export const SUPPORTED_SCHEMA_VERSION: number =
