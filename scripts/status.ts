@@ -1,7 +1,7 @@
 /**
  * Reports what a knowledge base currently holds for a workspace.
  *
- *   pnpm run status -- [--workspace path] [--db path]
+ *   pnpm run status -- [--workspace path] [--db path] [--run run-id]
  *
  * Defaults `--workspace` to the current directory and `--db` to
  * `./.analysis/kb.sqlite`, matching `scripts/analyze.ts`.
@@ -18,6 +18,8 @@ const DEFAULT_DB_PATH = "./.analysis/kb.sqlite";
 interface Args {
   readonly workspace: string;
   readonly dbPath: string;
+  /** Reports a specific run rather than the latest, so reports can be tied together. */
+  readonly runId: string | undefined;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -29,6 +31,7 @@ function parseArgs(argv: readonly string[]): Args {
   return {
     workspace: resolve(value("--workspace") ?? process.cwd()),
     dbPath: resolve(value("--db") ?? DEFAULT_DB_PATH),
+    runId: value("--run"),
   };
 }
 
@@ -37,14 +40,19 @@ function main(argv: readonly string[]): number {
   const store = openStore(args.dbPath);
 
   try {
-    const status = getStatus(store, args.workspace);
+    const status = getStatus(store, args.workspace, args.runId);
 
     if (!status.analyzed) {
-      console.log(`${args.workspace}: never analyzed`);
+      console.log(
+        args.runId
+          ? `${args.workspace}: no published run ${args.runId}`
+          : `${args.workspace}: never analyzed`,
+      );
       return 0;
     }
 
     console.log(args.workspace);
+    console.log(`  run ${status.runId ?? "(predates run ids)"}`);
     console.log(`  snapshot ${status.snapshotId} (${status.identity}), published ${status.publishedAt}`);
     for (const root of status.roots ?? []) {
       const counts = root.counts.map((c) => `${c.disposition}=${c.count}`).join(" ");

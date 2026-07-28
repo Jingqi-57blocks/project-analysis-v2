@@ -1,4 +1,5 @@
 import type { Store } from "../store/types.js";
+import { newRunId } from "../run/runid.js";
 import { checkDrift } from "./drift.js";
 import { workspaceIdentity } from "./identity.js";
 import type { RootSnapshot } from "./rootsnapshot.js";
@@ -11,7 +12,10 @@ export interface PersistedRoot {
 export interface SnapshotHandle {
   readonly workspaceId: number;
   readonly snapshotId: number;
+  /** Content digest of the analyzed source. Shared by two runs of unchanged source. */
   readonly identity: string;
+  /** Identity of this invocation. Distinct for every run, however little changed. */
+  readonly runId: string;
   /** Row ids for the roots just persisted — inventory attaches `files` rows to these. */
   readonly roots: readonly PersistedRoot[];
 }
@@ -55,6 +59,7 @@ export function beginSnapshot(
   workspacePath: string,
   roots: readonly RootSnapshot[],
   now: string = new Date().toISOString(),
+  runId: string = newRunId(),
 ): SnapshotHandle {
   const identity = workspaceIdentity(roots);
 
@@ -62,13 +67,14 @@ export function beginSnapshot(
     const workspaceId = upsertWorkspace(store, workspacePath, now);
 
     store.run(
-      "INSERT INTO snapshots (workspace_id, identity, created_at, published_at) VALUES (?, ?, ?, NULL)",
-      [workspaceId, identity, now],
+      "INSERT INTO snapshots (workspace_id, identity, created_at, published_at, run_id) VALUES (?, ?, ?, NULL, ?)",
+      [workspaceId, identity, now, runId],
     );
-    const snapshotRow = store.get<{ id: number }>(
-      "SELECT id FROM snapshots WHERE workspace_id = ? AND identity = ? AND created_at = ?",
-      [workspaceId, identity, now],
-    );
+    // Looked up by run id: identity and created_at can repeat across runs, so
+    // they cannot identify the row just inserted.
+    const snapshotRow = store.get<{ id: number }>("SELECT id FROM snapshots WHERE run_id = ?", [
+      runId,
+    ]);
     if (!snapshotRow) throw new Error("Failed to read back the snapshot row just inserted");
 
     const persistedRoots: PersistedRoot[] = [];
@@ -96,7 +102,7 @@ export function beginSnapshot(
       persistedRoots.push({ name: root.name, id: rootRow.id });
     }
 
-    return { workspaceId, snapshotId: snapshotRow.id, identity, roots: persistedRoots };
+    return { workspaceId, snapshotId: snapshotRow.id, identity, runId, roots: persistedRoots };
   });
 }
 

@@ -9,7 +9,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 
-import { declared, fileRef, lineRef } from "../structural/provenance.js";
+import { declared, fileRef, inferred, lineRef } from "../structural/provenance.js";
 import type {
   CollectionFailure,
   CollectorCapabilities,
@@ -24,7 +24,15 @@ export const COLLECTOR_ID = "documentation";
 export const COLLECTOR_VERSION = "1.0.0";
 
 const MAX_FILE_BYTES = 2_000_000;
-const README_NAMES = ["readme.md", "readme.rst", "readme.txt", "readme"];
+const README_NAMES = [
+  "readme.md",
+  "readme.markdown",
+  "readme.rst",
+  "readme.adoc",
+  "readme.asciidoc",
+  "readme.txt",
+  "readme",
+];
 
 /** Configuration files whose keys are worth naming. Values are never read. */
 const CONFIG_NAMES = [".env.example", ".env.sample", "config.example.json"];
@@ -42,17 +50,18 @@ export function isReadme(relPath: string): boolean {
  */
 export function readmeSections(
   content: string,
-): readonly { heading: string | null; text: string; line: number }[] {
+): readonly { heading: string | null; level: number; text: string; line: number }[] {
   const lines = content.split("\n");
-  const sections: { heading: string | null; text: string; line: number }[] = [];
+  const sections: { heading: string | null; level: number; text: string; line: number }[] = [];
 
   let heading: string | null = null;
+  let level = 0;
   let buffer: string[] = [];
   let startLine = 1;
 
   const flush = (): void => {
     const text = buffer.join("\n").trim();
-    if (text !== "" || heading !== null) sections.push({ heading, text, line: startLine });
+    if (text !== "" || heading !== null) sections.push({ heading, level, text, line: startLine });
     buffer = [];
   };
 
@@ -61,6 +70,7 @@ export function readmeSections(
     if (match) {
       flush();
       heading = match[2]!.trim();
+      level = match[1]!.length;
       startLine = index + 1;
       return;
     }
@@ -70,6 +80,32 @@ export function readmeSections(
   flush();
 
   return sections.filter((section) => section.heading !== null || section.text !== "");
+}
+
+/**
+ * Key names from a JSON config file.
+ *
+ * Handled separately because a JSON key line starts with a quote, which the
+ * KEY=VALUE pattern below can never match — so a JSON config would silently
+ * yield nothing from a collector declaring support for it.
+ *
+ * Nested objects contribute dotted paths, so a key's position in the structure
+ * survives without any value being read.
+ */
+export function jsonConfigKeys(content: string): readonly string[] {
+  const keys: string[] = [];
+
+  const walk = (value: unknown, prefix: string): void => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return;
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      const path = prefix === "" ? key : `${prefix}.${key}`;
+      keys.push(path);
+      walk(nested, path);
+    }
+  };
+
+  walk(JSON.parse(content), "");
+  return keys;
 }
 
 /** Key names only. Values may hold credentials, and nothing here has a use for one. */
@@ -165,7 +201,7 @@ export function createDocumentationCollector(): SemanticCollector {
       for (const relPath of root.analyzedFiles) {
         const name = basename(relPath);
         const isManifest = name === "package.json" || name === "composer.json";
-        const isConfig = CONFIG_NAMES.includes(name);
+        const isConfig = CONFIG_NAMES.includes(name.toLowerCase());
 
         if (!isReadme(relPath) && !isManifest && !isConfig) continue;
 
@@ -178,7 +214,8 @@ export function createDocumentationCollector(): SemanticCollector {
 
           if (isReadme(relPath)) {
             sawReadme = true;
-            const markdown = extname(relPath).toLowerCase() === ".md" || extname(relPath) === "";
+            const extension = extname(relPath).toLowerCase();
+            const markdown = extension === ".md" || extension === ".markdown" || extension === "";
             if (!markdown) {
               gaps.push({
                 kind: "readme-section",
@@ -187,23 +224,74 @@ export function createDocumentationCollector(): SemanticCollector {
               });
               continue;
             }
+            let titleTaken = false;
             for (const section of readmeSections(content)) {
               const source = lineRef(root.name, relPath, section.line);
-              items.push({
-                rootName: root.name,
-                kind: section.heading !== null && section.text === "" ? "project-title" : "readme-section",
-                text: section.text === "" ? (section.heading ?? "") : section.text,
-                label: section.heading,
-                symbolId: null,
-                source,
-                provenance: declared(source),
-              });
+
+              // Only the first top-level heading is treated as the project's
+              // title, and even then it is an inference: deciding a heading
+              // names the project is a judgement, not a verbatim reading. A
+              // heading-only section anywhere else is just an empty section.
+              const isTitle = !titleTaken && section.level === 1 && section.heading !== null;
+              if (isTitle) {
+                titleTaken = true;
+                items.push({
+                  rootName: root.name,
+                  kind: "project-title",
+                  text: section.heading!,
+                  label: section.heading,
+                  symbolId: null,
+                  source,
+                  provenance: inferred(source, "medium"),
+                });
+              }
+
+              // The heading and the prose under it are two different facts. A
+              // title carrying the body as its text would conflate them, so
+              // the section is emitted separately whenever it has any.
+              if (section.text !== "") {
+                items.push({
+                  rootName: root.name,
+                  kind: "readme-section",
+                  text: section.text,
+                  label: section.heading,
+                  symbolId: null,
+                  source,
+                  provenance: declared(source),
+                });
+              } else if (!isTitle) {
+                items.push({
+                  rootName: root.name,
+                  kind: "readme-section",
+                  text: section.heading ?? "",
+                  label: section.heading,
+                  symbolId: null,
+                  source,
+                  provenance: declared(source),
+                });
+              }
             }
             continue;
           }
 
           if (isManifest) {
             items.push(...manifestEvidence(root, relPath, content));
+            continue;
+          }
+
+          if (extname(relPath).toLowerCase() === ".json") {
+            const source = fileRef(root.name, relPath);
+            for (const key of jsonConfigKeys(content)) {
+              items.push({
+                rootName: root.name,
+                kind: "config-key",
+                text: key,
+                label: name,
+                symbolId: null,
+                source,
+                provenance: declared(source),
+              });
+            }
             continue;
           }
 

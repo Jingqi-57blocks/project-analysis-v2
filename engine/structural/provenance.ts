@@ -73,6 +73,38 @@ export function lineRef(
   return { rootName, relPath, startLine, endLine, startColumn: null, endColumn: null };
 }
 
+/**
+ * A location including its column, derived from a match offset.
+ *
+ * Text-scanning collectors must use this rather than `lineRef`: two facts on
+ * one line are two facts, and a line-only reference makes them collide in any
+ * identity built from location. That collision silently drops the second, with
+ * no gap and no conflict recorded.
+ */
+export function offsetRef(
+  rootName: string,
+  relPath: string,
+  content: string,
+  index: number,
+): SourceRef {
+  let line = 1;
+  let lineStart = 0;
+  for (let i = 0; i < index && i < content.length; i++) {
+    if (content[i] === "\n") {
+      line += 1;
+      lineStart = i + 1;
+    }
+  }
+  return {
+    rootName,
+    relPath,
+    startLine: line,
+    endLine: line,
+    startColumn: index - lineStart + 1,
+    endColumn: null,
+  };
+}
+
 export function declared(source: SourceRef): Provenance {
   return { resolutionClass: "declared", source };
 }
