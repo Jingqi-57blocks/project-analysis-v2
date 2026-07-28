@@ -27,6 +27,11 @@ function input(overrides: Partial<AssembleReportInput> = {}): AssembleReportInpu
       { id: "cmp_1", name: "auth", rootName: "api", signals: ["folder containment"], memberPaths: ["auth/a.go"] },
     ],
     integrations: [{ from: "ui", to: "api", calls: 3 }],
+    map: [{ from: "ui", to: "api", kind: "internal" as const, detail: "3 calls" }],
+    dataEntities: ["orders", "users"],
+    routesByModule: new Map([["mod_abc", [{ method: "GET", path: "/orders", rootName: "api" }]]]),
+    dataByModule: new Map([["mod_abc", ["orders"]]]),
+    outboundByModule: new Map([["mod_abc", ["https://payments.example.com/charge"]]]),
     signals: [
       {
         id: "root-cycles",
@@ -117,8 +122,43 @@ describe("rendering", () => {
   });
 
   it("says so plainly when there are no integrations", () => {
-    const html = renderHtmlReport(assembleReport(input({ integrations: [] })))[0]!.html;
+    const html = renderHtmlReport(assembleReport(input({ map: [] })))[0]!.html;
     expect(html).toContain("No calls between parts");
+  });
+
+  it("shows the project map, a module list, and what each feature exposes", () => {
+    const [overview, features] = renderHtmlReport(assembleReport(input()));
+    expect(overview!.html).toContain("How the system fits together");
+    expect(overview!.html).toContain("orders");
+    expect(features!.html).toContain("GET /orders");
+    expect(features!.html).toContain("https://payments.example.com/charge");
+  });
+
+  it("filters health down to what deserves attention", () => {
+    // A list nobody finishes reading is a list nobody acts on.
+    const quiet = assembleReport(input());
+    expect(quiet.attentionSignals).toEqual([]);
+    expect(renderHtmlReport(quiet)[0]!.html).toContain("Nothing was found that needs attention");
+
+    const loud = assembleReport(
+      input({
+        signals: [
+          { id: "x", title: "T", finding: "F", severity: "concern", evidence: ["e1"], value: 1 },
+          { id: "y", title: "Y", finding: "G", severity: "info", evidence: [], value: 0 },
+        ],
+      }),
+    );
+    expect(loud.attentionSignals.map((sig) => sig.id)).toEqual(["x"]);
+    expect(renderHtmlReport(loud)[0]!.html).toContain("e1");
+  });
+
+  it("says the code carries no description rather than inventing one", () => {
+    // A report that reads well and is partly invented is worse than one with
+    // visible holes.
+    const html = renderHtmlReport(
+      assembleReport(input({ description: null, evidenceByModule: new Map() })),
+    )[1]!.html;
+    expect(html).toContain("The code carries no description");
   });
 
   it("says so plainly when no features were formed", () => {

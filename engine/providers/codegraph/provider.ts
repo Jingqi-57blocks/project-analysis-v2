@@ -43,6 +43,19 @@ import {
 
 export const PROVIDER_ID = "codegraph";
 
+export interface CodeGraphOptions {
+  /**
+   * Whether to query callees per symbol.
+   *
+   * That loop is one subprocess per callable symbol and dominates extraction —
+   * measured at 96% of a run. A report that needs entry points and structure
+   * but not the call graph can skip it, and the provider then declares
+   * call-edge support as none with the reason, so nothing mistakes the absence
+   * for a codebase without calls.
+   */
+  readonly callEdges?: boolean;
+}
+
 /** Symbol kinds worth asking for callees. Querying every constant would multiply cost for no edges. */
 const CALLABLE_KINDS: ReadonlySet<string> = new Set(["function", "method"]);
 
@@ -54,7 +67,9 @@ const CALLABLE_KINDS: ReadonlySet<string> = new Set(["function", "method"]);
  * has none" — a distinction that decides whether a reader treats emptiness as
  * a finding.
  */
-export function codegraphCapabilities(): ProviderCapabilities {
+export function codegraphCapabilities(options: CodeGraphOptions = {}): ProviderCapabilities {
+  const callEdges = options.callEdges ?? true;
+
   return {
     declarations: [
       { kind: "source-file", language: ANY_LANGUAGE, support: "full", limits: [] },
@@ -67,8 +82,8 @@ export function codegraphCapabilities(): ProviderCapabilities {
       {
         kind: "call-edge",
         language: ANY_LANGUAGE,
-        support: "partial",
-        limits: [
+        support: callEdges ? "partial" : "none",
+        limits: callEdges ? [
           "only functions and methods are queried for callees",
           // Measured against a real Go service: every edge came back resolved,
           // because CodeGraph only reports callees it has indexed. Calls into
@@ -79,7 +94,7 @@ export function codegraphCapabilities(): ProviderCapabilities {
           "dynamic dispatch and reflection are reported as unresolved where they surface",
           "one subprocess call per callable symbol, so extraction time grows with symbol count",
           `at most ${CALLEE_LIMIT} callees are read per symbol; hitting the cap is recorded as a failure`,
-        ],
+        ] : ["call-edge extraction was switched off for this run"],
       },
       {
         kind: "import",
@@ -150,12 +165,25 @@ function standingGaps(): readonly CapabilityGap[] {
   ];
 }
 
+function callEdgeGap(options: CodeGraphOptions): readonly CapabilityGap[] {
+  return options.callEdges === false
+    ? [
+        {
+          kind: "call-edge",
+          language: ANY_LANGUAGE,
+          reason:
+            "call-edge extraction was switched off for this run, so nothing could be traced through the call graph",
+        },
+      ]
+    : [];
+}
+
 interface Extraction {
   readonly records: StructuralRecords;
   readonly failures: readonly ExtractionFailure[];
 }
 
-function extractFrom(root: StructuralRootInput): Extraction {
+function extractFrom(root: StructuralRootInput, options: CodeGraphOptions): Extraction {
   const failures: ExtractionFailure[] = [];
 
   ensureIndexed(root.path);
@@ -198,7 +226,7 @@ function extractFrom(root: StructuralRootInput): Extraction {
   };
 
   const callEdges = [];
-  for (const node of symbolNodes) {
+  for (const node of options.callEdges === false ? [] : symbolNodes) {
     if (!CALLABLE_KINDS.has(node.kind)) continue;
     try {
       const callerId = nodeSymbolId(root.name, node);
@@ -239,8 +267,8 @@ function extractFrom(root: StructuralRootInput): Extraction {
   };
 }
 
-export function createCodeGraphProvider(): StructuralProvider {
-  const capabilities = codegraphCapabilities();
+export function createCodeGraphProvider(options: CodeGraphOptions = {}): StructuralProvider {
+  const capabilities = codegraphCapabilities(options);
 
   return {
     id: PROVIDER_ID,
@@ -277,13 +305,13 @@ export function createCodeGraphProvider(): StructuralProvider {
           : [];
 
       try {
-        const extraction = extractFrom(root);
+        const extraction = extractFrom(root, options);
         return {
           providerId: PROVIDER_ID,
           providerVersion: installed ?? VERIFIED_VERSION,
           rootName: root.name,
           records: extraction.records,
-          gaps: [...standingGaps(), ...versionGap],
+          gaps: [...standingGaps(), ...callEdgeGap(options), ...versionGap],
           failures: extraction.failures,
         };
       } catch (error) {

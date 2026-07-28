@@ -13,7 +13,7 @@
  */
 
 import { stringsFor } from "./strings.js";
-import type { ReportModel } from "./model.js";
+import type { ReportModel, ReportModule } from "./model.js";
 import type { Severity } from "../health/signals.js";
 
 export interface RenderedPage {
@@ -128,76 +128,138 @@ function severityLabel(severity: Severity, s: ReturnType<typeof stringsFor>): st
   return s.severityInfo;
 }
 
-function overviewPage(model: ReportModel, pages: readonly string[][]): RenderedPage {
-  const s = stringsFor(model.language);
-  const d = model.dispositions;
+/**
+ * A Mermaid graph plus a readable list of the same edges.
+ *
+ * Both, because the report must open from disk with no network: nothing draws
+ * the diagram offline, so the list is what a reader actually gets, and the
+ * source is there for anyone who wants to paste it into a tool that renders it.
+ */
+function diagramBlock(
+  edges: readonly { from: string; to: string; kind?: string; detail?: string | null }[],
+  emptyMessage: string,
+): string {
+  if (edges.length === 0) return `<p class="note">${escapeHtml(emptyMessage)}</p>`;
 
-  const rootRows = model.roots
-    .map(
-      (root) =>
-        `<tr><td>${escapeHtml(root.name)}</td><td>${escapeHtml(root.language ?? "—")}</td>` +
-        `<td>${root.analyzed}</td><td>${root.excluded}</td></tr>`,
-    )
+  // Node ids are generated rather than derived from names. A host like
+  // "127.0.0.1:4000" or a root like "wcp-service-v2" is not a valid Mermaid
+  // identifier, and interpolating one produces a diagram that silently fails
+  // to render. Labels carry the real text, quoted.
+  const ids = new Map<string, string>();
+  const idFor = (name: string): string => {
+    const existing = ids.get(name);
+    if (existing) return existing;
+    const id = `n${ids.size}`;
+    ids.set(name, id);
+    return id;
+  };
+
+  const shapeFor = (kind: string | undefined, label: string): string => {
+    if (kind === "datastore") return `[("${label}")]`;
+    if (kind === "external") return `{{"${label}"}}`;
+    return `["${label}"]`;
+  };
+
+  const declared = new Set<string>();
+  const lines: string[] = [];
+
+  for (const edge of edges) {
+    const fromId = idFor(edge.from);
+    const toId = idFor(edge.to);
+
+    if (!declared.has(fromId)) {
+      declared.add(fromId);
+      lines.push(`  ${fromId}["${mermaidLabel(edge.from)}"]`);
+    }
+    if (!declared.has(toId)) {
+      declared.add(toId);
+      lines.push(`  ${toId}${shapeFor(edge.kind, mermaidLabel(edge.to))}`);
+    }
+
+    const label = edge.detail ? `|"${mermaidLabel(edge.detail)}"|` : "";
+    lines.push(`  ${fromId} -->${label} ${toId}`);
+  }
+
+  const source = ["graph LR", ...lines].join("\n");
+
+  const list = edges
+    .map((edge) => {
+      const suffix = edge.detail ? ` · ${escapeHtml(edge.detail)}` : "";
+      return `<li><strong>${escapeHtml(edge.from)}</strong> → <strong>${escapeHtml(edge.to)}</strong>${suffix}</li>`;
+    })
     .join("");
 
-  // Rendered as a readable list first and a Mermaid source block second. The
-  // report must open from disk with no network, so pulling a diagram library
-  // from a CDN is not an option; the source stays available for anyone who
-  // wants to paste it into a tool that draws it.
-  const mermaidSource = [
-    "graph LR",
-    ...model.integrations.map(
-      (i) => `  ${mermaidLabel(i.from)} -->|"${i.calls}"| ${mermaidLabel(i.to)}`,
-    ),
-  ].join("\n");
-
-  const diagram =
-    model.integrations.length > 0
-      ? `<ul>${model.integrations
-          .map(
-            (i) =>
-              `<li><strong>${escapeHtml(i.from)}</strong> → <strong>${escapeHtml(i.to)}</strong> · ${i.calls} ${escapeHtml(s.calls)}</li>`,
-          )
-          .join("")}</ul>
+  return `<ul>${list}</ul>
       <details><summary class="note">Mermaid</summary>
-      <div class="scroll"><pre class="mermaid">${escapeHtml(mermaidSource)}</pre></div></details>`
-      : `<p class="note">${escapeHtml(s.noIntegrations)}</p>`;
+      <div class="scroll"><pre class="mermaid">${escapeHtml(source)}</pre></div></details>`;
+}
+
+function overviewPage(model: ReportModel, pages: readonly string[][]): RenderedPage {
+  const s = stringsFor(model.language);
+  const diagram = diagramBlock(model.map, s.noIntegrations);
 
   const sections: string[][] = [
+    ["what", s.whatItIs],
+    ["map", s.projectMap],
+    ["features", s.modules],
     ["roots", s.roots],
-    ["integrations", s.integrations],
-    ["disposition", s.dispositionTitle],
     ["health", s.health],
     ["coverage", s.coverage],
   ];
 
+  const intro = model.description
+    ? `<p>${escapeHtml(model.description)}</p>`
+    : `<p class="note">${escapeHtml(s.noEvidence)}</p>`;
+
+  const attention = model.attentionSignals;
+
   const body = `
     <h1>${escapeHtml(model.projectName)}</h1>
     <p class="meta">${escapeHtml(s.run)}: ${escapeHtml(model.runId)} · ${escapeHtml(s.generated)}: ${escapeHtml(model.generatedAt)}</p>
-    ${model.description ? `<p>${escapeHtml(model.description)}</p>` : ""}
     ${s.languageFallback ? `<p class="note">${escapeHtml(s.languageFallback)}</p>` : ""}
     ${toc(sections, s.contents)}
 
+    <h2 id="what">${escapeHtml(s.whatItIs)}</h2>
+    ${intro}
+    <p class="note">${model.roots.length} ${escapeHtml(s.roots.toLowerCase())} · ${model.modules.length} ${escapeHtml(s.moduleCount)} · ${model.components.length} ${escapeHtml(s.components.toLowerCase())}${
+      model.dataEntities.length > 0 ? ` · ${model.dataEntities.length} ${escapeHtml(s.entities)}` : ""
+    }</p>
+
+    <h2 id="map">${escapeHtml(s.projectMap)}</h2>
+    ${diagram}
+    <p class="note">${escapeHtml(s.mapCaveat)}</p>
+
+    <h2 id="features">${escapeHtml(s.modules)}</h2>
+    ${
+      model.modules.length === 0
+        ? `<p class="note">${escapeHtml(s.noModules)}</p>`
+        : `<div class="scroll"><table><thead><tr>
+            <th>${escapeHtml(s.modules)}</th><th>${escapeHtml(s.entryPoints)}</th>
+            <th>${escapeHtml(s.partOf)}</th><th>${escapeHtml(s.dataTouched)}</th>
+          </tr></thead><tbody>${model.modules
+            .map(
+              (module) =>
+                `<tr><td><a href="features.html#${escapeHtml(module.id)}">${escapeHtml(module.name)}</a></td>` +
+                `<td>${module.routes.length}</td><td>${escapeHtml(module.rootNames.join(", "))}</td>` +
+                `<td>${escapeHtml(module.dataEntities.slice(0, 4).join(", "))}</td></tr>`,
+            )
+            .join("")}</tbody></table></div>`
+    }
+
     <h2 id="roots">${escapeHtml(s.roots)}</h2>
     <div class="scroll"><table><thead><tr>
-      <th>${escapeHtml(s.project)}</th><th>—</th><th>${escapeHtml(s.files)}</th><th>—</th>
-    </tr></thead><tbody>${rootRows}</tbody></table></div>
-
-    <h2 id="integrations">${escapeHtml(s.integrations)}</h2>
-    ${diagram}
-
-    <h2 id="disposition">${escapeHtml(s.dispositionTitle)}</h2>
-    <div class="scroll"><table><tbody>
-      <tr><td>${escapeHtml(s.behavioural)}</td><td>${d.behavioralSource}</td></tr>
-      <tr><td>${escapeHtml(s.sharedInfrastructure)}</td><td>${d.sharedInfrastructure}</td></tr>
-      <tr><td>${escapeHtml(s.technicalOnly)}</td><td>${d.technicalOnly}</td></tr>
-      <tr><td>${escapeHtml(s.unclassified)}</td><td>${d.unclassified}</td></tr>
-    </tbody></table></div>
+      <th>${escapeHtml(s.project)}</th><th>${escapeHtml(s.files)}</th>
+    </tr></thead><tbody>${model.roots
+      .map((root) => `<tr><td>${escapeHtml(root.name)}</td><td>${root.analyzed}</td></tr>`)
+      .join("")}</tbody></table></div>
 
     <h2 id="health">${escapeHtml(s.health)}</h2>
-    ${model.signals
-      .map(
-        (signal) => `<div class="card ${escapeHtml(signal.severity)}">
+    ${
+      attention.length === 0
+        ? `<p class="note">${escapeHtml(s.noAttention)}</p>`
+        : attention
+            .map(
+              (signal) => `<div class="card ${escapeHtml(signal.severity)}">
       <span class="tag">${escapeHtml(severityLabel(signal.severity, s))}</span>
       <h3>${escapeHtml(signal.title)}</h3>
       <p>${escapeHtml(signal.finding)}</p>
@@ -207,8 +269,9 @@ function overviewPage(model: ReportModel, pages: readonly string[][]): RenderedP
           : `<ul class="note">${signal.evidence.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
       }
     </div>`,
-      )
-      .join("\n")}
+            )
+            .join("\n")
+    }
 
     <h2 id="coverage">${escapeHtml(s.coverage)}</h2>
     <p class="note">${escapeHtml(s.whatWeCouldNotSee)}</p>
@@ -227,6 +290,78 @@ function overviewPage(model: ReportModel, pages: readonly string[][]): RenderedP
 function modulesPage(model: ReportModel, pages: readonly string[][]): RenderedPage {
   const s = stringsFor(model.language);
 
+  const moduleSection = (module: ReportModule): string => {
+    // Scoped to this feature: the roots it spans, the data it touches, and
+    // what it calls outward. The project-wide map is on the overview; a reader
+    // on a feature page wants that feature's shape, not the system's.
+    const edges = [
+      ...module.rootNames.flatMap((root) =>
+        module.dataEntities.length > 0
+          ? [{ from: root, to: "datastore", kind: "datastore", detail: `${module.dataEntities.length} entities` }]
+          : [],
+      ),
+      ...module.rootNames.flatMap((root) =>
+        module.outboundTargets.slice(0, 6).map((target) => ({
+          from: root,
+          to: /^[a-zA-Z][\w+.-]*:\/\/([^/]+)/.exec(target)?.[1] ?? target,
+          kind: "external",
+          detail: null,
+        })),
+      ),
+    ];
+
+    const routes =
+      module.routes.length === 0
+        ? `<p class="note">${escapeHtml(s.noRoutes)}</p>`
+        : `<div class="scroll"><table><thead><tr>
+            <th>${escapeHtml(s.endpoint)}</th><th>${escapeHtml(s.project)}</th>
+          </tr></thead><tbody>${module.routes
+            .map(
+              (route) =>
+                `<tr><td>${escapeHtml(`${route.method ?? "ANY"} ${route.path}`)}</td>` +
+                `<td>${escapeHtml(route.rootName)}</td></tr>`,
+            )
+            .join("")}</tbody></table></div>`;
+
+    return `<div class="card" id="${escapeHtml(module.id)}">
+      <h3>${escapeHtml(module.name)}</h3>
+      <p class="note">${escapeHtml(s.partOf)}: ${escapeHtml(module.rootNames.join(", "))}</p>
+
+      <h4>${escapeHtml(s.whatItIs)}</h4>
+      ${
+        module.evidence.length === 0
+          ? `<p class="note">${escapeHtml(s.noEvidence)}</p>`
+          : module.evidence
+              .slice(0, 3)
+              .map((text) => `<p class="evidence">${escapeHtml(text)}</p>`)
+              .join("")
+      }
+
+      <h4>${escapeHtml(s.entryPoints)}</h4>
+      ${routes}
+
+      <h4>${escapeHtml(s.projectMap)}</h4>
+      ${diagramBlock(edges, s.noIntegrations)}
+
+      <h4>${escapeHtml(s.dataTouched)}</h4>
+      ${
+        module.dataEntities.length === 0
+          ? `<p class="note">—</p>`
+          : `<p>${escapeHtml(module.dataEntities.join(", "))}</p>`
+      }
+
+      <h4>${escapeHtml(s.callsOutward)}</h4>
+      ${
+        module.outboundTargets.length === 0
+          ? `<p class="note">—</p>`
+          : `<ul>${module.outboundTargets
+              .slice(0, 10)
+              .map((target) => `<li>${escapeHtml(target)}</li>`)
+              .join("")}</ul>`
+      }
+    </div>`;
+  };
+
   const body =
     model.modules.length === 0
       ? `<h1>${escapeHtml(s.modules)}</h1><p class="note">${escapeHtml(s.noModules)}</p>`
@@ -234,19 +369,7 @@ function modulesPage(model: ReportModel, pages: readonly string[][]): RenderedPa
     <h1>${escapeHtml(s.modules)}</h1>
     <p class="meta">${escapeHtml(s.run)}: ${escapeHtml(model.runId)}</p>
     ${toc(model.modules.map((m) => [m.id, m.name]), s.contents)}
-    ${model.modules
-      .map(
-        (module) => `<div class="card" id="${escapeHtml(module.id)}">
-      <h3>${escapeHtml(module.name)}</h3>
-      <p class="note">${escapeHtml(s.partOf)}: ${escapeHtml(module.rootNames.join(", "))}</p>
-      <p class="note">${escapeHtml(s.entryPoints)}: ${module.entryPoints.length}</p>
-      ${module.evidence
-        .slice(0, 5)
-        .map((text) => `<p class="evidence">${escapeHtml(text)}</p>`)
-        .join("")}
-    </div>`,
-      )
-      .join("\n")}`;
+    ${model.modules.map(moduleSection).join("\n")}`;
 
   return { filename: "features.html", title: s.modules, html: page(model, s.modules, body, pages) };
 }

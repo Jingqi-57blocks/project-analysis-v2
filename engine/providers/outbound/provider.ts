@@ -68,7 +68,36 @@ const NON_ENDPOINT_HOSTS: readonly string[] = [
 ];
 
 function isEndpoint(url: string): boolean {
-  return !NON_ENDPOINT_HOSTS.some((prefix) => url.startsWith(prefix));
+  if (NON_ENDPOINT_HOSTS.some((prefix) => url.startsWith(prefix))) return false;
+
+  // A host with no dot is a placeholder, not a destination. Measured on real
+  // source: `new URL(path, "http://local")` is a parsing trick, and reporting
+  // "local" as a service this system calls is a claim about the architecture
+  // that nothing supports. Loopback and explicit localhost are kept, since
+  // those are genuine local calls.
+  const host = /^[a-zA-Z][\w+.-]*:\/\/([^/:]+)/.exec(url)?.[1] ?? "";
+  return host.includes(".") || host === "localhost";
+}
+
+/**
+ * Whether the offset falls inside a comment.
+ *
+ * Measured on real source: a Swagger `@host` annotation and an `@termsOfService`
+ * line are doc comments, not calls — and `@host` is the address this service is
+ * *reached at*, so reporting it as outbound reverses the direction. Presenting
+ * either beside a genuine `api.openai.com` call, at equal weight, is the single
+ * most misleading thing this detector can do.
+ */
+function inComment(content: string, index: number): boolean {
+  const lineStart = content.lastIndexOf("\n", index - 1) + 1;
+  const line = content.slice(lineStart, index);
+
+  if (/(^|\s)(\/\/|#|\*|--)/.test(line)) return true;
+
+  // A block comment opened earlier and not yet closed before this point.
+  const before = content.slice(0, index);
+  const opened = before.lastIndexOf("/*");
+  return opened !== -1 && before.indexOf("*/", opened) === -1;
 }
 
 function kindFor(url: string): OutboundKind {
@@ -92,7 +121,8 @@ export function outboundCapabilities(): ProviderCapabilities {
         limits: [
           "absolute URL literals only; relative paths and base-URL composition are not detected",
           "destinations built at runtime are recorded as unresolved, never guessed",
-          "matches are textual, so URLs in comments or documentation strings are possible",
+          "URLs inside comments are skipped, since a doc annotation is not a call — and an inbound @host annotation would otherwise be reported with its direction reversed",
+          "hosts without a dot are treated as placeholders rather than destinations",
           "XML namespace, schema and licence URIs are excluded as identifiers rather than destinations",
           "the calling symbol is not resolved here; it is attached later from source ranges",
           "this is never a complete list of what a service talks to",
@@ -129,6 +159,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
   const dynamicRanges: { start: number; end: number }[] = [];
 
   for (const match of content.matchAll(DYNAMIC_URL)) {
+    if (inComment(content, match.index)) continue;
     dynamicRanges.push({ start: match.index, end: match.index + match[0].length });
     found.push({
       rootName: root.name,
@@ -145,6 +176,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
   for (const match of content.matchAll(ABSOLUTE_URL)) {
     const start = match.index;
     if (dynamicRanges.some((range) => start >= range.start && start < range.end)) continue;
+    if (inComment(content, start)) continue;
 
     const url = match[1]!;
     if (!isEndpoint(url)) continue;
