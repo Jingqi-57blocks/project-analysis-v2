@@ -5,9 +5,8 @@ dist/
 # Analysis output — the knowledge base is always rebuildable from source.
 .analysis/
 
-# Prepared fixtures. The committed fixture source contains no .git anywhere;
-# scripts/setup-fixture.ts materialises runnable copies here with real git
-# roots. Committing a nested .git would turn the fixture into a submodule.
-fixtures/.prepared/
+# Derived target variants. Real targets live outside this repository and are
+# never vendored into it; derivations are working copies only.
+.targets/
 
 .DS_Store
