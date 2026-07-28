@@ -33,6 +33,15 @@ export interface HealthSignal {
 
 export interface HealthInput {
   readonly links: LinkResult;
+  /**
+   * Whether any provider in this run could link a route to its handler.
+   *
+   * Without one, every entry point is untraceable for reasons that have
+   * nothing to do with the project. Reporting that as a concern every single
+   * time trains a reader to skip the section that is supposed to hold the
+   * things worth reading.
+   */
+  readonly handlerLinkingAvailable?: boolean;
   readonly traces: readonly Trace[];
   readonly untracedEntryPoints: number;
   readonly modules: readonly ProductModule[];
@@ -153,14 +162,25 @@ export function computeSignals(input: HealthInput): readonly HealthSignal[] {
   // --- entry points nobody could follow ---
   const totalEntries = input.traces.length + input.untracedEntryPoints;
   const untracedRatio = percent(input.untracedEntryPoints, totalEntries);
+  const linkingAvailable = input.handlerLinkingAvailable ?? true;
   signals.push({
     id: "untraced-entry-points",
     title: "Entry points with no traceable handler",
     finding:
       totalEntries === 0
         ? "No entry points were found."
-        : `${untracedRatio}% of entry points could not be followed into code (${input.untracedEntryPoints} of ${totalEntries}).`,
-    severity: untracedRatio > 50 ? "concern" : untracedRatio > 20 ? "notice" : "info",
+        : linkingAvailable
+          ? `${untracedRatio}% of entry points could not be followed into code (${input.untracedEntryPoints} of ${totalEntries}).`
+          : `No provider in this run links an entry point to the code behind it, so none of the ${totalEntries} entry points could be followed. This is a limit of the analysis, not a finding about the project.`,
+    // Downgraded when nothing could have linked handlers: a universal artifact
+    // of how the run was configured is not a project-specific concern.
+    severity: !linkingAvailable
+      ? "info"
+      : untracedRatio > 50
+        ? "concern"
+        : untracedRatio > 20
+          ? "notice"
+          : "info",
     evidence: [`${input.traces.length} traced, ${input.untracedEntryPoints} untraced`],
     value: untracedRatio,
   });

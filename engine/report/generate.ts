@@ -23,7 +23,7 @@ import { assembleEvidence, collectAll } from "../semantic/assemble.js";
 import { assemble, extractAll } from "../structural/assemble.js";
 import { linkCalls, rootDependencies } from "../linking/link.js";
 import { buildTraces } from "../modules/trace.js";
-import { formModel, formModulesFromRoutes } from "../modules/form.js";
+import { formModel, formModulesFromRoutes, qualifiedFile } from "../modules/form.js";
 import { createSqlSchemaProvider } from "../datamodel/sql.js";
 import { createOrmMigrationProvider } from "../datamodel/orm.js";
 import { computeSignals } from "../health/signals.js";
@@ -93,11 +93,13 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const entityNames = new Set<string>();
   const entitiesByRoot = new Map<string, Set<string>>();
   let projectDescription: string | null = null;
+  const gapRoots = new Map<string, Set<string>>();
 
   const rootSummaries = roots.map((root) => {
     const walk = walkRoot(root.path);
     const analyzedFiles = walk.analyzed.map((file) => file.relPath);
-    allFiles.push(...analyzedFiles);
+    // Qualified by root: two roots sharing a relative path must stay two files.
+    allFiles.push(...analyzedFiles.map((relPath) => qualifiedFile(root.name, relPath)));
 
     // Generated files hold example payloads and mock URLs that are not calls
     // the system makes. Inventory already classified them, so the provider
@@ -126,8 +128,14 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     // A declared gap becomes a sentence in the report rather than a row in a
     // table nobody queries. A reader deciding on this needs to know what was
     // not measured.
+    // Deduplicated across roots. The same provider reports the same standing
+    // gap for every root it runs on, so a ten-root workspace would repeat
+    // eight identical sentences ten times and bury anything specific.
     for (const gap of model.gaps) {
-      coverageNotes.push({ subject: `${root.name} · ${gap.kind}`, note: gap.reason });
+      const key = `${gap.kind}:${gap.reason}`;
+      const existing = gapRoots.get(key);
+      if (existing) existing.add(root.name);
+      else gapRoots.set(key, new Set([root.name]));
     }
 
     for (const provider of dataProviders) {
@@ -203,6 +211,12 @@ export function generateReport(options: GenerateOptions): GenerateResult {
         note: `No provider in this run supplies ${consequence}. This is a gap in the analysis, not a property of the project.`,
       });
     }
+  }
+
+  for (const [key, roots] of gapRoots) {
+    const [kind, ...rest] = key.split(":");
+    const where = roots.size === rootSummaries.length ? "all parts" : [...roots].sort().join(", ");
+    coverageNotes.push({ subject: `${kind} · ${where}`, note: rest.join(":") });
   }
 
   // Partial support is where the report is most likely to mislead: a kind that
@@ -300,6 +314,9 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     links,
     traces: traceResult.traces,
     untracedEntryPoints: traceResult.untraced.length,
+    // No provider populates a route's handler symbol yet, so this is false in
+    // practice — and saying so keeps the signal from crying wolf every run.
+    handlerLinkingAvailable: routes.some((route) => route.handlerSymbolId !== null),
     modules,
     components: formation.components,
     dispositions: formation.counts,
