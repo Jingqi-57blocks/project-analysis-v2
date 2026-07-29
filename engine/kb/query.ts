@@ -246,12 +246,23 @@ export class KnowledgeBase {
     };
   }
 
-  /** Every flow through the capabilities a module serves. */
+  /**
+   * The flows through this module's own endpoints.
+   *
+   * A module serves capabilities, and a capability spans more than one module
+   * — so every flow of every capability it touches is a far wider set than
+   * this module's own. Handed to a document as "the request paths through
+   * it", the difference is another module's routes attributed to this one:
+   * measured at 55 flows for a 24-endpoint module.
+   */
   flowsForModule(moduleId: string): readonly FeatureFlowFact[] {
     const detail = this.moduleDetail(moduleId);
-    return detail === null
-      ? []
-      : detail.features.flatMap((feature) => this.flowsForFeature(feature.id));
+    if (detail === null) return [];
+
+    const own = new Set(detail.module.entryKeys);
+    return detail.features
+      .flatMap((feature) => this.flowsForFeature(feature.id))
+      .filter((flow) => own.has(flow.entryKey));
   }
 
   /** The entities the capabilities a module serves were observed to use. */
@@ -277,12 +288,27 @@ export class KnowledgeBase {
     return this.featureFindings().filter((finding) => ids.has(finding.featureId));
   }
 
-  /** Every published rule of the capabilities a module serves. */
+  /**
+   * Rules enforced in the files this module's own flows reach.
+   *
+   * Scoped the same way as the flows, and for the same reason: a capability's
+   * rules are not this module's rules unless this module's endpoints run them.
+   */
   rulesForModule(moduleId: string): readonly BusinessRule[] {
     const detail = this.moduleDetail(moduleId);
-    return detail === null
-      ? []
-      : detail.features.flatMap((feature) => this.rulesForFeature(feature.id));
+    if (detail === null) return [];
+
+    const files = new Set(
+      this.flowsForModule(moduleId).flatMap((flow) =>
+        flow.steps
+          .filter((step) => step.provenance !== null)
+          .map((step) => `${step.provenance!.source.rootName}/${step.provenance!.source.relPath}`),
+      ),
+    );
+
+    return detail.features
+      .flatMap((feature) => this.rulesForFeature(feature.id))
+      .filter((rule) => files.has(`${rule.rootName}/${rule.relPath}`));
   }
 
   /** Which modules serve a capability. A capability can span several. */

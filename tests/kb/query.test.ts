@@ -235,3 +235,32 @@ describe("more than one project in one file", () => {
     }
   });
 });
+
+describe("what belongs to a module", () => {
+  it("hands a module its own flows, not every flow of every capability it serves", () => {
+    // A capability spans more than one module. Measured on a real target: a
+    // 24-endpoint module was handed 55 flows, 31 of them another module's,
+    // under a prompt calling them "the request paths through it".
+    for (const module of kb.modules()) {
+      const own = new Set(module.entryKeys);
+      for (const flow of kb.flowsForModule(module.id)) {
+        expect(own.has(flow.entryKey), `${module.name} ← ${flow.entryKey}`).toBe(true);
+      }
+    }
+  });
+
+  it("keeps a module's rules to the files its own flows reach", () => {
+    for (const module of kb.modules()) {
+      const files = new Set(
+        kb.flowsForModule(module.id).flatMap((flow) =>
+          flow.steps
+            .filter((step) => step.provenance !== null)
+            .map((step) => `${step.provenance!.source.rootName}/${step.provenance!.source.relPath}`),
+        ),
+      );
+      for (const rule of kb.rulesForModule(module.id)) {
+        expect(files.has(`${rule.rootName}/${rule.relPath}`)).toBe(true);
+      }
+    }
+  });
+});
