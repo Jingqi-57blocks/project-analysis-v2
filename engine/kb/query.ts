@@ -35,7 +35,7 @@ import type {
   FieldRecord,
 } from "../datamodel/types.js";
 import type { BusinessRule } from "../semantics/rules.js";
-import type { DecisionRecord } from "../structural/rules.js";
+import type { DecisionRecord, GuardRecord } from "../structural/rules.js";
 import { bestSetFor, type ValueSet } from "../semantics/enums.js";
 import type {
   CoverageNote,
@@ -304,6 +304,25 @@ export class KnowledgeBase {
   /** Every decision the code makes, as trees. */
   decisions(): readonly DecisionRecord[] {
     return this.structural("decision") as readonly DecisionRecord[];
+  }
+
+  /** Every gate — an `if` that rejects with a message — the code enforces. */
+  guards(): readonly GuardRecord[] {
+    return this.structural("guard") as readonly GuardRecord[];
+  }
+
+  /**
+   * The gates enforced in a capability's own files.
+   *
+   * The business rules that are not literal comparisons — an office check, a
+   * balance test, an attachment requirement — each stated by the message it
+   * rejects with. Scoped by file, the same way decisions are.
+   */
+  guardsForFeature(featureId: string): readonly GuardRecord[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const owned = new Set(feature.filePaths);
+    return this.guards().filter((guard) => owned.has(`${guard.rootName}/${guard.source.relPath}`));
   }
 
   /**

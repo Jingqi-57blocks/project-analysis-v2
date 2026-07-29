@@ -104,6 +104,29 @@ export interface ConditionRecord {
 }
 
 /**
+ * A gate: an `if` that stops the work and says why.
+ *
+ * Where `condition` reads comparisons against a literal — `hours > 16` — a
+ * guard reads the business rules that are *not* literal comparisons: a call
+ * (`if IsPresaleOrEOR()`), two values compared (`if requested > available`), a
+ * length or membership test. What makes it a rule worth recording rather than
+ * plumbing is that the branch rejects *with a message* — `"Attachment is
+ * required."`, `"Not enough holiday."` — so the message is the rule stated in
+ * the code's own words. A guard that only propagates an error (`return err`)
+ * carries no such message and is left out.
+ */
+export interface GuardRecord {
+  readonly rootName: string;
+  /** The condition as written: `IsPresaleOrEOR()`, `maxAvailable < total`. */
+  readonly test: string;
+  /** The message the rejection states — the rule in the code's own words. */
+  readonly message: string;
+  readonly enclosingFunction: string | null;
+  readonly source: SourceRef;
+  readonly provenance: Provenance;
+}
+
+/**
  * A call whose failure nobody can observe.
  *
  * Distinct from an absence of error handling: here the result carrying the

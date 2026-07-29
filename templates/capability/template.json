@@ -32,6 +32,7 @@
       "requires": [
         "feature-decisions:$capability",
         "feature-rules:$capability",
+        "feature-guards:$capability",
         "feature-flows:$capability",
         "value-sets"
       ],
@@ -43,7 +44,7 @@
       "kind": "llm",
       "heading": "The rules it enforces",
       "prompt": "prompts/rules.md",
-      "requires": ["feature-rules:$capability"],
+      "requires": ["feature-rules:$capability", "feature-guards:$capability"],
       "contract": { "maxWords": 800, "maxHeadingLevel": 3 },
       "omitWhenEmpty": true
     },

@@ -33,6 +33,7 @@ import type {
 import type {
   ErrorHandlingRecord,
   ConditionRecord,
+  GuardRecord,
   DecisionRecord,
   DiscardedErrorRecord,
   TransactionBoundaryRecord,
@@ -86,6 +87,7 @@ export const CONDITIONAL_KINDS = [
   "error-handling",
   "condition",
   "decision",
+  "guard",
   "discarded-error",
   // What the project stores. Three readers find these — SQL DDL, ORM
   // migrations, Go structs — and a table declared in two of them is one table
@@ -133,6 +135,7 @@ export interface StructuralRecords {
   readonly "error-handling": readonly ErrorHandlingRecord[];
   readonly condition: readonly ConditionRecord[];
   readonly decision: readonly DecisionRecord[];
+  readonly guard: readonly GuardRecord[];
   readonly "discarded-error": readonly DiscardedErrorRecord[];
   readonly entity: readonly EntityRecord[];
   readonly "entity-field": readonly FieldRecord[];
@@ -176,6 +179,7 @@ export function emptyRecords(): StructuralRecords {
     "error-handling": [],
     condition: [],
     decision: [],
+    guard: [],
     "discarded-error": [],
     entity: [],
     "entity-field": [],
