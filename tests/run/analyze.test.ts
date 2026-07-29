@@ -374,7 +374,13 @@ describe("where the code index goes", () => {
         "SELECT payload FROM derived_records WHERE snapshot_id = ? AND kind = 'coverage-note'",
         [result.snapshotId],
       );
-      expect(notes.some((note) => JSON.parse(note.payload).subject === "code-index")).toBe(false);
+      // Refusing the write is supported, and what it costs is stated: on a
+      // project whose frameworks the in-process readers do not cover, it is
+      // the difference between a described system and an empty one.
+      const note = notes
+        .map((row) => JSON.parse(row.payload) as { subject: string; note: string })
+        .find((entry) => entry.subject === "code-index");
+      expect(note?.note).toContain("no code index was built");
     } finally {
       store.close();
     }

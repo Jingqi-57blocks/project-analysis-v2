@@ -38,7 +38,7 @@ export interface DeriveInput {
   readonly generatedAt: string;
   readonly workspacePath: string;
   /** Where this run wrote a code index, when it wrote one. */
-  readonly codeIndexPath?: string | null;
+  readonly codeIndexPath?: string | null | undefined;
 }
 
 export interface Derived {
@@ -111,6 +111,15 @@ export function derive(input: DeriveInput): Derived {
     notes.push({
       subject: "code-index",
       note: `a code index was written to ${input.codeIndexPath}/.codegraph — the only thing this analysis writes anywhere near the project, and the indexer offers no way to put it elsewhere; pass --index-root to move it or --no-code-index to skip it`,
+    });
+  } else if (input.codeIndexPath === null) {
+    // Refusing the write is supported, and on a project whose frameworks the
+    // in-process readers do not cover it costs most of the analysis. Measured
+    // on angels-pizza: 486 of 594 entry points came from the index, and
+    // without them no capability forms at all.
+    notes.push({
+      subject: "code-index",
+      note: "no code index was built for this run, so entry points and symbols came only from the in-process readers; on a project whose frameworks those readers do not cover, that is the difference between a described system and an empty one",
     });
   }
 
