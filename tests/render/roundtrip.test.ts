@@ -428,58 +428,6 @@ describe("what the review found", () => {
     expect(() => resolveSelector(kb, "toString", {})).toThrow(SelectorError);
   });
 
-  it("labels a decision whose subject is a call without leaving a stray bracket", () => {
-    // `switch strings.ToLower(item.name)` reached the diagram titled "name)":
-    // the humaniser split the call on "." and kept the fragment after it.
-    const diagram = renderFragment("decision-diagrams", {
-      kb,
-      params: {},
-      data: {
-        "feature-decisions": [
-          {
-            subject: "toLower(item.name)",
-            enclosingFunction: null,
-            branches: [
-              { test: "uto", values: ["uto"], outcome: "continues" },
-              { test: "funeral leave", values: ["funeral leave"], outcome: "leaves" },
-              { test: "otherwise", values: [], outcome: "leaves" },
-            ],
-          },
-        ],
-      },
-    });
-    expect(diagram).toContain('q["name?"]');
-    expect(diagram).not.toContain("name)");
-  });
-
-  it("draws one choice once, however many functions make it", () => {
-    // A leave-type switch recurs in several functions under different variable
-    // names; six near-identical diagrams is not six facts.
-    const leaveTypeSwitch = (subject: string, fn: string) => ({
-      subject,
-      enclosingFunction: fn,
-      branches: [
-        { test: "constant.PtoC", values: ["constant.PtoC"], outcome: "continues" },
-        { test: "constant.BtoC.Uint8()", values: ["constant.BtoC.Uint8()"], outcome: "continues" },
-        { test: "otherwise", values: [], outcome: "leaves" },
-      ],
-    });
-    const diagram = renderFragment("decision-diagrams", {
-      kb,
-      params: {},
-      data: {
-        "feature-decisions": [
-          leaveTypeSwitch("hType", "maxAvailableHoliday"),
-          leaveTypeSwitch("t", "withdrawHours"),
-          leaveTypeSwitch("hldType", "consumeByYear"),
-        ],
-      },
-    });
-    // One diagram, not three, and it says how many places make the choice.
-    expect(diagram.match(/flowchart TD/g)).toHaveLength(1);
-    expect(diagram).toContain("the same choice is made in 3 places");
-  });
-
   it("states each kind of limitation once, with a count, not once per file", () => {
     // 223 screens each noted that their path mirrors a component; the section
     // listed all 223. One line, "and N more", says the same thing readably.

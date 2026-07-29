@@ -11,6 +11,7 @@
  * template's business.
  */
 
+import { isRealIntegration } from "./hosts.js";
 import { inferBaseBindings, linkCallsScoped } from "../linking/binding.js";
 import { resolveHandlers } from "../linking/handlers.js";
 import { linkCalls, rootDependencies } from "../linking/link.js";
@@ -78,7 +79,11 @@ function projectMap(
     externalHosts.set(call.rootName, forRoot);
   }
   for (const [rootName, hosts] of externalHosts) {
+    // A localhost port or an unfilled `xxxx.xxx.com` template is not a system
+    // the platform talks to; drawing it in the topology reads as a real
+    // dependency. The external-systems section states how many were dropped.
     for (const host of [...hosts].sort()) {
+      if (!isRealIntegration(host)) continue;
       map.push({ from: rootName, to: host, kind: "external", detail: null });
     }
   }

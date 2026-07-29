@@ -100,10 +100,8 @@ describe("a fragment gets what its section was told to require", () => {
   // selector and still hand the fragment nothing it reads, because a
   // parameterized selector is keyed with its argument.
   const READS: Readonly<Record<string, readonly string[]>> = {
-    "project-map": ["run-context", "map-edges"],
+    "project-map": ["map-edges"],
     "external-systems": ["map-edges"],
-    "stored-kinds": ["entities"],
-    "decision-diagrams": ["feature-decisions"],
     "capability-data": ["feature-detail"],
     limitations: ["coverage-notes", "extraction-failures"],
   };

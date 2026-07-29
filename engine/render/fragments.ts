@@ -8,9 +8,9 @@
  */
 
 import type { KnowledgeBase, Coverage } from "../kb/query.js";
-import type { CoverageNote, FeatureFact, MapEdge, RunContext } from "../kb/facts.js";
-import { bestSetFor, type ValueSet } from "../semantics/enums.js";
-import { escapeLabel } from "../flows/mermaid.js";
+import type { CoverageNote, FeatureFact, MapEdge } from "../kb/facts.js";
+import { mapToMermaid } from "../flows/mermaid.js";
+import { isRealIntegration } from "../kb/hosts.js";
 import { FRAME_EN, t, type Glossary } from "./strings.js";
 
 export interface FragmentInput {
@@ -33,64 +33,6 @@ type Fragment = (input: FragmentInput) => string;
 
 function pick<T>(input: FragmentInput, selector: string): T | undefined {
   return input.data[selector] as T | undefined;
-}
-
-
-/**
- * A value as a person would say it.
- *
- * `constant.PtoC` is a package, a name and a Go constant suffix; a reader
- * wants "pto". `wcp_leave_detail` is a table prefix and underscores; they
- * want "leave detail".
- */
-function readableValue(text: string): string {
-  // `constant.PtoC.Uint8()` names PTO and then converts it; the conversion is
-  // not the value. Drop call segments before taking the last one.
-  const segments = text.split(".").filter((segment) => !segment.endsWith("()"));
-  const last = segments[segments.length - 1] ?? text;
-  return readableName(last.replace(/C$/, "").replace(/^[a-z]{2,4}_/i, ""));
-}
-
-/** An identifier as a person would say it: `lv.LeaveType` → "leave type". */
-function readableName(text: string): string {
-  // A subject can be a call — `toLower(item.name)`. What is being decided on is
-  // the argument, not the call, and splitting a call on "." left a stray `name)`
-  // as the label. Unwrap to what is inside the parentheses first.
-  const unwrapped = /^[\w.]+\((.+)\)$/.exec(text.trim())?.[1] ?? text;
-  const last = unwrapped.split(".").pop() ?? unwrapped;
-  return last
-    .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replaceAll(/[_-]+/g, " ")
-    .replaceAll(/[()]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-/** The names a project gives the values a branch tests, where it gives any. */
-function nameValues(
-  values: readonly (string | number)[],
-  subject: string,
-  sets: readonly ValueSet[],
-): string | null {
-  const set = bestSetFor(subject, sets);
-  if (set === null) return null;
-
-  const named = values
-    .map((value) => set.members.find((member) => member.value === value)?.name)
-    .filter((name): name is string => name !== undefined)
-    .map((name) => readableName(name));
-  return named.length === 0 ? null : named.join(", ");
-}
-
-interface DecisionShape {
-  readonly subject: string;
-  readonly enclosingFunction: string | null;
-  readonly branches: readonly {
-    readonly test: string;
-    readonly values: readonly (string | number)[];
-    readonly outcome: string;
-    readonly touches?: readonly string[];
-  }[];
 }
 
 
@@ -157,9 +99,14 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
   "project-map": (input) => {
     const f = input.frame ?? FRAME_EN;
-    const context = pick<RunContext | null>(input, "run-context");
-    const edges = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
-    const parts = [mermaid(context?.mapDiagram ?? "")];
+    const all = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
+    // A localhost port or an unfilled `xxxx.xxx.com` template is not a system
+    // the platform talks to. Filtered here as well as at the KB's map so an
+    // older knowledge base, built before the filter, still draws a clean map.
+    const edges = all.filter(
+      (edge) => edge.kind !== "external" || isRealIntegration(edge.to),
+    );
+    const parts = [mermaid(mapToMermaid(edges))];
     if (edges.length > 0) {
       parts.push(
         table(
@@ -192,7 +139,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     const real = new Map<string, Set<string>>();
     let dropped = 0;
     for (const edge of external) {
-      if (NOT_AN_INTEGRATION.test(edge.to) || isPlaceholderHost(edge.to)) {
+      if (!isRealIntegration(edge.to)) {
         dropped += 1;
         continue;
       }
@@ -214,141 +161,6 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       lines.push("", t(f, dropped === 1 ? "address-left-out" : "addresses-left-out", dropped));
     }
     return lines.join("\n");
-  },
-
-  /** The kinds of thing the system keeps, without naming a single table. */
-  "stored-kinds": (input) => {
-    const f = input.frame ?? FRAME_EN;
-    const entities = pick<readonly { name: string; rootName: string }[]>(input, "entities") ?? [];
-    if (entities.length === 0) {
-      return coverageLine(pick<Coverage>(input, "coverage:entity"), "table declarations");
-    }
-
-    // The name a project gives a table is usually the name of the thing —
-    // `wcp_leave_detail` is a leave detail. Stripping the project's own
-    // prefix and the underscores leaves the noun a reader recognises.
-    const words = new Map<string, number>();
-    for (const entity of entities) {
-      const readable = entity.name
-        .replace(/^[a-z]{2,4}_/i, "")
-        .replaceAll(/[_-]+/g, " ")
-        .trim();
-      if (readable === "") continue;
-      words.set(readable, (words.get(readable) ?? 0) + 1);
-    }
-
-    const named = [...words.keys()].sort();
-    const shown = named.slice(0, 24).join(", ");
-    const names = named.length > 24 ? `${shown}, ${t(f, "and-more", named.length - 24)}` : shown;
-    return [
-      t(f, "keeps-records", entities.length, names),
-      "",
-      t(f, "full-schema-note"),
-    ].join("\n");
-  },
-
-  /**
-   * The choices the code makes, drawn.
-   *
-   * Only decisions with a subject every branch agrees on: those are one
-   * question with several answers, which is what a diagram can show honestly.
-   * A chain of unrelated guards is a sequence, not a choice, and drawing it
-   * as one would invent a structure the code does not have.
-   */
-  "decision-diagrams": (input) => {
-    const f = input.frame ?? FRAME_EN;
-    const decisions = pick<readonly DecisionShape[]>(input, "feature-decisions") ?? [];
-    const sets = pick<readonly ValueSet[]>(input, "value-sets") ?? [];
-
-    // A decision is worth drawing when something is known about where its
-    // branches lead. One where every branch reads "not established" tells a
-    // reader the choice exists and nothing about why it matters — which is
-    // worse than a sentence, because it looks like an answer.
-    const eligible = decisions.filter(
-      (decision) =>
-        decision.subject !== "" &&
-        decision.branches.length > 1 &&
-        decision.branches.some(
-          (branch) => (branch.touches ?? []).length > 0 || branch.outcome === "leaves",
-        ),
-    );
-
-    // The same choice made in six functions is one choice to a reader, not six
-    // near-identical diagrams. Decisions are collapsed by the shape of their
-    // branches — the values tested, where each leads, what each touches —
-    // ignoring the variable and the function, so the leave-type switch that
-    // recurs everywhere is drawn once and told how often it recurs. Keyed on
-    // `readableValue`, so `constant.PtoC` and `constant.PtoC.Uint8()` are the
-    // same answer.
-    const shapeOf = (decision: DecisionShape): string =>
-      JSON.stringify(
-        decision.branches
-          .map((branch) => ({
-            v: branch.test === "otherwise" ? "*" : readableValue(branch.test),
-            o: branch.outcome,
-            t: [...(branch.touches ?? [])].map(readableValue).sort(),
-          }))
-          .sort((a, b) => a.v.localeCompare(b.v)),
-      );
-    const groups = new Map<string, { decision: DecisionShape; count: number }>();
-    for (const decision of eligible) {
-      const existing = groups.get(shapeOf(decision));
-      if (existing) existing.count += 1;
-      else groups.set(shapeOf(decision), { decision, count: 1 });
-    }
-
-    const worth = [...groups.values()]
-      .sort((a, b) => b.decision.branches.length - a.decision.branches.length)
-      .slice(0, 6);
-    if (worth.length === 0) return "";
-
-    return worth
-      .map(({ decision, count }) => {
-        const where =
-          decision.enclosingFunction === null
-            ? ""
-            : t(f, "while", readableName(decision.enclosingFunction));
-        const lines = ["flowchart TD", `  q["${escapeLabel(readableName(decision.subject))}?"]`];
-
-        // Branches that end the same way are drawn as one. Ten arrows to ten
-        // identical boxes is a picture of the code's shape, not of what it
-        // decides — the reader wants the answers grouped by what they lead to.
-        const byOutcome = new Map<string, string[]>();
-        for (const branch of decision.branches) {
-          const named = nameValues(branch.values, decision.subject, sets);
-          const label =
-            branch.test === "otherwise" ? t(f, "anything-else") : (named ?? readableValue(branch.test));
-
-          const touches = branch.touches ?? [];
-          let outcome: string;
-          if (touches.length > 0) {
-            const shownTouches = touches.slice(0, 3).map(readableValue).join(", ");
-            const list =
-              touches.length > 3 ? `${shownTouches}, ${t(f, "and-more", touches.length - 3)}` : shownTouches;
-            outcome = branch.outcome === "leaves" ? t(f, "stops-having-used", list) : t(f, "uses", list);
-          } else {
-            outcome = branch.outcome === "leaves" ? t(f, "stops-here") : t(f, "handled-unknown");
-          }
-
-          byOutcome.set(outcome, [...(byOutcome.get(outcome) ?? []), label]);
-        }
-
-        let n = 0;
-        for (const [outcome, labels] of byOutcome) {
-          const id = `b${n++}`;
-          const shown = labels.slice(0, 6).join(", ");
-          const label = `${shown}${labels.length > 6 ? `, ${t(f, "and-more", labels.length - 6)}` : ""}`;
-          lines.push(`  ${id}["${escapeLabel(outcome)}"]`);
-          lines.push(`  q -->|"${escapeLabel(label.slice(0, 90))}"| ${id}`);
-        }
-
-        const recurs = count > 1 ? t(f, "made-in-places", count) : "";
-        return [
-          `**${readableName(decision.subject)}**${where}${recurs}`,
-          mermaid(lines.join("\n")),
-        ].join("\n\n");
-      })
-      .join("\n\n");
   },
 
   /** What one capability keeps, without naming a table. */
@@ -455,18 +267,3 @@ export function renderFragment(name: string, input: FragmentInput): string {
 }
 
 
-/**
- * Hosts a system talks to that are worth a reader's attention.
- *
- * A URL literal in a codebase is as likely to be a documentation link, a
- * localhost port or an XML namespace as an integration. Left in, they make
- * the list absurd — "this platform connects to Stack Overflow" — so they are
- * dropped, and the count of what was dropped is stated rather than hidden.
- */
-const NOT_AN_INTEGRATION =
-  /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])|(\.local$)|^(www\.)?(github|stackoverflow|vuejs|reactjs|npmjs|apidocjs|code\.visualstudio|developer\.mozilla|twitter|x)\.(com|org|net)$/i;
-
-function isPlaceholderHost(host: string): boolean {
-  // `xxxx.xxx.com`, `example.com`, `your-domain.com` — a template nobody filled in.
-  return /^(x+|example|test|foo|bar|your[-_]?\w*)\./i.test(host) || /\bexample\.(com|org)$/i.test(host);
-}

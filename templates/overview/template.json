@@ -23,7 +23,7 @@
       "kind": "code",
       "heading": "How it fits together",
       "fragment": "project-map",
-      "requires": ["run-context", "map-edges"]
+      "requires": ["map-edges"]
     },
     {
       "id": "capabilities",
