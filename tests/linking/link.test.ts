@@ -23,6 +23,7 @@ function route(rootName: string, method: string | null, path: string): RouteReco
     path,
     handlerSymbolId: null,
     handlerName: null,
+    handlerCandidates: [],
     middleware: [],
     provenance: inferred(source, "low"),
   };

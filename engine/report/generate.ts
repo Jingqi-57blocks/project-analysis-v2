@@ -21,6 +21,9 @@ import { createDocumentationCollector } from "../collectors/documentation.js";
 import { createCodeTextCollector } from "../collectors/code.js";
 import { assembleEvidence, collectAll } from "../semantic/assemble.js";
 import { assemble, extractAll } from "../structural/assemble.js";
+import { consolidateRoutes } from "../structural/routededupe.js";
+import { createFrameworkRoutesProvider } from "../providers/frameworkroutes/provider.js";
+import { resolveHandlers } from "../linking/handlers.js";
 import { linkCalls, rootDependencies } from "../linking/link.js";
 import { buildTraces } from "../modules/trace.js";
 import { formModel, formModulesFromRoutes, qualifiedFile } from "../modules/form.js";
@@ -76,6 +79,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     createManifestProvider(),
     createOutboundProvider(),
     createConventionsProvider(),
+    createFrameworkRoutesProvider(),
     ...(options.extraProviders ?? [createCodeGraphProvider({ callEdges: false })]),
   ];
   const collectors = [createDocumentationCollector(), createCodeTextCollector()];
@@ -108,7 +112,10 @@ export function generateReport(options: GenerateOptions): GenerateResult {
       walk.analyzed.filter((file) => file.classification === "generated").map((f) => f.relPath),
     );
     const input = { name: root.name, path: root.path, analyzedFiles };
-    const model = assemble(root.name, extractAll(structuralProviders, input));
+    // Consolidation folds CodeGraph's prefix-less route inferences into the
+    // framework reader's full paths — different record keys, so the merge
+    // contract alone cannot unify them.
+    const model = consolidateRoutes(assemble(root.name, extractAll(structuralProviders, input)));
 
     for (const record of model.records) {
       if (record.kind === "route") routes.push(record.record as RouteRecord);
@@ -235,6 +242,20 @@ export function generateReport(options: GenerateOptions): GenerateResult {
         coverageNotes.push({ subject: declaration.kind, note: limit });
       }
     }
+  }
+
+  // Routes gain their handler symbols here: the framework reader knows the
+  // handler's name, the structural provider owns symbol identity, and only
+  // after assembly do both sides exist.
+  const handlerResolution = resolveHandlers(routes, symbols);
+  const linkedRoutes = handlerResolution.routes;
+  routes.length = 0;
+  routes.push(...linkedRoutes);
+  if (handlerResolution.unresolved.length > 0) {
+    coverageNotes.push({
+      subject: "route-handlers",
+      note: `${handlerResolution.unresolved.length} of ${routes.length} route handlers could not be resolved to a unique symbol; their traces stop at the route`,
+    });
   }
 
   const links = linkCalls(calls, routes);
