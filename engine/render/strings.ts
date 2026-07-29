@@ -38,6 +38,7 @@ export const FRAME_EN: Glossary = {
   "and-more": "and {0} more",
 
   while: " — while {0}",
+  "made-in-places": " — the same choice is made in {0} places",
   "anything-else": "anything else",
   "stops-here": "stops here",
   "handled-unknown": "handled — what it does was not established",

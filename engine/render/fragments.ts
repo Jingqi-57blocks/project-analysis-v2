@@ -264,21 +264,46 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     // branches lead. One where every branch reads "not established" tells a
     // reader the choice exists and nothing about why it matters — which is
     // worse than a sentence, because it looks like an answer.
-    const worth = decisions
-      .filter(
-        (decision) =>
-          decision.subject !== "" &&
-          decision.branches.length > 1 &&
-          decision.branches.some(
-            (branch) => (branch.touches ?? []).length > 0 || branch.outcome === "leaves",
-          ),
-      )
-      .sort((a, b) => b.branches.length - a.branches.length)
+    const eligible = decisions.filter(
+      (decision) =>
+        decision.subject !== "" &&
+        decision.branches.length > 1 &&
+        decision.branches.some(
+          (branch) => (branch.touches ?? []).length > 0 || branch.outcome === "leaves",
+        ),
+    );
+
+    // The same choice made in six functions is one choice to a reader, not six
+    // near-identical diagrams. Decisions are collapsed by the shape of their
+    // branches — the values tested, where each leads, what each touches —
+    // ignoring the variable and the function, so the leave-type switch that
+    // recurs everywhere is drawn once and told how often it recurs. Keyed on
+    // `readableValue`, so `constant.PtoC` and `constant.PtoC.Uint8()` are the
+    // same answer.
+    const shapeOf = (decision: DecisionShape): string =>
+      JSON.stringify(
+        decision.branches
+          .map((branch) => ({
+            v: branch.test === "otherwise" ? "*" : readableValue(branch.test),
+            o: branch.outcome,
+            t: [...(branch.touches ?? [])].map(readableValue).sort(),
+          }))
+          .sort((a, b) => a.v.localeCompare(b.v)),
+      );
+    const groups = new Map<string, { decision: DecisionShape; count: number }>();
+    for (const decision of eligible) {
+      const existing = groups.get(shapeOf(decision));
+      if (existing) existing.count += 1;
+      else groups.set(shapeOf(decision), { decision, count: 1 });
+    }
+
+    const worth = [...groups.values()]
+      .sort((a, b) => b.decision.branches.length - a.decision.branches.length)
       .slice(0, 6);
     if (worth.length === 0) return "";
 
     return worth
-      .map((decision) => {
+      .map(({ decision, count }) => {
         const where =
           decision.enclosingFunction === null
             ? ""
@@ -317,7 +342,11 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
           lines.push(`  q -->|"${escapeLabel(label.slice(0, 90))}"| ${id}`);
         }
 
-        return [`**${readableName(decision.subject)}**${where}`, mermaid(lines.join("\n"))].join("\n\n");
+        const recurs = count > 1 ? t(f, "made-in-places", count) : "";
+        return [
+          `**${readableName(decision.subject)}**${where}${recurs}`,
+          mermaid(lines.join("\n")),
+        ].join("\n\n");
       })
       .join("\n\n");
   },
