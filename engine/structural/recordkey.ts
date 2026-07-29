@@ -64,6 +64,9 @@ const KEY_BUILDERS: {
   condition: (r) =>
     joinKey([r.rootName, r.subject, r.operator, String(r.literal), location(r.source)]),
   "discarded-error": (r) => joinKey([r.rootName, r.call, location(r.source)]),
+  // The span, not just the start: two decisions can begin on one line, and a
+  // decision is identified by the region of code it governs.
+  decision: (r) => joinKey([r.rootName, r.source.relPath, r.startLine, r.endLine, r.subject]),
   "auth-annotation": (r) =>
     joinKey([r.rootName, r.symbolId, r.mechanism, r.requirement, location(r.source)]),
   "test-relation": (r) => joinKey([r.rootName, r.testSymbolId, r.targetSymbolId ?? r.targetName]),

@@ -112,3 +112,47 @@ export interface DiscardedErrorRecord {
   readonly source: SourceRef;
   readonly provenance: Provenance;
 }
+
+/**
+ * One branch of a decision: what it tests, and where its body is.
+ *
+ * Deliberately without effects. Tables and calls have readers of their own,
+ * with their own locations — joining by line range later keeps one fact with
+ * one source, where detecting them again here would be a second opinion that
+ * can disagree with the first.
+ */
+export interface DecisionBranch {
+  /** The test as written, or "otherwise" for an else or default. */
+  readonly test: string;
+  /** Literal values it compares against, so a value set can name them. */
+  readonly values: readonly (string | number)[];
+  /** Whether taking this branch leaves the decision — a return, throw or break. */
+  readonly outcome: "leaves" | "continues";
+  readonly startLine: number;
+  readonly endLine: number;
+  /** Decisions made inside this branch. */
+  readonly decisions: readonly DecisionRecord[];
+}
+
+/**
+ * A decision the code makes, as a tree.
+ *
+ * `lv.Type == BTO`, `== PTO`, `== UTO` are one decision with three branches;
+ * recorded flat as conditions they are three unrelated facts and nothing can
+ * draw what the system decides. Both shapes are one kind here — a reader
+ * cannot tell an `if` chain from a `switch`, and neither should this.
+ */
+export interface DecisionRecord {
+  readonly rootName: string;
+  readonly kind: "if" | "switch";
+  /** What is being decided about, where every branch agrees. Empty otherwise. */
+  readonly subject: string;
+  readonly enclosingFunction: string | null;
+  readonly branches: readonly DecisionBranch[];
+  readonly startLine: number;
+  readonly endLine: number;
+  /** True when a depth or breadth bound was hit, so the tree is partial. */
+  readonly truncated: boolean;
+  readonly source: SourceRef;
+  readonly provenance: Provenance;
+}

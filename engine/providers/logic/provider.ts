@@ -24,7 +24,12 @@ import type { SgNode } from "@ast-grep/napi";
 import { enclosingFunctionName, languageOf, parseSource } from "../../text/ast.js";
 import { inferred, resolved } from "../../structural/provenance.js";
 import { emptyRecords } from "../../structural/kinds.js";
-import type { ConditionRecord, DiscardedErrorRecord } from "../../structural/rules.js";
+import type {
+  ConditionRecord,
+  DecisionRecord,
+  DiscardedErrorRecord,
+} from "../../structural/rules.js";
+import { decisionsIn, MAX_BRANCHES, MAX_DEPTH } from "./decisions.js";
 import {
   ANY_LANGUAGE,
   declaredKinds,
@@ -305,6 +310,17 @@ export function logicCapabilities(): ProviderCapabilities {
   return {
     declarations: [
       {
+        kind: "decision",
+        language: ANY_LANGUAGE,
+        support: "partial",
+        limits: [
+          "if/else chains and switch statements are read as trees; branching expressed another way — early returns in sequence, a lookup table, polymorphism — is not a decision this reports",
+          "a branch records where its body is, not what it does; tables and calls are joined from their own readers by line",
+          `nesting deeper than ${MAX_DEPTH} levels or wider than ${MAX_BRANCHES} branches is recorded as truncated rather than dropped`,
+          "languages without a grammar in this run are not read at all",
+        ],
+      },
+      {
         kind: "condition",
         language: ANY_LANGUAGE,
         support: "partial",
@@ -341,6 +357,7 @@ export function createLogicProvider(): StructuralProvider {
 
     extract(root: StructuralRootInput): StructuralContribution {
       const conditions: ConditionRecord[] = [];
+      const decisions: DecisionRecord[] = [];
       const discarded: DiscardedErrorRecord[] = [];
       const failures: ExtractionFailure[] = [];
 
@@ -362,6 +379,7 @@ export function createLogicProvider(): StructuralProvider {
           }
 
           conditions.push(...conditionsIn(parsed.root, root.name, relPath));
+          decisions.push(...decisionsIn(root.name, relPath, content));
           discarded.push(...discardedErrorsIn(parsed.root, root.name, relPath, language));
         } catch (error) {
           failures.push({
@@ -375,7 +393,12 @@ export function createLogicProvider(): StructuralProvider {
         providerId: PROVIDER_ID,
         providerVersion: PROVIDER_VERSION,
         rootName: root.name,
-        records: { ...emptyRecords(), condition: conditions, "discarded-error": discarded },
+        records: {
+          ...emptyRecords(),
+          condition: conditions,
+          decision: decisions,
+          "discarded-error": discarded,
+        },
         gaps: [],
         failures,
       };
