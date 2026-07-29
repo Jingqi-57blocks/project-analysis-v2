@@ -21,8 +21,34 @@ import { createHash } from "node:crypto";
 import type { RouteRecord, OutboundCallRecord, AuthAnnotationRecord, DataAccessRecord } from "../structural/boundaries.js";
 import type { ValidationRuleRecord, TransactionBoundaryRecord, ErrorHandlingRecord } from "../structural/rules.js";
 
-/** Table-name prefixes that carry no meaning. Stripped before reading a term. */
-const TABLE_PREFIXES = ["wcp_", "wl_", "tbl_", "tb_", "t_", "app_"];
+/**
+ * The prefix a project puts on its own table names, derived from the names.
+ *
+ * A list of known prefixes would be a list of the projects we happened to test
+ * on — `wcp_` means nothing anywhere else, and the next codebase names its
+ * tables something we never guessed. A prefix is instead whatever leading
+ * token most of a project's tables share: a word that appears at the front of
+ * nearly every table is a namespace, not a domain term, whatever it spells.
+ *
+ * Requires a clear majority and more than a couple of tables, so a project
+ * with two tables that happen to start alike keeps both terms.
+ */
+export function commonTablePrefix(entityNames: readonly string[]): string | null {
+  if (entityNames.length < 4) return null;
+
+  const leading = new Map<string, number>();
+  for (const name of entityNames) {
+    const match = /^([a-z0-9]+[_-])/i.exec(name);
+    if (match === null) continue;
+    const prefix = match[1]!.toLowerCase();
+    leading.set(prefix, (leading.get(prefix) ?? 0) + 1);
+  }
+
+  for (const [prefix, count] of leading) {
+    if (count / entityNames.length >= 0.6) return prefix;
+  }
+  return null;
+}
 
 /**
  * Words that appear everywhere and describe nothing.
@@ -91,14 +117,9 @@ export function words(text: string): string[] {
 }
 
 /** The domain term an entity name points at, with its table prefix removed. */
-export function entityTerm(entityName: string): string | null {
+export function entityTerm(entityName: string, prefix: string | null = null): string | null {
   let name = entityName.toLowerCase();
-  for (const prefix of TABLE_PREFIXES) {
-    if (name.startsWith(prefix)) {
-      name = name.slice(prefix.length);
-      break;
-    }
-  }
+  if (prefix !== null && name.startsWith(prefix)) name = name.slice(prefix.length);
   const parts = words(name).map(singular).filter((word) => !STOPWORDS.has(word));
   return parts[0] ?? null;
 }
@@ -153,9 +174,10 @@ function stableId(term: string): string {
  * directory is a folder.
  */
 export function detectFeatures(input: FeatureInput): FeatureDetection {
+  const prefix = commonTablePrefix(input.entityNames);
   const entityTerms = new Map<string, Set<string>>();
   for (const name of input.entityNames) {
-    const term = entityTerm(name);
+    const term = entityTerm(name, prefix);
     if (!term) continue;
     const existing = entityTerms.get(term) ?? new Set<string>();
     existing.add(name);

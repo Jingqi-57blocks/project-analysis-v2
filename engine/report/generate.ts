@@ -49,8 +49,17 @@ import { buildJsonReport } from "./json.js";
 import { writeRenderings } from "./render.js";
 import type { DataModelRecords } from "../datamodel/types.js";
 import type { StructuralProvider } from "../structural/provider.js";
-import type { RouteRecord, OutboundCallRecord, DataAccessRecord } from "../structural/boundaries.js";
-import type { ValidationRuleRecord } from "../structural/rules.js";
+import type {
+  RouteRecord,
+  OutboundCallRecord,
+  DataAccessRecord,
+  AuthAnnotationRecord,
+} from "../structural/boundaries.js";
+import type {
+  ValidationRuleRecord,
+  TransactionBoundaryRecord,
+  ErrorHandlingRecord,
+} from "../structural/rules.js";
 import type { SymbolRecord, CallEdgeRecord } from "../structural/code.js";
 import type { ModuleContainmentRecord, PackageDependencyRecord } from "../structural/dependencies.js";
 
@@ -104,6 +113,9 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const callEdges: CallEdgeRecord[] = [];
   const dataAccess: DataAccessRecord[] = [];
   const validations: ValidationRuleRecord[] = [];
+  const transactions: TransactionBoundaryRecord[] = [];
+  const errorHandling: ErrorHandlingRecord[] = [];
+  const authAnnotations: AuthAnnotationRecord[] = [];
   const containment: ModuleContainmentRecord[] = [];
   const dependencies: PackageDependencyRecord[] = [];
   const allFiles: string[] = [];
@@ -165,6 +177,16 @@ export function generateReport(options: GenerateOptions): GenerateResult {
       else if (record.kind === "data-access") dataAccess.push(record.record as DataAccessRecord);
       else if (record.kind === "validation-rule") {
         validations.push(record.record as ValidationRuleRecord);
+      }
+      // These three were extracted on every run and dropped on the floor: the
+      // chain simply had no branch for them, so nothing downstream could tell
+      // a project with no transactions from one nobody looked at.
+      else if (record.kind === "transaction-boundary") {
+        transactions.push(record.record as TransactionBoundaryRecord);
+      } else if (record.kind === "error-handling") {
+        errorHandling.push(record.record as ErrorHandlingRecord);
+      } else if (record.kind === "auth-annotation") {
+        authAnnotations.push(record.record as AuthAnnotationRecord);
       }
       else if (record.kind === "symbol") symbols.push(record.record as SymbolRecord);
       else if (record.kind === "call-edge") callEdges.push(record.record as CallEdgeRecord);
@@ -479,6 +501,11 @@ export function generateReport(options: GenerateOptions): GenerateResult {
       note: `fields and constraints are described for ${describedEntities.size} entities, but ${undescribed.length} further tables are used by code without a schema declaration this run could read; their columns are not in this report`,
     });
   }
+
+  coverageNotes.push({
+    subject: "conditions",
+    note: `${transactions.length} transaction boundaries, ${errorHandling.length} error-handling sites and ${authAnnotations.length} authorization annotations were read from convention patterns; they are inferred from text, so a match inside a comment or a string is possible`,
+  });
 
   if (screens.length > 0) {
     coverageNotes.push({
