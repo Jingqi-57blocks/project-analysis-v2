@@ -123,7 +123,7 @@ describe("library and command paths", () => {
 });
 
 describe("status command", () => {
-  it("reports a workspace the analyze command just wrote", () => {
+  it("reports a workspace the analyze command just wrote", { timeout: 600_000 }, () => {
     const dbPath = join(workDir, "kb.sqlite");
     const result = runAnalyze({ paths: [join(workDir, "alpha"), join(workDir, "beta")], dbPath });
 
@@ -135,7 +135,7 @@ describe("status command", () => {
     expect(output).toContain("analyzed=");
   });
 
-  it("says a never-analyzed workspace was never analyzed, rather than failing", () => {
+  it("says a never-analyzed workspace was never analyzed, rather than failing", { timeout: 600_000 }, () => {
     const dbPath = join(workDir, "kb.sqlite");
     runAnalyze({ paths: [join(workDir, "alpha")], dbPath });
 

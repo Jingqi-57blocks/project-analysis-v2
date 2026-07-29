@@ -1,0 +1,98 @@
+{
+  "id": "module",
+  "title": "$module \u2014 what it does and how",
+  "params": [
+    "module"
+  ],
+  "sections": [
+    {
+      "id": "description",
+      "kind": "llm",
+      "heading": "What this module is",
+      "prompt": "prompts/description.md",
+      "requires": [
+        "module-detail:$module",
+        "module-flows:$module"
+      ],
+      "contract": {
+        "maxWords": 300,
+        "maxHeadingLevel": 3
+      }
+    },
+    {
+      "id": "surface",
+      "kind": "code",
+      "heading": "What it exposes",
+      "fragment": "module-surface",
+      "requires": [
+        "module-detail:$module"
+      ]
+    },
+    {
+      "id": "flows",
+      "kind": "code",
+      "heading": "What happens on each request",
+      "fragment": "flows",
+      "requires": [
+        "module-flows:$module"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "rules",
+      "kind": "code",
+      "heading": "The rules it enforces",
+      "fragment": "rules-table",
+      "requires": [
+        "module-rules:$module"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "rules-narrative",
+      "kind": "llm",
+      "heading": "Those rules in words",
+      "prompt": "prompts/rules-narrative.md",
+      "requires": [
+        "module-rules:$module"
+      ],
+      "contract": {
+        "maxWords": 400,
+        "maxHeadingLevel": 3
+      },
+      "optional": true,
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "data",
+      "kind": "code",
+      "heading": "What it stores",
+      "fragment": "data-model",
+      "requires": [
+        "module-entities:$module",
+        "coverage:entity"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "findings",
+      "kind": "code",
+      "heading": "What is worth a second look",
+      "fragment": "findings-table",
+      "requires": [
+        "module-findings:$module"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "limitations",
+      "kind": "code",
+      "heading": "What this report cannot tell you",
+      "fragment": "limitations",
+      "requires": [
+        "coverage-notes",
+        "extraction-failures"
+      ]
+    }
+  ]
+}

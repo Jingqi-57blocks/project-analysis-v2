@@ -1,0 +1,90 @@
+{
+  "id": "overview",
+  "title": "$project — what it is and what is in it",
+  "params": [],
+  "sections": [
+    {
+      "id": "introduction",
+      "kind": "llm",
+      "heading": "What this project is",
+      "prompt": "prompts/introduction.md",
+      "requires": ["run-context", "features", "map-edges", "evidence:readme-section"],
+      "contract": { "maxWords": 400, "maxHeadingLevel": 3 }
+    },
+    {
+      "id": "parts",
+      "kind": "code",
+      "heading": "The parts",
+      "fragment": "project-summary",
+      "requires": ["run-context"]
+    },
+    {
+      "id": "map",
+      "kind": "code",
+      "heading": "How the parts fit together",
+      "fragment": "project-map",
+      "requires": ["run-context", "map-edges"]
+    },
+    {
+      "id": "screens",
+      "kind": "code",
+      "heading": "What the application shows",
+      "fragment": "screens-table",
+      "requires": ["screens", "coverage:route"],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "capabilities",
+      "kind": "code",
+      "heading": "What it does",
+      "fragment": "features-table",
+      "requires": ["features", "coverage:route"]
+    },
+    {
+      "id": "capability-descriptions",
+      "kind": "llm",
+      "heading": "Each capability, in a sentence",
+      "prompt": "prompts/capability-descriptions.md",
+      "requires": ["features"],
+      "contract": { "maxHeadingLevel": 3, "requiredHeadings": "one-per:features" },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "data",
+      "kind": "code",
+      "heading": "What it stores",
+      "fragment": "data-model",
+      "requires": ["entity-models", "coverage:entity"]
+    },
+    {
+      "id": "vocabulary",
+      "kind": "code",
+      "heading": "The values it names",
+      "fragment": "value-sets",
+      "requires": ["value-sets"],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "findings",
+      "kind": "code",
+      "heading": "What is worth a second look",
+      "fragment": "findings-table",
+      "requires": ["structural-findings", "feature-findings"]
+    },
+    {
+      "id": "signals",
+      "kind": "code",
+      "heading": "Measurements of this analysis",
+      "fragment": "signals-table",
+      "requires": ["signals"],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "limitations",
+      "kind": "code",
+      "heading": "What this report cannot tell you",
+      "fragment": "limitations",
+      "requires": ["coverage-notes", "extraction-failures"]
+    }
+  ]
+}

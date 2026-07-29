@@ -246,6 +246,45 @@ export class KnowledgeBase {
     };
   }
 
+  /** Every flow through the capabilities a module serves. */
+  flowsForModule(moduleId: string): readonly FeatureFlowFact[] {
+    const detail = this.moduleDetail(moduleId);
+    return detail === null
+      ? []
+      : detail.features.flatMap((feature) => this.flowsForFeature(feature.id));
+  }
+
+  /** The entities the capabilities a module serves were observed to use. */
+  entitiesForModule(moduleId: string): readonly EntityModel[] {
+    const detail = this.moduleDetail(moduleId);
+    if (detail === null) return [];
+
+    const wanted = new Set([
+      ...detail.module.dataEntities,
+      ...detail.features.flatMap((feature) => [...feature.dataEntities, ...feature.tables]),
+    ]);
+    return this.entities()
+      .filter((entity) => wanted.has(entity.name))
+      .map((entity) => this.entityModel(entity.name, entity.rootName))
+      .filter((model): model is EntityModel => model !== null);
+  }
+
+  /** Findings about the capabilities a module serves, and no others. */
+  findingsForModule(moduleId: string): readonly FeatureFindingFact[] {
+    const detail = this.moduleDetail(moduleId);
+    if (detail === null) return [];
+    const ids = new Set(detail.features.map((feature) => feature.id));
+    return this.featureFindings().filter((finding) => ids.has(finding.featureId));
+  }
+
+  /** Every published rule of the capabilities a module serves. */
+  rulesForModule(moduleId: string): readonly BusinessRule[] {
+    const detail = this.moduleDetail(moduleId);
+    return detail === null
+      ? []
+      : detail.features.flatMap((feature) => this.rulesForFeature(feature.id));
+  }
+
   /** Which modules serve a capability. A capability can span several. */
   modulesForFeature(featureId: string): readonly ModuleFact[] {
     const ids = new Set(
