@@ -26,17 +26,37 @@ type Resolver = (kb: KnowledgeBase, argument: string | null) => unknown;
 const SELECTORS: Readonly<Record<string, Resolver>> = {
   "run-context": (kb) => kb.runContext(),
   features: (kb) => kb.features(),
+  /**
+   * Capabilities with the path of the document each links to.
+   *
+   * The link is computed here rather than left to a writer: a link a writer
+   * adjusts is a link that does not resolve, and forty of them is forty
+   * chances to get one wrong.
+   */
+  "capability-index": (kb) =>
+    [...kb.features()]
+      .sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name))
+      .map((feature) => ({
+        id: feature.id,
+        name: feature.name,
+        document: `capabilities/${feature.name
+          .toLowerCase()
+          .replaceAll(/[^\w\s-]/g, "")
+          .trim()
+          .replaceAll(/\s+/g, "-")}.md`,
+        parts: feature.rootNames,
+        endpoints: feature.endpoints,
+        tables: feature.tables,
+        flowCount: feature.flowCount,
+        partialFlowCount: feature.partialFlowCount,
+        evidence: feature.signals,
+      })),
   "feature-detail": (kb, id) => (id === null ? null : kb.featureDetail(id)),
   "feature-flows": (kb, id) => (id === null ? [] : kb.flowsForFeature(id)),
   "feature-rules": (kb, id) => (id === null ? [] : kb.rulesForFeature(id)),
   "feature-findings-for": (kb, id) =>
     id === null ? [] : kb.featureFindings().filter((finding) => finding.featureId === id),
   modules: (kb) => kb.modules(),
-  "module-detail": (kb, id) => (id === null ? null : kb.moduleDetail(id)),
-  "module-flows": (kb, id) => (id === null ? [] : kb.flowsForModule(id)),
-  "module-rules": (kb, id) => (id === null ? [] : kb.rulesForModule(id)),
-  "module-entities": (kb, id) => (id === null ? [] : kb.entitiesForModule(id)),
-  "module-findings": (kb, id) => (id === null ? [] : kb.findingsForModule(id)),
   components: (kb) => kb.components(),
   endpoints: (kb) => kb.endpoints(),
   screens: (kb) => kb.screens(),
@@ -46,6 +66,8 @@ const SELECTORS: Readonly<Record<string, Resolver>> = {
     kb.entities().map((entity) => kb.entityModel(entity.name, entity.rootName)),
   "value-sets": (kb) => kb.valueSets(),
   "business-rules": (kb) => kb.businessRules(),
+  decisions: (kb) => kb.decisions(),
+  "feature-decisions": (kb, id) => (id === null ? [] : kb.decisionsForFeature(id)),
   "structural-findings": (kb, severity) => kb.structuralFindings(severity ?? undefined),
   "feature-findings": (kb, severity) => kb.featureFindings(severity ?? undefined),
   signals: (kb) => kb.signals(),

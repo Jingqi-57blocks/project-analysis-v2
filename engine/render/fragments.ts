@@ -7,11 +7,10 @@
  * mean is an `llm` section with a prompt someone can edit.
  */
 
-import type { KnowledgeBase, Coverage, EntityModel } from "../kb/query.js";
-import type { CoverageNote, FeatureFact, MapEdge, ModuleFact, RunContext } from "../kb/facts.js";
-import type { RouteRecord } from "../structural/boundaries.js";
-import type { BusinessRule } from "../semantics/rules.js";
-import type { ValueSet } from "../semantics/enums.js";
+import type { KnowledgeBase, Coverage } from "../kb/query.js";
+import type { CoverageNote, FeatureFact, MapEdge, RunContext } from "../kb/facts.js";
+import { bestSetFor, type ValueSet } from "../semantics/enums.js";
+import { escapeLabel } from "../flows/mermaid.js";
 
 export interface FragmentInput {
   /** Selector name → what it resolved to, in the order the section listed. */
@@ -33,28 +32,43 @@ function pick<T>(input: FragmentInput, selector: string): T | undefined {
   return input.data[selector] as T | undefined;
 }
 
-/** The first of several selectors the section might have used. */
-function firstOf<T>(input: FragmentInput, selectors: readonly string[]): T | undefined {
-  for (const selector of selectors) {
-    const value = input.data[selector];
-    if (value !== undefined) return value as T;
-  }
-  return undefined;
+
+/** An identifier as a person would say it: `lv.LeaveType` → "leave type". */
+function readableName(text: string): string {
+  const last = text.split(".").pop() ?? text;
+  return last
+    .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll(/[_-]+/g, " ")
+    .toLowerCase()
+    .trim();
 }
 
-interface FlowShape {
-  readonly method: string | null;
-  readonly path: string;
-  readonly diagram: string;
-  readonly partial: boolean;
-  readonly steps: readonly {
-    readonly kind: string;
-    readonly label: string;
-    readonly rootName: string | null;
-    readonly conditions: readonly string[];
-    readonly unresolvedReason: string | null;
+/** The names a project gives the values a branch tests, where it gives any. */
+function nameValues(
+  values: readonly (string | number)[],
+  subject: string,
+  sets: readonly ValueSet[],
+): string | null {
+  const set = bestSetFor(subject, sets);
+  if (set === null) return null;
+
+  const named = values
+    .map((value) => set.members.find((member) => member.value === value)?.name)
+    .filter((name): name is string => name !== undefined)
+    .map((name) => readableName(name));
+  return named.length === 0 ? null : named.join(", ");
+}
+
+interface DecisionShape {
+  readonly subject: string;
+  readonly enclosingFunction: string | null;
+  readonly branches: readonly {
+    readonly test: string;
+    readonly values: readonly (string | number)[];
+    readonly outcome: string;
   }[];
 }
+
 
 function cell(text: unknown): string {
   return String(text ?? "—").replaceAll("|", "\\|").replaceAll("\n", " ");
@@ -116,33 +130,6 @@ function coverageLine(coverage: Coverage | undefined, subject: string): string {
 }
 
 const FRAGMENTS: Readonly<Record<string, Fragment>> = {
-  "project-summary": (input) => {
-    const context = pick<RunContext | null>(input, "run-context");
-    if (!context) return "No run context was recorded for this analysis.";
-
-    const parts: string[] = [];
-    if (context.description !== null) {
-      // Quoted, not inlined: the text is a README and carries its own
-      // headings, which inlined would outrank the document's structure. And
-      // attributed, because a multi-root workspace has no single README —
-      // presenting one part's as the whole project's misrepresents it, which
-      // is exactly why the knowledge base records where it came from.
-      const [text, from] = context.description.split("\n\n— ");
-      const quoted = text!
-        .trim()
-        .split("\n")
-        .map((line) => `> ${line.replace(/^#{1,6}\s+/, "")}`)
-        .join("\n");
-      parts.push(from === undefined ? quoted : `${quoted}\n>\n> — from ${from.trim()}`, "");
-    }
-    parts.push(
-      table(
-        ["Part", "Language", "Files analyzed", "Files excluded"],
-        context.roots.map((root) => [root.name, root.language, root.analyzed, root.excluded]),
-      ),
-    );
-    return parts.filter((part) => part !== "").join("\n\n");
-  },
 
   "project-map": (input) => {
     const context = pick<RunContext | null>(input, "run-context");
@@ -159,232 +146,143 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     return parts.filter((part) => part !== "").join("\n\n");
   },
 
-  "features-table": (input) => {
-    const features = pick<readonly FeatureFact[]>(input, "features") ?? [];
-    if (features.length === 0) {
-      const coverage = pick<Coverage>(input, "coverage:route");
-      // A capability needs one term to appear in more than one kind of place.
-      // With entry points read and none forming one, the absence is about the
-      // grouping rather than about whether anything was looked at. The count
-      // comes from the records themselves; the coverage rows cannot be summed.
-      return anyRead(coverage)
-        ? `${input.kb.endpoints().length} entry points were read, but no term appeared in enough places to name a capability.`
-        : coverageLine(coverage, "entry points");
+
+
+
+
+
+
+
+
+
+
+
+  /** What the system talks to outside itself, minus what is not an integration. */
+  "external-systems": (input) => {
+    const edges = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
+    const external = edges.filter((edge) => edge.kind === "external");
+    if (external.length === 0) return "";
+
+    const real = new Map<string, Set<string>>();
+    let dropped = 0;
+    for (const edge of external) {
+      if (NOT_AN_INTEGRATION.test(edge.to) || isPlaceholderHost(edge.to)) {
+        dropped += 1;
+        continue;
+      }
+      const callers = real.get(edge.to) ?? new Set<string>();
+      callers.add(edge.from);
+      real.set(edge.to, callers);
     }
-    // Capped, and the weaker evidence counted rather than listed beside the
-    // stronger: forty table names in one cell is not something anyone reads,
-    // and most of them were observed near the handler rather than in it.
-    const named = (tables: readonly string[], limit: number): string =>
-      tables.length <= limit
-        ? tables.join(", ")
-        : `${tables.slice(0, limit).join(", ")}, +${tables.length - limit} more`;
 
-    return table(
-      ["Capability", "Parts", "Endpoints", "Flows", "Tables", "Evidence"],
-      features.map((feature) => [
-        feature.name,
-        feature.rootNames.join(", "),
-        feature.endpoints.length,
-        feature.partialFlowCount > 0
-          ? `${feature.flowCount} (${feature.partialFlowCount} partial)`
-          : feature.flowCount,
-        [
-          named(feature.tables, 6),
-          feature.tablesNearby.length === 0
-            ? ""
-            : `(${feature.tablesNearby.length} more seen in the handlers' packages)`,
-        ]
-          .filter((part) => part !== "")
-          .join(" "),
-        feature.signals.join(" · "),
-      ]),
-    );
-  },
+    const lines = [...real.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([host, callers]) => `- **${host}** — reached from ${[...callers].sort().join(", ")}`);
 
-  "screens-table": (input) => {
-    const screens = pick<readonly RouteRecord[]>(input, "screens") ?? [];
-    if (screens.length === 0) return coverageLine(pick<Coverage>(input, "coverage:route"), "screens");
-    return table(
-      ["Part", "Path", "Complete"],
-      screens.map((screen) => [
-        screen.rootName,
-        screen.path,
-        // A screen under a parent declared elsewhere has a path fragment, not
-        // the address a user visits.
-        screen.provenance.resolutionClass === "inferred" ? "partial path" : "yes",
-      ]),
-    );
-  },
-
-  "endpoints-table": (input) => {
-    const endpoints = pick<readonly RouteRecord[]>(input, "endpoints") ?? [];
-    if (endpoints.length === 0) {
-      return coverageLine(pick<Coverage>(input, "coverage:route"), "entry points");
+    if (dropped > 0) {
+      // Named rather than silently filtered: a reader deciding on this list
+      // should know it is not everything the code mentions.
+      lines.push(
+        "",
+        `_${dropped} further ${dropped === 1 ? "address was" : "addresses were"} left out: development addresses and documentation links, which are written in the code but are not systems this one talks to._`,
+      );
     }
-    return table(
-      ["Method", "Path", "Part", "Middleware"],
-      endpoints.map((route) => [
-        route.method ?? "ANY",
-        route.path,
-        route.rootName,
-        route.middleware.join(", "),
-      ]),
-    );
+    return lines.join("\n");
   },
 
-  "data-model": (input) => {
-    const models = (
-      firstOf<readonly (EntityModel | null)[]>(input, ["module-entities", "entity-models"]) ?? []
-    ).filter(
-      (model): model is EntityModel => model !== null,
-    );
-    if (models.length === 0) {
+  /** The kinds of thing the system keeps, without naming a single table. */
+  "stored-kinds": (input) => {
+    const entities = pick<readonly { name: string; rootName: string }[]>(input, "entities") ?? [];
+    if (entities.length === 0) {
       return coverageLine(pick<Coverage>(input, "coverage:entity"), "table declarations");
     }
 
-    return models
-      .map((model) => {
-        const heading = `**${model.entity.name}** — ${model.entity.rootName}`;
-        const columns = table(
-          ["Column", "Type", "Nullable", "Key", "Source"],
-          model.fields.map((field) => [
-            field.name,
-            field.declaredType,
-            field.nullable === null ? "—" : field.nullable ? "yes" : "no",
-            field.isPrimaryKey ? "primary" : "",
-            `${field.provenance.source.relPath}:${field.provenance.source.startLine}`,
-          ]),
-        );
-        const relations =
-          model.relations.length === 0
-            ? ""
-            : model.relations
-                .map(
-                  (relation) =>
-                    `- ${relation.fromField ?? "?"} → ${relation.toEntity}.${relation.toField ?? "?"} (${relation.kind})`,
-                )
-                .join("\n");
-        return [heading, columns, relations].filter((part) => part !== "").join("\n\n");
+    // The name a project gives a table is usually the name of the thing —
+    // `wcp_leave_detail` is a leave detail. Stripping the project's own
+    // prefix and the underscores leaves the noun a reader recognises.
+    const words = new Map<string, number>();
+    for (const entity of entities) {
+      const readable = entity.name
+        .replace(/^[a-z]{2,4}_/i, "")
+        .replaceAll(/[_-]+/g, " ")
+        .trim();
+      if (readable === "") continue;
+      words.set(readable, (words.get(readable) ?? 0) + 1);
+    }
+
+    const named = [...words.keys()].sort();
+    return [
+      `It keeps ${entities.length} kinds of record. Among them: ${named.slice(0, 24).join(", ")}${named.length > 24 ? `, and ${named.length - 24} more` : ""}.`,
+      "",
+      "_The full schema, with every column, is in the JSON export._",
+    ].join("\n");
+  },
+
+  /**
+   * The choices the code makes, drawn.
+   *
+   * Only decisions with a subject every branch agrees on: those are one
+   * question with several answers, which is what a diagram can show honestly.
+   * A chain of unrelated guards is a sequence, not a choice, and drawing it
+   * as one would invent a structure the code does not have.
+   */
+  "decision-diagrams": (input) => {
+    const decisions = pick<readonly DecisionShape[]>(input, "feature-decisions") ?? [];
+    const sets = pick<readonly ValueSet[]>(input, "value-sets") ?? [];
+
+    const worth = decisions
+      .filter((decision) => decision.subject !== "" && decision.branches.length > 1)
+      .sort((a, b) => b.branches.length - a.branches.length)
+      .slice(0, 6);
+    if (worth.length === 0) return "";
+
+    return worth
+      .map((decision) => {
+        const where = decision.enclosingFunction === null ? "" : ` — while ${readableName(decision.enclosingFunction)}`;
+        const lines = ["flowchart TD", `  q["${escapeLabel(readableName(decision.subject))}?"]`];
+
+        decision.branches.forEach((branch, n) => {
+          const named = nameValues(branch.values, decision.subject, sets);
+          const label = branch.test === "otherwise" ? "anything else" : (named ?? branch.test);
+          const id = `b${n}`;
+          const outcome = branch.outcome === "leaves" ? "stops here" : "carries on";
+          lines.push(`  ${id}["${escapeLabel(outcome)}"]`);
+          lines.push(`  q -->|"${escapeLabel(label.slice(0, 40))}"| ${id}`);
+        });
+
+        return [`**${readableName(decision.subject)}**${where}`, mermaid(lines.join("\n"))].join("\n\n");
       })
       .join("\n\n");
   },
 
-  "rules-table": (input) => {
-    const rules =
-      pick<readonly BusinessRule[]>(input, "feature-rules") ??
-      pick<readonly BusinessRule[]>(input, "business-rules") ??
-      [];
-    if (rules.length === 0) return "";
-    return table(
-      ["Rule", "As written", "Fails the check", "Where"],
-      rules.map((rule) => [
-        rule.statement,
-        `\`${rule.text}\``,
-        rule.guarded === "rejects" ? "stops the request" : rule.guarded === "continues" ? "carries on" : "—",
-        `${rule.rootName}/${rule.relPath}:${rule.startLine}`,
-      ]),
-    );
-  },
-
-  "value-sets": (input) => {
-    const sets = pick<readonly ValueSet[]>(input, "value-sets") ?? [];
-    if (sets.length === 0) return "";
-    return sets
-      .map((set) =>
-        [
-          `**${set.name}** — ${set.rootName}/${set.relPath}:${set.startLine}`,
-          table(
-            ["Name", "Value"],
-            set.members.map((member) => [member.name, member.value]),
-          ),
-        ].join("\n\n"),
-      )
-      .join("\n\n");
-  },
-
-  flows: (input) => {
-    const flows = firstOf<readonly FlowShape[]>(input, ["module-flows", "feature-flows"]) ?? [];
-    if (flows.length === 0) return "";
-
-    return flows
-      .map((flow) =>
-        [
-          `**${flow.method ?? "ANY"} ${flow.path}**${flow.partial ? " — some hops could not be established" : ""}`,
-          mermaid(flow.diagram),
-          table(
-            ["Step", "What", "Part", "Conditions", "Not established"],
-            flow.steps.map((step) => [
-              step.kind,
-              step.label,
-              step.rootName,
-              step.conditions.join(", "),
-              step.unresolvedReason,
-            ]),
-          ),
-        ]
-          .filter((part) => part !== "")
-          .join("\n\n"),
-      )
-      .join("\n\n");
-  },
-
-  "findings-table": (input) => {
-    const structural =
-      pick<readonly { id: string; severity: string; title: string; finding: string; evidence: readonly string[] }[]>(
-        input,
-        "structural-findings",
-      ) ?? [];
-    const perFeature =
-      firstOf<readonly { featureName: string; severity: string; title: string; finding: string }[]>(
-        input,
-        ["module-findings", "feature-findings"],
-      ) ?? [];
-
-    const rows = [
-      ...structural.map((finding) => [finding.severity, "the architecture", finding.title, finding.finding]),
-      ...perFeature.map((finding) => [finding.severity, finding.featureName, finding.title, finding.finding]),
-    ];
-    if (rows.length === 0) {
-      // Not a clean bill of health: findings are derived from what was read,
-      // and a run that read little derives little.
-      return "No findings were derived. That is a statement about what this analysis looked for, not a verdict on the code.";
-    }
-    return table(["Severity", "About", "Finding", "What was observed"], rows);
-  },
-
-  "signals-table": (input) => {
-    const signals =
-      pick<readonly { id: string; severity: string; title: string; finding: string; value: number }[]>(
-        input,
-        "signals",
-      ) ?? [];
-    if (signals.length === 0) return "";
-    return table(
-      ["Severity", "Measure", "Value", "What it means"],
-      signals.map((signal) => [signal.severity, signal.title, signal.value, signal.finding]),
-    );
-  },
-
-  "module-surface": (input) => {
-    const detail = pick<{ module: ModuleFact } | null>(input, "module-detail:$module");
+  /** What one capability keeps, without naming a table. */
+  "capability-data": (input) => {
+    const detail = pick<{ feature: FeatureFact } | null>(input, "feature-detail");
     if (!detail) return "";
-    const module = detail.module;
-    return [
-      table(
-        ["Part", "Symbols", "Grouped by"],
-        [[module.rootNames.join(", "), module.symbolCount, module.groupingSignal]],
-      ),
-      table(
-        ["Method", "Path", "Part"],
-        module.endpoints.map((endpoint) => [
-          endpoint.method ?? "ANY",
-          endpoint.path,
-          endpoint.rootName,
-        ]),
-      ),
-    ]
-      .filter((part) => part !== "")
-      .join("\n\n");
+
+    const tables = detail.feature.tables;
+    const nearby = detail.feature.tablesNearby;
+    if (tables.length === 0 && nearby.length === 0) {
+      return coverageLine(pick<Coverage>(input, "coverage:entity"), "table declarations");
+    }
+
+    const readable = (names: readonly string[]): string =>
+      [...new Set(names.map((name) => name.replace(/^[a-z]{2,4}_/i, "").replaceAll(/[_-]+/g, " ")))]
+        .sort()
+        .join(", ");
+
+    const parts: string[] = [];
+    if (tables.length > 0) {
+      parts.push(`Its own handling was observed to read or write: ${readable(tables)}.`);
+    }
+    if (nearby.length > 0) {
+      // Weaker evidence, and saying which is which is the difference between
+      // "this capability touches forty things" and what was actually seen.
+      parts.push(
+        `A further ${nearby.length} kinds of record were touched elsewhere in the same code, so they may belong to this capability or to something beside it: ${readable(nearby)}.`,
+      );
+    }
+    return parts.join("\n\n");
   },
 
   limitations: (input) => {
@@ -430,4 +328,21 @@ export function hasFragment(name: string): boolean {
 export function renderFragment(name: string, input: FragmentInput): string {
   if (!hasFragment(name)) throw new FragmentError(name);
   return FRAGMENTS[name]!(input);
+}
+
+
+/**
+ * Hosts a system talks to that are worth a reader's attention.
+ *
+ * A URL literal in a codebase is as likely to be a documentation link, a
+ * localhost port or an XML namespace as an integration. Left in, they make
+ * the list absurd — "this platform connects to Stack Overflow" — so they are
+ * dropped, and the count of what was dropped is stated rather than hidden.
+ */
+const NOT_AN_INTEGRATION =
+  /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])|(\.local$)|^(www\.)?(github|stackoverflow|vuejs|reactjs|npmjs|apidocjs|code\.visualstudio|developer\.mozilla|twitter|x)\.(com|org|net)$/i;
+
+function isPlaceholderHost(host: string): boolean {
+  // `xxxx.xxx.com`, `example.com`, `your-domain.com` — a template nobody filled in.
+  return /^(x+|example|test|foo|bar|your[-_]?\w*)\./i.test(host) || /\bexample\.(com|org)$/i.test(host);
 }

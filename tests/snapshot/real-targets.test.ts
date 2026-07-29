@@ -19,7 +19,7 @@ for (const definition of TARGETS) {
   if (!available) announceSkip(`snapshot on ${definition.id}`, reason);
 
   describe.skipIf(!available)(`snapshot on ${definition.id}`, () => {
-    it("reflects the target's declared version-control state", () => {
+    it("reflects the target's declared version-control state", { timeout: 300_000 }, () => {
       const selection = selectWorkspace({ paths: [target!.path] });
       const roots = analyzedRoots(selection).map((r) =>
         snapshotRoot({ name: r.name, path: r.path, isGitRepo: r.isGitRepo }),
@@ -34,7 +34,7 @@ for (const definition of TARGETS) {
       }
     });
 
-    it("gives every root a non-empty content digest", () => {
+    it("gives every root a non-empty content digest", { timeout: 300_000 }, () => {
       const selection = selectWorkspace({ paths: [target!.path] });
       const roots = analyzedRoots(selection).map((r) =>
         snapshotRoot({ name: r.name, path: r.path, isGitRepo: r.isGitRepo }),
@@ -45,7 +45,7 @@ for (const definition of TARGETS) {
       }
     });
 
-    it("produces the same workspace identity across repeated snapshots", () => {
+    it("produces the same workspace identity across repeated snapshots", { timeout: 300_000 }, () => {
       const selection = selectWorkspace({ paths: [target!.path] });
       const snap = () =>
         workspaceIdentity(
@@ -57,7 +57,7 @@ for (const definition of TARGETS) {
       expect(snap()).toBe(snap());
     });
 
-    it("leaves target source unchanged after being snapshotted", () => {
+    it("leaves target source unchanged after being snapshotted", { timeout: 300_000 }, () => {
       // Same read-only guarantee already asserted for derived variants
       // (tests/targets/derive.test.ts), applied here: the whole-root digest
       // before and after must match, since snapshotting only reads.

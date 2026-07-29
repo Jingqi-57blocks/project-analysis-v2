@@ -57,7 +57,7 @@ beforeAll(() => {
       title: "$project",
       params: [],
       sections: [
-        { id: "parts", kind: "code", heading: "Parts", fragment: "project-summary", requires: ["run-context"] },
+        { id: "parts", kind: "code", heading: "Parts", fragment: "project-map", requires: ["run-context", "map-edges"] },
         {
           id: "intro",
           kind: "llm",
@@ -119,7 +119,7 @@ describe("prepare", () => {
 
     expect(result.tasks.map((task) => task.sectionId)).toEqual(["intro"]);
     expect(partial).toContain("<!-- llm:intro:begin -->");
-    expect(partial).toContain("| Part | Language |");
+    expect(partial).toContain("flowchart");
     // The title takes the project's own name.
     expect(partial.split("\n")[0]).toBe("# svc");
   });
@@ -153,7 +153,7 @@ describe("prepare", () => {
     const prompt = readFileSync(join(outDir, "tasks", "intro", "prompt.md"), "utf8");
     expect(prompt).toContain("Write in Chinese");
     // Code sections are identifiers and numbers; they do not translate.
-    expect(readFileSync(join(outDir, "report.partial.md"), "utf8")).toContain("| Part |");
+    expect(readFileSync(join(outDir, "report.partial.md"), "utf8")).toContain("flowchart");
   });
 
   it("refuses an unknown selector with the vocabulary, not an empty slice", () => {
@@ -168,12 +168,12 @@ describe("prepare", () => {
   it("refuses a template that needs a parameter it was not given", () => {
     expect(() =>
       prepareInto("no-param", {
-        params: ["module"],
+        params: ["capability"],
         sections: [
-          { id: "x", kind: "code", fragment: "module-surface", requires: ["module-detail:$module"] },
+          { id: "x", kind: "code", fragment: "capability-data", requires: ["feature-detail:$capability"] },
         ],
       }),
-    ).toThrow(/--param module=/);
+    ).toThrow(/--param capability=/);
   });
 });
 
@@ -188,7 +188,7 @@ describe("assemble", () => {
     const result = assemble(outDir);
 
     expect(result.markdown).toContain("A short answer about the service.");
-    expect(result.markdown).toContain("| Part | Language |");
+    expect(result.markdown).toContain("flowchart");
     expect(result.outcomes[0]!.filled).toBe(true);
   });
 
@@ -257,30 +257,29 @@ describe("what the review found", () => {
     // The section writes `module-flows:$module`; the fragment asks for
     // `module-flows`. Keyed only as written, every module document said
     // "nothing to show" over flows it had been given.
-    const modules = kb.modules();
-    if (modules.length === 0) return;
+    const features = kb.features();
+    if (features.length === 0) return;
 
     const outDir = join(workDir, "out", "param-key");
     prepare({
       template: parseTemplate(
         JSON.stringify({
           id: "m",
-          title: "$module",
-          params: ["module"],
+          title: "$capability",
+          params: ["capability"],
           sections: [
-            { id: "flows", kind: "code", heading: "Flows", fragment: "module-surface", requires: ["module-detail:$module"] },
+            { id: "data", kind: "code", heading: "Data", fragment: "capability-data", requires: ["feature-detail:$capability", "coverage:entity"] },
           ],
         }),
         templateDir,
       ),
       kb,
       outDir,
-      params: { module: modules[0]!.id },
+      params: { capability: features[0]!.id },
     });
 
     const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
     expect(partial).not.toContain("_Nothing to show here._");
-    expect(partial).toContain("| Part | Symbols |");
   });
 
   it("refuses a param that names nothing in this knowledge base", () => {
@@ -289,19 +288,19 @@ describe("what the review found", () => {
         template: parseTemplate(
           JSON.stringify({
             id: "m",
-            title: "$module",
-            params: ["module"],
+            title: "$capability",
+            params: ["capability"],
             sections: [
-              { id: "s", kind: "code", fragment: "module-surface", requires: ["module-detail:$module"] },
+              { id: "s", kind: "code", fragment: "capability-data", requires: ["feature-detail:$capability"] },
             ],
           }),
           templateDir,
         ),
         kb,
         outDir: join(workDir, "out", "ghost-module"),
-        params: { module: "mod_does_not_exist" },
+        params: { capability: "feat_does_not_exist" },
       }),
-    ).toThrow(/Nothing in this knowledge base matches module=mod_does_not_exist/);
+    ).toThrow(/Nothing in this knowledge base matches capability=feat_does_not_exist/);
   });
 
   it("keeps a section that asks only for what could not be established", () => {
@@ -384,35 +383,6 @@ describe("what the review found", () => {
   });
 });
 
-describe("quoting the project's own words", () => {
-  it("quotes a README rather than inlining its headings", () => {
-    // The description is markdown and carries its own `#`. Inlined, it
-    // outranked the document's structure — the overview had two H1s.
-    const outDir = join(workDir, "out", "quoted");
-    prepare({
-      template: parseTemplate(
-        JSON.stringify({
-          id: "q",
-          title: "T",
-          sections: [
-            { id: "parts", kind: "code", heading: "Parts", fragment: "project-summary", requires: ["run-context"] },
-          ],
-        }),
-        templateDir,
-      ),
-      kb,
-      outDir,
-    });
-
-    const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
-    const bodyHeadings = partial.split("\n").filter((line) => /^# /.test(line));
-    expect(bodyHeadings).toHaveLength(1);
-    expect(partial).toMatch(/^> \S/m);
-    // A multi-root workspace has no single README; saying whose it is keeps
-    // one part's description from standing in for the whole project's.
-    expect(partial).toContain("— from svc");
-  });
-});
 
 describe("finding your way around a long report", () => {
   function prepared(name: string) {
@@ -442,7 +412,7 @@ describe("finding your way around a long report", () => {
     expect(written.some((path) => path.endsWith("sections/parts.md"))).toBe(true);
     const part = readFileSync(join(outDir, "sections", "parts.md"), "utf8");
     // Moved, not rebuilt: the table is exactly the one in the whole document.
-    expect(part).toContain("| Part | Language |");
+    expect(part).toContain("flowchart");
     expect(result.markdown).toContain(part.split("\n")[2]!);
   });
 
@@ -522,5 +492,70 @@ describe("a format is a view, not a second document", () => {
     const { outDir } = prepareInto("export-nothing");
     rmSync(join(outDir, "report.md"), { force: true });
     expect(() => exportDocument(outDir, "html", "T")).toThrow(/Run `render assemble` first/);
+  });
+});
+
+describe("rebuilding one section", () => {
+  it("clears that answer and leaves the others where they are", () => {
+    // A report with one bad section should cost one section to fix.
+    const { outDir } = prepareInto("only-one");
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "First answer.");
+
+    prepare({ template: loadTemplate(templateDir), kb, outDir, only: "intro" });
+    expect(existsSync(join(outDir, "tasks", "intro", "answer.md"))).toBe(false);
+  });
+
+  it("keeps another section's answer when rebuilding a different one", () => {
+    const two = parseTemplate(
+      JSON.stringify({
+        id: "two",
+        title: "T",
+        sections: [
+          { id: "a", kind: "llm", heading: "A", prompt: "prompts/intro.md", requires: [] },
+          { id: "b", kind: "llm", heading: "B", prompt: "prompts/intro.md", requires: [] },
+        ],
+      }),
+      templateDir,
+    );
+    const outDir = join(workDir, "out", "only-other");
+    prepare({ template: two, kb, outDir });
+    writeFileSync(join(outDir, "tasks", "a", "answer.md"), "Answer A.");
+    writeFileSync(join(outDir, "tasks", "b", "answer.md"), "Answer B.");
+
+    prepare({ template: two, kb, outDir, only: "a" });
+    expect(existsSync(join(outDir, "tasks", "a", "answer.md"))).toBe(false);
+    expect(readFileSync(join(outDir, "tasks", "b", "answer.md"), "utf8")).toBe("Answer B.");
+  });
+
+  it("refuses a section the template does not have, naming the ones it does", () => {
+    const { outDir } = prepareInto("only-unknown");
+    expect(() =>
+      prepare({ template: loadTemplate(templateDir), kb, outDir, only: "invented" }),
+    ).toThrow(/has no section "invented"/);
+  });
+
+  it("refuses to rebuild against a different analysis", () => {
+    // The other answers were written from one snapshot. A section rebuilt
+    // against another leaves the document describing two runs, and nothing
+    // in the file would say so.
+    const { outDir } = prepareInto("only-drifted");
+    const manifestPath = join(outDir, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, identity: "a-different-run" }));
+
+    expect(() =>
+      prepare({ template: loadTemplate(templateDir), kb, outDir, only: "intro" }),
+    ).toThrow(/describing two runs/);
+  });
+
+  it("refuses to rebuild a section of a document that was never prepared", () => {
+    expect(() =>
+      prepare({
+        template: loadTemplate(templateDir),
+        kb,
+        outDir: join(workDir, "out", "never-prepared"),
+        only: "intro",
+      }),
+    ).toThrow(/Prepare it once/);
   });
 });

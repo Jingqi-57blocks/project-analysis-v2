@@ -24,6 +24,7 @@ import type {
   FieldRecord,
 } from "../datamodel/types.js";
 import type { BusinessRule } from "../semantics/rules.js";
+import type { DecisionRecord } from "../structural/rules.js";
 import { bestSetFor, type ValueSet } from "../semantics/enums.js";
 import type {
   CoverageNote,
@@ -246,70 +247,9 @@ export class KnowledgeBase {
     };
   }
 
-  /**
-   * The flows through this module's own endpoints.
-   *
-   * A module serves capabilities, and a capability spans more than one module
-   * — so every flow of every capability it touches is a far wider set than
-   * this module's own. Handed to a document as "the request paths through
-   * it", the difference is another module's routes attributed to this one:
-   * measured at 55 flows for a 24-endpoint module.
-   */
-  flowsForModule(moduleId: string): readonly FeatureFlowFact[] {
-    const detail = this.moduleDetail(moduleId);
-    if (detail === null) return [];
 
-    const own = new Set(detail.module.entryKeys);
-    return detail.features
-      .flatMap((feature) => this.flowsForFeature(feature.id))
-      .filter((flow) => own.has(flow.entryKey));
-  }
 
-  /** The entities the capabilities a module serves were observed to use. */
-  entitiesForModule(moduleId: string): readonly EntityModel[] {
-    const detail = this.moduleDetail(moduleId);
-    if (detail === null) return [];
 
-    const wanted = new Set([
-      ...detail.module.dataEntities,
-      ...detail.features.flatMap((feature) => [...feature.dataEntities, ...feature.tables]),
-    ]);
-    return this.entities()
-      .filter((entity) => wanted.has(entity.name))
-      .map((entity) => this.entityModel(entity.name, entity.rootName))
-      .filter((model): model is EntityModel => model !== null);
-  }
-
-  /** Findings about the capabilities a module serves, and no others. */
-  findingsForModule(moduleId: string): readonly FeatureFindingFact[] {
-    const detail = this.moduleDetail(moduleId);
-    if (detail === null) return [];
-    const ids = new Set(detail.features.map((feature) => feature.id));
-    return this.featureFindings().filter((finding) => ids.has(finding.featureId));
-  }
-
-  /**
-   * Rules enforced in the files this module's own flows reach.
-   *
-   * Scoped the same way as the flows, and for the same reason: a capability's
-   * rules are not this module's rules unless this module's endpoints run them.
-   */
-  rulesForModule(moduleId: string): readonly BusinessRule[] {
-    const detail = this.moduleDetail(moduleId);
-    if (detail === null) return [];
-
-    const files = new Set(
-      this.flowsForModule(moduleId).flatMap((flow) =>
-        flow.steps
-          .filter((step) => step.provenance !== null)
-          .map((step) => `${step.provenance!.source.rootName}/${step.provenance!.source.relPath}`),
-      ),
-    );
-
-    return detail.features
-      .flatMap((feature) => this.rulesForFeature(feature.id))
-      .filter((rule) => files.has(`${rule.rootName}/${rule.relPath}`));
-  }
 
   /** Which modules serve a capability. A capability can span several. */
   modulesForFeature(featureId: string): readonly ModuleFact[] {
@@ -327,6 +267,29 @@ export class KnowledgeBase {
 
   traces() {
     return this.derived("trace");
+  }
+
+  /** Every decision the code makes, as trees. */
+  decisions(): readonly DecisionRecord[] {
+    return this.structural("decision") as readonly DecisionRecord[];
+  }
+
+  /**
+   * The decisions made in a capability's own files.
+   *
+   * Scoped by file because that is how a capability owns code: a decision is
+   * in `leave/service.go`, and Leave owns that file. Nothing finer is
+   * available, and claiming otherwise would attribute a branch to a
+   * capability that never runs it.
+   */
+  decisionsForFeature(featureId: string): readonly DecisionRecord[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+
+    const owned = new Set(feature.filePaths);
+    return this.decisions().filter((decision) =>
+      owned.has(`${decision.rootName}/${decision.source.relPath}`),
+    );
   }
 
   /** Findings about the architecture rather than about one capability. */

@@ -1,6 +1,6 @@
 # Filling a prepared report
 
-`render prepare` leaves a directory with holes in it. Your job is to fill them.
+`export --as <document>` leaves a directory with holes in it. Your job is to fill them.
 
 ```
 <runDir>/
@@ -21,7 +21,7 @@ For each directory under `tasks/` that has no `answer.md`:
 2. Write the section body to `answer.md` — Markdown, no heading of its own unless the prompt asks for headings, no preamble, no sign-off.
 3. Nothing else. Do not edit `report.partial.md`, the prompt, or the data.
 
-Then run `render assemble <runDir>` — add `--html` for a page, `--allow-missing` to publish with any unanswered section stated as unanswered.
+Then run the same `export` command again — it assembles once every answer is there. Add `--format html` for a page, `--allow-missing` to publish with any unanswered section stated as unanswered.
 
 ## The one rule
 

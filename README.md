@@ -32,12 +32,10 @@ pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowl
                      [--index-root dir]          #   put the code index elsewhere
                      [--no-code-index]           #   or skip it entirely
 pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
-pnpm run export  -- [--db kb.sqlite] [--run id]  # the knowledge base as one JSON document
-
-pnpm run render -- prepare overview [--db kb.sqlite] [--lang zh]
-pnpm run render -- prepare module --param module=<id>
-pnpm run render -- assemble <runDir> [--split]
-pnpm run render -- export   <runDir> --format html
+pnpm run export  -- --as json                    # the knowledge base as one JSON document
+pnpm run export  -- --as overview [--format html]
+pnpm run export  -- --as overview --only <section>   # rebuild one section
+pnpm run export  -- --as capability --param capability=<id>
 ```
 
 `analyze` is the only command that touches the project, and it reads
@@ -64,7 +62,7 @@ The engine never calls a model, which is what lets the same templates run
 under Claude Code, Codex CLI or anything else with an agent in it. See
 [templates/HOST.md](templates/HOST.md) for the contract. To write your own,
 copy a directory under `templates/` and pass its path where a template id
-goes: `render prepare ./my-template`.
+goes: `export --as ./my-template`.
 
 ## Development
 

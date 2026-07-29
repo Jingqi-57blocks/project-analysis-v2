@@ -1,0 +1,65 @@
+{
+  "id": "capability",
+  "title": "$capability",
+  "params": ["capability"],
+  "sections": [
+    {
+      "id": "what-this-is",
+      "kind": "llm",
+      "heading": "What this is",
+      "prompt": "prompts/what-this-is.md",
+      "requires": ["feature-detail:$capability", "feature-flows:$capability"],
+      "contract": { "maxWords": 500, "maxHeadingLevel": 3 }
+    },
+    {
+      "id": "journey",
+      "kind": "llm",
+      "heading": "What happens when you use it",
+      "prompt": "prompts/journey.md",
+      "requires": ["feature-flows:$capability", "feature-decisions:$capability"],
+      "contract": { "maxWords": 700, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "decisions",
+      "kind": "code",
+      "heading": "The choices it makes",
+      "fragment": "decision-diagrams",
+      "requires": ["feature-decisions:$capability", "value-sets"],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "rules",
+      "kind": "llm",
+      "heading": "The rules it enforces",
+      "prompt": "prompts/rules.md",
+      "requires": ["feature-rules:$capability"],
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "data",
+      "kind": "code",
+      "heading": "What it remembers",
+      "fragment": "capability-data",
+      "requires": ["feature-detail:$capability", "coverage:entity"],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "issues",
+      "kind": "llm",
+      "heading": "What is wrong with it",
+      "prompt": "prompts/issues.md",
+      "requires": ["feature-findings-for:$capability"],
+      "contract": { "maxWords": 400, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "limitations",
+      "kind": "code",
+      "heading": "What this report cannot tell you",
+      "fragment": "limitations",
+      "requires": ["coverage-notes", "extraction-failures"]
+    }
+  ]
+}

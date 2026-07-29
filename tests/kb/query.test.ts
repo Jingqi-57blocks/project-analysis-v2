@@ -236,31 +236,21 @@ describe("more than one project in one file", () => {
   });
 });
 
-describe("what belongs to a module", () => {
-  it("hands a module its own flows, not every flow of every capability it serves", () => {
-    // A capability spans more than one module. Measured on a real target: a
-    // 24-endpoint module was handed 55 flows, 31 of them another module's,
-    // under a prompt calling them "the request paths through it".
-    for (const module of kb.modules()) {
-      const own = new Set(module.entryKeys);
-      for (const flow of kb.flowsForModule(module.id)) {
-        expect(own.has(flow.entryKey), `${module.name} ← ${flow.entryKey}`).toBe(true);
+
+describe("what belongs to a capability", () => {
+  it("keeps a capability's decisions to its own files", () => {
+    // A decision is in a file, and a capability owns files. Nothing finer is
+    // available, and claiming otherwise would attribute a branch to a
+    // capability that never runs it.
+    for (const feature of kb.features()) {
+      const owned = new Set(feature.filePaths);
+      for (const decision of kb.decisionsForFeature(feature.id)) {
+        expect(owned.has(`${decision.rootName}/${decision.source.relPath}`)).toBe(true);
       }
     }
   });
 
-  it("keeps a module's rules to the files its own flows reach", () => {
-    for (const module of kb.modules()) {
-      const files = new Set(
-        kb.flowsForModule(module.id).flatMap((flow) =>
-          flow.steps
-            .filter((step) => step.provenance !== null)
-            .map((step) => `${step.provenance!.source.rootName}/${step.provenance!.source.relPath}`),
-        ),
-      );
-      for (const rule of kb.rulesForModule(module.id)) {
-        expect(files.has(`${rule.rootName}/${rule.relPath}`)).toBe(true);
-      }
-    }
+  it("returns nothing for a capability that does not exist", () => {
+    expect(kb.decisionsForFeature("feat_nonexistent")).toEqual([]);
   });
 });

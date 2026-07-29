@@ -56,7 +56,7 @@ describe("reading a template", () => {
 });
 
 describe("the shipped templates", () => {
-  for (const id of ["overview", "module"]) {
+  for (const id of ["overview", "capability"]) {
     it(`${id} names only selectors and fragments that exist`, () => {
       // A template naming something unknown fails at prepare time, in front of
       // a user, with a knowledge base already built.
@@ -83,16 +83,15 @@ describe("the shipped templates", () => {
 
   it("keeps every fragment reachable from some template", () => {
     const used = new Set(
-      ["overview", "module"].flatMap((id) =>
+      ["overview", "capability"].flatMap((id) =>
         loadTemplate(id)
           .sections.filter((section) => section.kind === "code")
           .map((section) => (section as { fragment: string }).fragment),
       ),
     );
-    const orphaned = fragmentNames().filter((name) => !used.has(name));
-    // `endpoints-table` is offered to user-written templates rather than used
-    // by a shipped one; anything else unreferenced is probably a mistake.
-    expect(orphaned).toEqual(["endpoints-table"]);
+    // A fragment no template names is a question nobody asks, and it drifts
+    // out of agreement with the data it reads.
+    expect(fragmentNames().filter((name) => !used.has(name))).toEqual([]);
   });
 });
 
@@ -101,22 +100,15 @@ describe("a fragment gets what its section was told to require", () => {
   // selector and still hand the fragment nothing it reads, because a
   // parameterized selector is keyed with its argument.
   const READS: Readonly<Record<string, readonly string[]>> = {
-    "project-summary": ["run-context"],
     "project-map": ["run-context", "map-edges"],
-    "features-table": ["features"],
-    "screens-table": ["screens"],
-    "endpoints-table": ["endpoints"],
-    "data-model": ["module-entities", "entity-models"],
-    "rules-table": ["module-rules", "feature-rules", "business-rules"],
-    "value-sets": ["value-sets"],
-    flows: ["module-flows", "feature-flows"],
-    "findings-table": ["structural-findings", "module-findings", "feature-findings"],
-    "signals-table": ["signals"],
-    "module-surface": ["module-detail"],
+    "external-systems": ["map-edges"],
+    "stored-kinds": ["entities"],
+    "decision-diagrams": ["feature-decisions"],
+    "capability-data": ["feature-detail"],
     limitations: ["coverage-notes", "extraction-failures"],
   };
 
-  for (const id of ["overview", "module"]) {
+  for (const id of ["overview", "capability"]) {
     it(`${id} gives every code section a selector its fragment reads`, () => {
       for (const section of loadTemplate(id).sections) {
         if (section.kind !== "code") continue;

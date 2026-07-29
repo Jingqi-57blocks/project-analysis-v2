@@ -10,7 +10,7 @@
  * Code, Codex CLI or anything else with an agent in it.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { KnowledgeBase } from "../kb/query.js";
@@ -30,6 +30,14 @@ export interface PrepareOptions {
   readonly params?: Readonly<Record<string, string>>;
   /** Appended to every prompt. The wording of a document is a prompt's job. */
   readonly language?: string;
+  /**
+   * Rebuild only this section, leaving every other answer where it is.
+   *
+   * A report with one bad section should cost one section to fix. Preparing
+   * the whole document again clears every answer — necessary when the
+   * knowledge base has moved on, wasteful when a single fragment was wrong.
+   */
+  readonly only?: string;
 }
 
 export interface PreparedTask {
@@ -102,6 +110,17 @@ export function prepare(options: PrepareOptions): PrepareResult {
     }
   }
 
+  if (options.only !== undefined) {
+    const known = template.sections.some((section) => section.id === options.only);
+    if (!known) {
+      throw new Error(
+        `Template "${template.id}" has no section "${options.only}". ` +
+          `It has: ${template.sections.map((section) => section.id).join(", ")}`,
+      );
+    }
+    assertSameSnapshot(options.outDir, kb);
+  }
+
   mkdirSync(options.outDir, { recursive: true });
   const tasksDir = join(options.outDir, "tasks");
 
@@ -147,9 +166,12 @@ export function prepare(options: PrepareOptions): PrepareResult {
     const dir = join(tasksDir, section.id);
     mkdirSync(dir, { recursive: true });
 
-    // A prepare re-run against a changed knowledge base leaves an answer
-    // written from the old slice, which assemble would publish as ✓.
-    rmSync(join(dir, "answer.md"), { force: true });
+    // An answer written from an older slice would be published against a
+    // newer one. Cleared for the sections being rebuilt, and only those —
+    // rebuilding one section must not discard the rest.
+    if (options.only === undefined || options.only === section.id) {
+      rmSync(join(dir, "answer.md"), { force: true });
+    }
 
     const promptPath = join(dir, "prompt.md");
     const dataPath = join(dir, "data.json");
@@ -270,4 +292,32 @@ function promptFor(template: Template, section: Section, language?: string): str
   }
 
   return `${body.trimEnd()}\n\n${rules.join("\n")}\n`;
+}
+
+/**
+ * Refuses to rebuild a section against a different analysis.
+ *
+ * The other answers in the directory were written from one snapshot. A
+ * section regenerated against another is a document whose parts describe two
+ * different runs, and nothing in the file would say so. Preparing the whole
+ * document again is the way to move to a newer run — that clears the answers,
+ * which is the point.
+ */
+function assertSameSnapshot(outDir: string, kb: KnowledgeBase): void {
+  const path = join(outDir, "manifest.json");
+  if (!existsSync(path)) {
+    throw new Error(`No prepared document at ${outDir}. Prepare it once before rebuilding a section.`);
+  }
+
+  const manifest = JSON.parse(readFileSync(path, "utf8")) as {
+    identity?: string;
+    runId?: string | null;
+  };
+  if (manifest.identity !== undefined && manifest.identity !== kb.snapshot.identity) {
+    throw new Error(
+      `This document was prepared from run ${manifest.runId ?? "(unnamed)"}, and the knowledge base ` +
+        `now holds ${kb.snapshot.runId ?? "(unnamed)"}. Rebuilding one section against a different ` +
+        "analysis would leave the document describing two runs. Prepare it again to move to this one.",
+    );
+  }
 }
