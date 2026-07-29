@@ -3,7 +3,8 @@
  *
  *   pnpm run render -- prepare <template> [--db path] [--run id] [--param k=v]
  *                                        [--lang zh] [--out dir]
- *   pnpm run render -- assemble <runDir> [--html] [--split] [--allow-missing]
+ *   pnpm run render -- assemble <runDir> [--split] [--allow-missing]
+ *   pnpm run render -- export   <runDir> --format html [--out dir]
  *
  * Between the two, a host agent answers each task: read `tasks/<id>/prompt.md`
  * and `data.json`, write `answer.md` beside them. Nothing else.
@@ -11,14 +12,14 @@
 
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { openStore } from "../engine/store/open.js";
 import { openKnowledgeBase } from "../engine/kb/query.js";
 import { loadTemplate } from "../engine/render/template.js";
 import { prepare } from "../engine/render/prepare.js";
 import { assemble, writeAssembled } from "../engine/render/assemble.js";
-import { renderHtml } from "../engine/render/html.js";
+import { exportDocument } from "../engine/render/export.js";
 
 const DEFAULT_DB_PATH = "./.analysis/kb.sqlite";
 
@@ -91,7 +92,7 @@ function runPrepare(argv: readonly string[]): number {
 function runAssemble(argv: readonly string[]): number {
   const runDir = argv[0];
   if (runDir === undefined || runDir.startsWith("--")) {
-    throw new Error("Usage: render assemble <runDir> [--html] [--split] [--allow-missing]");
+    throw new Error("Usage: render assemble <runDir> [--split] [--allow-missing]");
   }
   const dir = resolve(runDir);
   const result = assemble(dir, argv.includes("--allow-missing"));
@@ -104,24 +105,26 @@ function runAssemble(argv: readonly string[]): number {
     console.log(`  ${outcome.filled ? "✓" : "·"} ${outcome.sectionId}${problems === "" ? "" : ` — ${problems}`}`);
   }
 
-  if (argv.includes("--html")) {
-    const manifestPath = resolve(dir, "manifest.json");
-    const title = existsSync(manifestPath)
-      ? (JSON.parse(readFileSync(manifestPath, "utf8")) as { title?: string }).title ?? basename(dir)
-      : basename(dir);
+  return 0;
+}
 
-    // Rendered from the files just written, so the page and the Markdown
-    // carry the same contents rather than two renderings of one document.
-    for (const markdownPath of written.filter((path) => path.endsWith(".md"))) {
-      const htmlPath = markdownPath.replace(/\.md$/, ".html");
-      writeFileSync(
-        htmlPath,
-        renderHtml(readFileSync(markdownPath, "utf8"), title),
-        "utf8",
-      );
-      console.log(`  ${htmlPath}`);
-    }
+function runExport(argv: readonly string[]): number {
+  const runDir = argv[0];
+  if (runDir === undefined || runDir.startsWith("--")) {
+    throw new Error("Usage: render export <runDir> --format html [--out dir]");
   }
+  const dir = resolve(runDir);
+  const format = flagValue(argv, "--format") ?? "html";
+  const manifestPath = resolve(dir, "manifest.json");
+  const title = existsSync(manifestPath)
+    ? (JSON.parse(readFileSync(manifestPath, "utf8")) as { title?: string }).title ?? basename(dir)
+    : basename(dir);
+
+  const out = flagValue(argv, "--out");
+  const result = exportDocument(dir, format, title, out === undefined ? undefined : resolve(out));
+
+  console.log(`Exported ${result.files.length} ${result.format} file(s)`);
+  console.log(`  ${result.outDir}`);
   return 0;
 }
 
@@ -134,7 +137,10 @@ function main(input: readonly string[]): number {
   const rest = argv.slice(1);
   if (command === "prepare") return runPrepare(rest);
   if (command === "assemble") return runAssemble(rest);
-  throw new Error("Usage: render prepare <template> ... | render assemble <runDir> ...");
+  if (command === "export") return runExport(rest);
+  throw new Error(
+    "Usage: render prepare <template> ... | render assemble <runDir> ... | render export <runDir> --format html",
+  );
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -11,6 +11,7 @@ import { loadTemplate, parseTemplate } from "../../engine/render/template.js";
 import { prepare } from "../../engine/render/prepare.js";
 import { assemble, writeAssembled, UnansweredSectionsError } from "../../engine/render/assemble.js";
 import { resolveSelector, SelectorError } from "../../engine/render/selectors.js";
+import { exportDocument, retarget, UnknownFormatError } from "../../engine/render/export.js";
 import { hasFragment } from "../../engine/render/fragments.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
@@ -464,5 +465,62 @@ describe("finding your way around a long report", () => {
     );
     writeAssembled(outDir, assemble(outDir));
     expect(readFileSync(join(outDir, "report.md"), "utf8")).not.toContain("[Not a real section]");
+  });
+});
+
+describe("a format is a view, not a second document", () => {
+  function assembled(name: string, split = true) {
+    const { outDir } = prepareInto(name);
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "Body text.");
+    writeAssembled(outDir, assemble(outDir), { split });
+    return outDir;
+  }
+
+  it("writes each format into its own tree, leaving the Markdown alone", () => {
+    // Beside the Markdown, a ten-section report is twenty interleaved files
+    // where half are views of the other half.
+    const outDir = assembled("export-tree");
+    const result = exportDocument(outDir, "html", "T");
+
+    expect(result.outDir).toBe(join(outDir, "html"));
+    expect(existsSync(join(outDir, "html", "index.html"))).toBe(true);
+    expect(existsSync(join(outDir, "html", "sections", "parts.html"))).toBe(true);
+    // The Markdown tree stays exactly what assemble wrote.
+    expect(existsSync(join(outDir, "sections", "parts.html"))).toBe(false);
+  });
+
+  it("points the document's own links at the format being rendered", () => {
+    // `index.md` links to `sections/parts.md`, which is right for Markdown.
+    // Left alone in a page, that link shows raw source instead of the page.
+    const outDir = assembled("export-links");
+    exportDocument(outDir, "html", "T");
+
+    const index = readFileSync(join(outDir, "html", "index.html"), "utf8");
+    expect(index).toContain('href="sections/parts.html"');
+    expect(index).not.toContain('href="sections/parts.md"');
+  });
+
+  it("leaves a link that was not part of this document alone", () => {
+    expect(retarget("[docs](https://example.com/a.md)", "html")).toBe(
+      "[docs](https://example.com/a.md)",
+    );
+    expect(retarget("[s](sections/a.md#top)", "html")).toBe("[s](sections/a.html#top)");
+  });
+
+  it("exports an unsplit document too", () => {
+    const outDir = assembled("export-whole", false);
+    const result = exportDocument(outDir, "html", "T");
+    expect(result.files).toContain("html/report.html");
+  });
+
+  it("refuses a format it does not have", () => {
+    const outDir = assembled("export-unknown");
+    expect(() => exportDocument(outDir, "docx", "T")).toThrow(UnknownFormatError);
+  });
+
+  it("refuses to export a document that was never assembled", () => {
+    const { outDir } = prepareInto("export-nothing");
+    rmSync(join(outDir, "report.md"), { force: true });
+    expect(() => exportDocument(outDir, "html", "T")).toThrow(/Run `render assemble` first/);
   });
 });
