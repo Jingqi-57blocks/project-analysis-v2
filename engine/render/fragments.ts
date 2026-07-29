@@ -50,10 +50,15 @@ function readableValue(text: string): string {
 
 /** An identifier as a person would say it: `lv.LeaveType` → "leave type". */
 function readableName(text: string): string {
-  const last = text.split(".").pop() ?? text;
+  // A subject can be a call — `toLower(item.name)`. What is being decided on is
+  // the argument, not the call, and splitting a call on "." left a stray `name)`
+  // as the label. Unwrap to what is inside the parentheses first.
+  const unwrapped = /^[\w.]+\((.+)\)$/.exec(text.trim())?.[1] ?? text;
+  const last = unwrapped.split(".").pop() ?? unwrapped;
   return last
     .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replaceAll(/[_-]+/g, " ")
+    .replaceAll(/[()]/g, "")
     .toLowerCase()
     .trim();
 }

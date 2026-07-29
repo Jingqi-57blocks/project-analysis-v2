@@ -12,7 +12,7 @@ import { prepare } from "../../engine/render/prepare.js";
 import { assemble, writeAssembled, UnansweredSectionsError } from "../../engine/render/assemble.js";
 import { resolveSelector, SelectorError } from "../../engine/render/selectors.js";
 import { exportDocument, retarget, UnknownFormatError } from "../../engine/render/export.js";
-import { hasFragment } from "../../engine/render/fragments.js";
+import { hasFragment, renderFragment } from "../../engine/render/fragments.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
 import { createSqlSchemaProvider } from "../../engine/datamodel/sql.js";
@@ -380,6 +380,30 @@ describe("what the review found", () => {
   it("does not treat an inherited property as a fragment or a selector", () => {
     expect(hasFragment("toString")).toBe(false);
     expect(() => resolveSelector(kb, "toString", {})).toThrow(SelectorError);
+  });
+
+  it("labels a decision whose subject is a call without leaving a stray bracket", () => {
+    // `switch strings.ToLower(item.name)` reached the diagram titled "name)":
+    // the humaniser split the call on "." and kept the fragment after it.
+    const diagram = renderFragment("decision-diagrams", {
+      kb,
+      params: {},
+      data: {
+        "feature-decisions": [
+          {
+            subject: "toLower(item.name)",
+            enclosingFunction: null,
+            branches: [
+              { test: "uto", values: ["uto"], outcome: "continues" },
+              { test: "funeral leave", values: ["funeral leave"], outcome: "leaves" },
+              { test: "otherwise", values: [], outcome: "leaves" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(diagram).toContain('q["name?"]');
+    expect(diagram).not.toContain("name)");
   });
 });
 
