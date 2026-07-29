@@ -462,6 +462,16 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   for (const access of dataAccess) {
     if (access.entity !== null) touchedTables.add(access.entity);
   }
+  // A project with no schema at all is far more likely to be one whose schema
+  // this run could not read than one that stores nothing. Silence here reads
+  // as the second, which is the failure this tool exists to avoid.
+  if (describedEntities.size === 0) {
+    coverageNotes.push({
+      subject: "data-model",
+      note: "no table or column declarations were found by the schema readers available in this run, so no data model is described here; that is a limit of what was read, not evidence the project stores nothing",
+    });
+  }
+
   const undescribed = [...touchedTables].filter((table) => !describedEntities.has(table));
   if (undescribed.length > 0) {
     coverageNotes.push({
