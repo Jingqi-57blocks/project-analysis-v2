@@ -126,6 +126,13 @@ export interface SpecFeature {
   readonly flowsDetailed: number;
   readonly partialFlows: number;
   readonly overviewDiagram: string;
+  readonly findings: readonly {
+    readonly id: string;
+    readonly severity: string;
+    readonly title: string;
+    readonly finding: string;
+    readonly evidence: readonly string[];
+  }[];
 }
 
 export interface SpecModule {
@@ -297,6 +304,13 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
       flowsDetailed: feature.flows.length,
       partialFlows: feature.partialFlowCount,
       overviewDiagram: feature.overviewDiagram,
+      findings: feature.findings.map((finding) => ({
+        id: finding.id,
+        severity: finding.severity,
+        title: finding.title,
+        finding: finding.finding,
+        evidence: finding.evidence,
+      })),
     })),
     modules: model.modules.map((module) => ({
       id: module.id,

@@ -7,6 +7,7 @@
  */
 
 import type { HealthSignal } from "../health/signals.js";
+import type { FeatureFinding } from "../health/features.js";
 import type { ProductModule, TechnicalComponent, DispositionCounts } from "../modules/form.js";
 
 /**
@@ -95,6 +96,8 @@ export interface ReportFeature {
   readonly overviewDiagram: string;
   /** How many of this feature's flows have at least one unestablished hop. */
   readonly partialFlowCount: number;
+  /** What is worth a second look in this capability specifically. */
+  readonly findings: readonly FeatureFinding[];
 }
 
 export interface ReportFlowStep {

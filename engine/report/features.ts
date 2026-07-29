@@ -10,6 +10,7 @@ import type { DomainFeature } from "../modules/features.js";
 import type { FeatureFlow, FlowStep } from "../flows/types.js";
 import { featureOverviewMermaid, flowToMermaid, escapeLabel } from "../flows/mermaid.js";
 import type { MapEdge, ReportFeature, ReportFlow, ReportFlowStep } from "./model.js";
+import { computeFeatureFindings, findingsFor } from "../health/features.js";
 
 function locationOf(step: FlowStep): string | null {
   if (step.provenance === null) return null;
@@ -72,7 +73,7 @@ export function buildReportFeatures(
     byFeature.set(flow.featureId, existing);
   }
 
-  return features.map((feature): ReportFeature => {
+  const built = features.map((feature): ReportFeature => {
     const own = (byFeature.get(feature.id) ?? []).slice().sort((a, b) => {
       if (a.partial !== b.partial) return a.partial ? 1 : -1;
       return a.entryKey.localeCompare(b.entryKey);
@@ -109,8 +110,17 @@ export function buildReportFeatures(
       totalFlowCount: own.length,
       overviewDiagram: featureOverviewMermaid(feature.name, own),
       partialFlowCount: own.filter((flow) => flow.partial).length,
+      findings: [],
     };
   });
+
+  // Computed against the assembled view, then attached, because a finding is
+  // about what the report says a feature is — not about the raw records.
+  const findings = computeFeatureFindings(built);
+  return built.map((feature) => ({
+    ...feature,
+    findings: findingsFor(findings, feature.id),
+  }));
 }
 
 /**

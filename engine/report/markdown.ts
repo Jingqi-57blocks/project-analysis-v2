@@ -109,6 +109,22 @@ export function renderFeaturePage(feature: ReportFeature): string {
     }
   }
 
+  if (feature.findings.length > 0) {
+    lines.push(
+      "## What to look at",
+      "",
+      table(
+        ["Severity", "Observation", "Examples"],
+        feature.findings.map((finding) => [
+          finding.severity,
+          finding.finding,
+          finding.evidence.join(", ") || "—",
+        ]),
+      ),
+      "",
+    );
+  }
+
   lines.push("## Flows", "");
   if (feature.flows.length === 0) {
     lines.push("No flow could be assembled for this feature's endpoints.", "");

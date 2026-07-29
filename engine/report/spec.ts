@@ -70,6 +70,17 @@ function toFeature(feature: ReportSpec["features"][number]): ReportFeature {
     totalFlowCount: feature.flowCount ?? (feature.flows ?? []).length,
     overviewDiagram: feature.overviewDiagram,
     partialFlowCount: feature.partialFlows ?? 0,
+    findings: (feature.findings ?? []).map((finding) => ({
+      featureId: feature.id,
+      featureName: feature.name,
+      id: finding.id,
+      title: finding.title,
+      finding: finding.finding,
+      severity: (["info", "notice", "concern"].includes(finding.severity)
+        ? finding.severity
+        : "info") as Severity,
+      evidence: finding.evidence ?? [],
+    })),
   };
 }
 
