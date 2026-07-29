@@ -8,8 +8,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
 
 /** The version this adapter was written and verified against. */
 export const VERIFIED_VERSION = "1.5.0";
@@ -80,16 +80,30 @@ export function codegraphVersion(): string | null {
 }
 
 /**
- * The directory that holds every root, when one does.
+ * The directory that holds every root.
  *
- * Indexing there once is both cheaper and tidier than an index inside each
- * root: the parent of a set of repositories is usually not a repository
+ * Indexing there once is cheaper and tidier than an index inside each root:
+ * the directory containing a set of repositories is usually not a repository
  * itself, so nothing is written into any of them and no ignore file needs
- * changing. Returns null when the roots do not share a parent, or when the
- * shared parent is a filesystem root — indexing from there would walk the disk.
+ * changing.
+ *
+ * Applies to a single root too, and that is the point rather than an edge
+ * case. Requiring two roots looked harmless — with one root there is no
+ * sharing to do — but the fallback was an index written inside the analyzed
+ * repository, so the guarantee that analyzed source is never written to held
+ * only for workspaces that happened to have more than one part. The cost is
+ * that the index covers the root's siblings as well; every query is scoped by
+ * path prefix afterwards, so what a run reports is unaffected.
+ *
+ * Returns null only when the answer would be a filesystem root, since indexing
+ * from there would walk the whole disk.
  */
 export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
-  if (rootPaths.length < 2) return null;
+  if (rootPaths.length === 0) return null;
+  if (rootPaths.length === 1) {
+    const parent = dirname(resolve(rootPaths[0]!));
+    return parent === sep || parent === resolve(rootPaths[0]!) ? null : parent;
+  }
 
   const segments = rootPaths.map((path) => resolve(path).split(sep).filter((part) => part !== ""));
   const shortest = Math.min(...segments.map((parts) => parts.length));
@@ -110,13 +124,69 @@ export function isIndexed(rootPath: string): boolean {
 }
 
 /**
- * Writes `.codegraph/` inside the analyzed root, which CodeGraph offers no flag
- * to relocate. An accepted, bounded exception: the directory is excluded from
- * content digests and recorded as excluded in inventory, so indexing cannot
- * masquerade as a source change or as project content.
+ * Writes `.codegraph/` inside the directory it is pointed at, which CodeGraph
+ * offers no flag to relocate. Callers point it at the directory *containing*
+ * the analyzed roots for exactly that reason — see `sharedIndexRoot`.
  */
 export function ensureIndexed(rootPath: string): void {
   run(isIndexed(rootPath) ? ["index", "-q", rootPath] : ["init", rootPath]);
+}
+
+const LOCK_DIRECTORY = ".codegraph.lock";
+const LOCK_POLL_MS = 200;
+const LOCK_WAIT_MS = 180_000;
+/** Long enough that no live run holds a lock this old; short enough to recover. */
+const LOCK_STALE_MS = 900_000;
+
+function lockAge(path: string): number {
+  try {
+    return Date.now() - statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Serializes indexing and querying of one directory across processes.
+ *
+ * Rebuilding an index is not atomic: while it runs, a query against the same
+ * directory returns nothing. Nothing about that reads as an error — the caller
+ * gets an empty result and reports a codebase with no symbols, which is the
+ * most damaging shape a wrong answer can take here. Two analyses over the same
+ * parent directory is an ordinary thing to do, so they have to take turns.
+ *
+ * `mkdir` is the lock because it is atomic on every filesystem this runs on.
+ * A lock older than fifteen minutes is broken rather than waited on: a crashed
+ * run must not make the directory permanently unusable.
+ */
+export function withIndexLock<T>(rootPath: string, work: () => T): T {
+  const lockPath = join(rootPath, LOCK_DIRECTORY);
+  const deadline = Date.now() + LOCK_WAIT_MS;
+
+  for (;;) {
+    try {
+      mkdirSync(lockPath);
+      break;
+    } catch {
+      if (lockAge(lockPath) > LOCK_STALE_MS) {
+        rmSync(lockPath, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Another run has been indexing ${rootPath} for over ${Math.round(LOCK_WAIT_MS / 1000)}s. ` +
+            `Wait for it to finish, or remove ${lockPath} if nothing is running.`,
+        );
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_POLL_MS);
+    }
+  }
+
+  try {
+    return work();
+  } finally {
+    rmSync(lockPath, { recursive: true, force: true });
+  }
 }
 
 /**

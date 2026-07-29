@@ -8,6 +8,13 @@ import { beginSnapshot, publishOrRefuse, type SnapshotHandle } from "../snapshot
 import { walkRoot } from "../inventory/walk.js";
 import { recordInventory } from "../inventory/persist.js";
 import { runPreflight, requireAvailable, recordPreflight } from "../providers/index.js";
+import { defaultReaders } from "../kb/build.js";
+import { extractRoot, type RootFacts } from "../kb/extract.js";
+import { derive } from "../kb/derive.js";
+import { recordDerived } from "../kb/persist.js";
+import { countDerived } from "../kb/kinds.js";
+import { recordAssembledModel, recordCapabilities } from "../structural/persist.js";
+import { recordEvidence } from "../semantic/persist.js";
 import { PhaseTimer, recordPhaseMetrics } from "./metrics.js";
 import type { AnalysisResult, AnalyzeOptions, AnalyzedRootResult } from "./types.js";
 
@@ -102,6 +109,11 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     const rootIdByName = new Map(handle.roots.map((r) => [r.name, r.id] as const));
     let inventoryBytes = 0;
 
+    // The walk feeds both the inventory and the readers. Walking twice was
+    // how the two halves of this pipeline used to disagree about which files
+    // exist — one applied inventory's exclusions and the other did not.
+    const walks = new Map<string, ReturnType<typeof walkRoot>>();
+
     const rootResults = timer.time(
       "inventory",
       () => {
@@ -111,6 +123,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
           if (rootId === undefined) throw new Error(`No persisted root id for ${snapshot.name}`);
 
           const walkResult = walkRoot(snapshot.path);
+          walks.set(snapshot.name, walkResult);
           const counts = recordInventory(store, rootId, walkResult);
           inventoryBytes += walkResult.analyzed.reduce((sum, f) => sum + f.sizeBytes, 0);
 
@@ -130,7 +143,12 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       }),
     );
 
-    const providers = options.providers ?? [];
+    const readers = options.readers ?? defaultReaders(roots.map((root) => root.path));
+    // Only the structural readers preflight: they are the ones that can be
+    // missing at runtime, because some of them shell out to a tool the user
+    // may not have installed. The schema readers and collectors are in-process
+    // and cannot be absent from a build that contains them.
+    const providers = options.providers ?? readers.structural;
     const providerReport = timer.time(
       "preflight",
       () => runPreflight(providers),
@@ -140,6 +158,77 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     if (options.requiredProviderIds) {
       requireAvailable(providerReport, options.requiredProviderIds);
     }
+
+    // Extraction, derivation and persistence — the three stages that used to
+    // live in a separate command, re-reading the same source into a model
+    // nothing kept. One run now produces one knowledge base under one run id.
+    const rootFacts = timer.time(
+      "extract",
+      () =>
+        roots.map((root): RootFacts => {
+          const walk = walks.get(root.name);
+          if (walk === undefined) throw new Error(`No inventory for ${root.name}`);
+          return extractRoot({
+            name: root.name,
+            path: root.path,
+            analyzedFiles: walk.analyzed.map((file) => file.relPath),
+            generatedFiles: new Set(
+              walk.analyzed
+                .filter((file) => file.classification === "generated")
+                .map((file) => file.relPath),
+            ),
+            excludedCount: walk.excluded.length,
+            structuralProviders: readers.structural,
+            dataProviders: readers.data,
+            collectors: readers.collectors,
+          });
+        }),
+      (facts) => ({ items: facts.reduce((sum, root) => sum + root.model.records.length, 0) }),
+    );
+
+    const derived = timer.time(
+      "derive",
+      () =>
+        derive({
+          roots: rootFacts,
+          providers: readers.structural,
+          runId: handle!.runId,
+          generatedAt: now,
+          workspacePath: selection.workspacePath,
+        }),
+      (result) => ({ items: countDerived(result.records) }),
+    );
+
+    timer.time(
+      "persist",
+      () => {
+        let written = 0;
+        for (const facts of rootFacts) {
+          const rootId = rootIdByName.get(facts.rootName);
+          if (rootId === undefined) throw new Error(`No persisted root id for ${facts.rootName}`);
+
+          written += recordAssembledModel(store, handle!.snapshotId, rootId, facts.model).inserted;
+          for (const entry of facts.contributions) {
+            recordCapabilities(
+              store,
+              handle!.snapshotId,
+              rootId,
+              entry.contribution,
+              entry.capabilities,
+            );
+          }
+          recordEvidence(store, handle!.snapshotId, rootId, facts.evidence);
+        }
+        written += recordDerived(
+          store,
+          handle!.snapshotId,
+          derived.records,
+          derived.links,
+        ).inserted;
+        return written;
+      },
+      (written) => ({ items: written }),
+    );
 
     timer.time(
       "publish",

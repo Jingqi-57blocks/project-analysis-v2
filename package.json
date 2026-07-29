@@ -14,8 +14,7 @@
     "typecheck": "tsc --noEmit",
     "target:derive": "tsx scripts/derive-variant.ts",
     "analyze": "tsx scripts/analyze.ts",
-    "status": "tsx scripts/status.ts",
-    "report": "tsx scripts/report.ts"
+    "status": "tsx scripts/status.ts"
   },
   "devDependencies": {
     "@ast-grep/lang-go": "^0.0.6",
