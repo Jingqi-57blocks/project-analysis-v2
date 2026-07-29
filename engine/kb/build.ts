@@ -8,6 +8,7 @@
  */
 
 import { createManifestProvider } from "../providers/manifests/provider.js";
+import { createSourceFileProvider } from "../providers/sourcefiles/provider.js";
 import { createOutboundProvider } from "../providers/outbound/provider.js";
 import { createConventionsProvider } from "../providers/conventions/provider.js";
 import { createCodeGraphProvider } from "../providers/codegraph/provider.js";
@@ -70,6 +71,7 @@ export function defaultReaders(
 
   return {
     structural: [
+      createSourceFileProvider(),
       createManifestProvider(),
       createOutboundProvider(),
       createConventionsProvider(),
