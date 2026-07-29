@@ -11,6 +11,8 @@ function call(rootName: string, target: string | null): OutboundCallRecord {
     target,
     kind: "http",
     callerSymbolId: null,
+    baseIdentifier: null,
+    method: null,
     provenance: target === null ? unresolved(source, "built at runtime") : inferred(source, "medium"),
   };
 }

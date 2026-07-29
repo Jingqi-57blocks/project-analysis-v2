@@ -59,7 +59,24 @@ export interface OutboundCallRecord {
   readonly rootName: string;
   readonly target: string | null;
   readonly kind: OutboundKind;
+  /**
+   * The HTTP method the call uses, when the call site states one.
+   *
+   * A URL literal does not, but `httpClient.post(...)` does — and without it a
+   * call to `/v2/leaves` matches every route at that path, which reads as an
+   * ambiguity the source had already resolved.
+   */
+  readonly method: string | null;
   readonly callerSymbolId: SymbolId | null;
+  /**
+   * The identifier naming the base this call was built from — `appRunnerApi`,
+   * `authApi` — when the destination was composed rather than written out.
+   *
+   * Which service that base names is deployment configuration, not something
+   * any source file states. Recording the identifier keeps the only evidence
+   * there is, so the binding can be inferred later and shown for what it is.
+   */
+  readonly baseIdentifier: string | null;
   readonly provenance: Provenance;
 }
 

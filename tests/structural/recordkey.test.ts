@@ -99,6 +99,8 @@ describe("keys that include a column", () => {
       target: null,
       kind: "http",
       callerSymbolId: null,
+      baseIdentifier: null,
+      method: null,
       provenance: {
         resolutionClass: "unresolved" as const,
         source: {

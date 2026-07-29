@@ -23,6 +23,8 @@ import { assembleEvidence, collectAll } from "../semantic/assemble.js";
 import { assemble, extractAll } from "../structural/assemble.js";
 import { consolidateRoutes } from "../structural/routededupe.js";
 import { createFrameworkRoutesProvider } from "../providers/frameworkroutes/provider.js";
+import { createUiCallsProvider } from "../providers/uicalls/provider.js";
+import { inferBaseBindings, linkCallsScoped } from "../linking/binding.js";
 import { resolveHandlers } from "../linking/handlers.js";
 import { linkCalls, rootDependencies } from "../linking/link.js";
 import { buildTraces } from "../modules/trace.js";
@@ -80,6 +82,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     createOutboundProvider(),
     createConventionsProvider(),
     createFrameworkRoutesProvider(),
+    createUiCallsProvider(),
     ...(options.extraProviders ?? [createCodeGraphProvider({ callEdges: false })]),
   ];
   const collectors = [createDocumentationCollector(), createCodeTextCollector()];
@@ -258,7 +261,19 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     });
   }
 
-  const links = linkCalls(calls, routes);
+  // Which service a configured API base names is deployment configuration, so
+  // it is inferred from how well each base's paths fit, and a bound call is
+  // then matched only against the service it names — which is what separates
+  // one backend's /v2/worklogs from another's.
+  const bindings = inferBaseBindings(calls, routes);
+  const links = linkCallsScoped(calls, routes, bindings, linkCalls);
+  for (const binding of bindings) {
+    if (binding.boundRoot !== null) continue;
+    coverageNotes.push({
+      subject: "api-base-binding",
+      note: `${binding.reason}, so its calls were matched against every service`,
+    });
+  }
   const traceResult = buildTraces({ routes, symbols, callEdges });
   const formation = formModel(traceResult.traces, { containment, dependencies, symbols }, allFiles);
 
