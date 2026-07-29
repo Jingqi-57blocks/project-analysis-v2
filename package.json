@@ -15,12 +15,14 @@
     "target:derive": "tsx scripts/derive-variant.ts",
     "analyze": "tsx scripts/analyze.ts",
     "status": "tsx scripts/status.ts",
-    "export": "tsx scripts/export.ts"
+    "export": "tsx scripts/export.ts",
+    "render": "tsx scripts/render.ts"
   },
   "devDependencies": {
     "@ast-grep/lang-go": "^0.0.6",
     "@ast-grep/napi": "^0.45.0",
     "@types/node": "^26.1.2",
+    "marked": "^18.0.7",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
