@@ -43,14 +43,11 @@ import { assembleFlows } from "../flows/assemble.js";
 import { buildReportFeatures, mapToMermaid } from "./features.js";
 import {
   assembleReport,
-  DEFAULT_LANGUAGE,
   type CoverageNote,
   type MapEdge,
   type ModuleEntryPoint,
-  type OutputLanguage,
 } from "./model.js";
 import { buildJsonReport } from "./json.js";
-import { writeRenderings, type RenderFormat } from "./render.js";
 import type { DataModelRecords } from "../datamodel/types.js";
 import type { StructuralProvider } from "../structural/provider.js";
 import type {
@@ -72,13 +69,10 @@ import type { ModuleContainmentRecord, PackageDependencyRecord } from "../struct
 export interface GenerateOptions {
   readonly paths: readonly string[];
   readonly outputDir: string;
-  readonly language?: OutputLanguage;
   /** Extra providers — the CodeGraph adapter, when its indexing cost is acceptable. */
   readonly extraProviders?: readonly StructuralProvider[];
   readonly runId?: string;
   readonly now?: string;
-  /** Which renderings to write. Defaults to the base plus pages. */
-  readonly formats?: readonly RenderFormat[];
 }
 
 export interface GenerateResult {
@@ -93,7 +87,6 @@ export interface GenerateResult {
 export function generateReport(options: GenerateOptions): GenerateResult {
   const runId = options.runId ?? newRunId();
   const generatedAt = options.now ?? new Date().toISOString();
-  const language = options.language ?? DEFAULT_LANGUAGE;
 
   const selection = selectWorkspace({ paths: options.paths });
   const roots = analyzedRoots(selection);
@@ -579,7 +572,6 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     workspacePath: selection.workspacePath,
     projectName,
     description: projectDescription,
-    language,
     roots: rootSummaries,
     modules,
     features,
@@ -615,20 +607,17 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const outputDir = join(options.outputDir, runId);
   mkdirSync(outputDir, { recursive: true });
 
-  // The specification is the artifact; every format is rendered from it. That
-  // is what lets a wording change, a restyle, or a new exporter run without
-  // touching the project again — and it keeps the formats agreeing, since a
-  // page can only show what the spec contains.
+  // Facts only. What a reader is shown is a template's business, and the
+  // wording of it belongs to the prompts that template carries — writing
+  // sentences here is the mistake this layer was built out of.
   const spec = buildJsonReport({ model, dataModel, limitations: [] });
   const jsonPath = join(outputDir, "report.json");
   writeFileSync(jsonPath, `${JSON.stringify(spec, null, 2)}\n`, "utf8");
 
-  const files = [jsonPath, ...writeRenderings(spec, outputDir, options.formats)];
-
   return {
     runId,
     outputDir,
-    files,
+    files: [jsonPath],
     moduleCount: modules.length,
     featureCount: features.length,
     componentCount: formation.components.length,

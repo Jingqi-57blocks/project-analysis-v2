@@ -1,24 +1,16 @@
 /**
- * The shape a report is assembled from, and the language it is rendered in.
+ * The shape a report is assembled from.
  *
- * Deliberately a plain data structure with no rendering in it. HTML is one
- * renderer; DOCX and PDF are siblings of it, not rewrites — so nothing here
- * may assume a target format.
+ * Deliberately a plain data structure with no rendering in it, and no wording
+ * either: what a document says about these facts is a template's business, and
+ * which language it says it in is the business of the prompts that template
+ * carries. Nothing here may assume a target format or a reader's language.
  */
 
 import type { HealthSignal } from "../health/signals.js";
 import type { FeatureFinding } from "../health/features.js";
 import type { StructuralFinding } from "../health/structure.js";
 import type { ProductModule, TechnicalComponent, DispositionCounts } from "../modules/form.js";
-
-/**
- * Output language. Open on purpose: the set of languages a reader might want
- * is not ours to close, and an unknown one falls back to English rather than
- * emitting a half-translated report.
- */
-export type OutputLanguage = "en" | "zh" | "es" | "ja" | (string & {});
-
-export const DEFAULT_LANGUAGE: OutputLanguage = "en";
 
 export interface ReportRootSummary {
   readonly name: string;
@@ -176,7 +168,6 @@ export interface ReportModel {
   readonly workspacePath: string;
   readonly projectName: string;
   readonly description: string | null;
-  readonly language: OutputLanguage;
   readonly roots: readonly ReportRootSummary[];
   readonly modules: readonly ReportModule[];
   readonly features: readonly ReportFeature[];
@@ -219,7 +210,6 @@ export interface AssembleReportInput {
   readonly workspacePath: string;
   readonly projectName: string;
   readonly description: string | null;
-  readonly language: OutputLanguage;
   readonly roots: readonly ReportRootSummary[];
   readonly modules: readonly ProductModule[];
   readonly features: readonly ReportFeature[];
@@ -247,7 +237,6 @@ export function assembleReport(input: AssembleReportInput): ReportModel {
     workspacePath: input.workspacePath,
     projectName: input.projectName,
     description: input.description,
-    language: input.language,
     roots: input.roots,
     modules: input.modules.map((module) => ({
       id: module.id,

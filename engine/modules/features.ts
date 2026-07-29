@@ -18,8 +18,7 @@
 
 import { createHash } from "node:crypto";
 
-import type { RouteRecord, OutboundCallRecord, AuthAnnotationRecord, DataAccessRecord } from "../structural/boundaries.js";
-import type { ValidationRuleRecord, TransactionBoundaryRecord, ErrorHandlingRecord } from "../structural/rules.js";
+import type { RouteRecord } from "../structural/boundaries.js";
 
 /**
  * The prefix a project puts on its own table names, derived from the names.
@@ -278,39 +277,3 @@ export function featureForRoute(
   return best;
 }
 
-export interface FeatureConditions {
-  readonly validations: readonly ValidationRuleRecord[];
-  readonly authChecks: readonly AuthAnnotationRecord[];
-  readonly transactions: readonly TransactionBoundaryRecord[];
-  readonly errorHandling: readonly ErrorHandlingRecord[];
-  readonly dataAccess: readonly DataAccessRecord[];
-  readonly outbound: readonly OutboundCallRecord[];
-}
-
-/**
- * The rules and effects recorded in a feature's own files.
- *
- * Matched by file rather than by symbol, because no provider links a route to
- * its handler yet. That is coarser than following the call graph and is the
- * honest maximum available — a condition in a feature's file is evidence about
- * that feature, even when the exact path to it is unknown.
- */
-export function conditionsFor(
-  feature: DomainFeature,
-  all: FeatureConditions,
-): FeatureConditions {
-  const owned = new Set(feature.filePaths);
-  const inFeature = (rootName: string, relPath: string): boolean =>
-    owned.has(`${rootName}/${relPath}`);
-
-  return {
-    validations: all.validations.filter((r) => inFeature(r.rootName, r.source.relPath)),
-    authChecks: all.authChecks.filter((r) => inFeature(r.rootName, r.source.relPath)),
-    transactions: all.transactions.filter((r) => inFeature(r.rootName, r.source.relPath)),
-    errorHandling: all.errorHandling.filter((r) => inFeature(r.rootName, r.source.relPath)),
-    dataAccess: all.dataAccess.filter((r) =>
-      inFeature(r.rootName, r.provenance.source.relPath),
-    ),
-    outbound: all.outbound.filter((r) => inFeature(r.rootName, r.provenance.source.relPath)),
-  };
-}
