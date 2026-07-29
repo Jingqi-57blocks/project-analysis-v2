@@ -61,11 +61,26 @@ export function computeStructuralFindings(
   const findings: StructuralFinding[] = [];
 
   // Who writes what, and who only reads it.
+  // An access whose operation could not be determined is neither a read nor a
+  // write. Filing it as a read publishes "read by X, written by Y" about a
+  // part that in fact writes the table — a statement about ownership, made
+  // backwards, from evidence that said nothing either way.
   const writers = new Map<string, Set<string>>();
   const readers = new Map<string, Set<string>>();
+  let undetermined = 0;
   for (const access of input.dataAccess) {
     if (access.entity === null) continue;
-    const target = WRITE_OPERATIONS.has(access.operation) ? writers : readers;
+
+    const target = WRITE_OPERATIONS.has(access.operation)
+      ? writers
+      : access.operation === "read"
+        ? readers
+        : null;
+    if (target === null) {
+      undetermined += 1;
+      continue;
+    }
+
     const existing = target.get(access.entity) ?? new Set<string>();
     existing.add(access.rootName);
     target.set(access.entity, existing);
@@ -102,7 +117,7 @@ export function computeStructuralFindings(
     findings.push({
       id: "tables-read-across-a-boundary",
       title: "Tables one part reads and another owns",
-      finding: `${crossRead.length} tables are read by a part that does not write them, so a change to how the owner stores the data reaches the reader without passing through an interface.`,
+      finding: `${crossRead.length} tables are read by a part in which no write to them was observed, while another part writes them — a change to how the owner stores the data would reach the reader without passing through an interface. A write expressed through an ORM model rather than a named table is not visible here, so this is a reading of the evidence rather than a statement about ownership.`,
       severity: "notice",
       evidence: crossRead
         .slice(0, limits.maxNamed)
@@ -161,6 +176,18 @@ export function computeStructuralFindings(
       finding: `${disagreeing.length} tables are declared with different columns in different parts, so at least one of those descriptions is incomplete or out of date.`,
       severity: "notice",
       evidence: disagreeing.slice(0, limits.maxNamed).sort(),
+    });
+  }
+
+  // What the ownership findings could not weigh. Without this a reader takes
+  // the lists above for the whole picture.
+  if (undetermined > 0) {
+    findings.push({
+      id: "accesses-with-no-determined-operation",
+      title: "Data access whose direction was not determined",
+      finding: `${undetermined} data accesses were found without establishing whether they read or write, so they count toward neither the tables listed above nor their owners. The lists are a floor, not a census.`,
+      severity: "info",
+      evidence: [],
     });
   }
 

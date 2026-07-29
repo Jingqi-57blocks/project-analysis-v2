@@ -41,7 +41,6 @@ export interface BusinessRule {
  */
 export function readableMember(name: string, setName = ""): string {
   const words = name
-    .replace(/C$/, "")
     .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replaceAll(/[_-]+/g, " ")
     .trim()
@@ -60,7 +59,12 @@ export function readableMember(name: string, setName = ""): string {
   let start = 0;
   while (start < words.length - 1 && setTokens.has(words[start]!)) start += 1;
 
-  return words.slice(start).join(" ");
+  // A trailing single letter is a naming convention marker, not a word — many
+  // codebases suffix constants that way, and reading it aloud adds nothing.
+  let end = words.length;
+  while (end > start + 1 && words[end - 1]!.length === 1) end -= 1;
+
+  return words.slice(start, end).join(" ");
 }
 
 /** `lv.Status` → "status"; the field, not the variable holding it. */
@@ -95,8 +99,8 @@ export function stateRule(
   const subject = readableSubject(condition.subject);
   const comparative = COMPARATIVE[condition.operator] ?? condition.operator;
 
-  const exact = resolveValue(condition.subject, condition.literal, sets);
-  const set = exact?.set ?? bestSetFor(condition.subject, sets);
+  const exact = resolveValue(condition.subject, condition.literal, sets, condition.rootName);
+  const set = exact?.set ?? bestSetFor(condition.subject, sets, condition.rootName);
 
   const ordered = [">", ">=", "<", "<="].includes(condition.operator);
   const meanings: string[] = [];

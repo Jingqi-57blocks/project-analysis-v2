@@ -116,6 +116,24 @@ function goValueSets(root: SgNode, rootName: string, relPath: string): ValueSet[
   return sets;
 }
 
+const FUNCTION_KINDS = new Set<string>([
+  "function_declaration",
+  "function_expression",
+  "arrow_function",
+  "method_definition",
+  "generator_function_declaration",
+]);
+
+/** True when nothing between this node and the file is a function body. */
+function isModuleLevel(node: SgNode): boolean {
+  let current: SgNode | null = node.parent();
+  while (current !== null) {
+    if (FUNCTION_KINDS.has(current.kind() as string)) return false;
+    current = current.parent();
+  }
+  return true;
+}
+
 /** TypeScript `enum X { A = 1 }` and const objects of primitives. */
 function scriptValueSets(root: SgNode, rootName: string, relPath: string): ValueSet[] {
   const sets: ValueSet[] = [];
@@ -143,12 +161,19 @@ function scriptValueSets(root: SgNode, rootName: string, relPath: string): Value
           if (key !== "" && value !== null) members.push({ name: key, value });
           continue;
         }
+        // TypeScript numbers an uninitialized member as the previous value
+        // plus one, not as its position. `enum S { A = 1, B }` is 1 and 2;
+        // counting positions gives 1 and 1, so two states share a number and
+        // everything after an initializer is off by one.
         if (childKind === "enum_assignment") {
           const key = child.field("name")?.text() ?? "";
           const value = numericOrString(child.field("value")?.text() ?? "");
-          // An enum member with no initializer takes its position.
-          if (key !== "") members.push({ name: key, value: value ?? index });
-          index += 1;
+          if (key !== "") {
+            const resolvedValue = value ?? index;
+            members.push({ name: key, value: resolvedValue });
+            if (typeof resolvedValue === "number") index = resolvedValue + 1;
+            else index += 1;
+          }
           continue;
         }
         if (childKind === "property_identifier" || childKind === "identifier") {
@@ -174,11 +199,15 @@ function scriptValueSets(root: SgNode, rootName: string, relPath: string): Value
     (node) => node.field("body") ?? node.children().find((c) => (c.kind() as string) === "enum_body"),
   );
 
-  // `const Status = { approved: 4, ... }` — the object is the declarator's value.
+  // `const Status = { approved: 4, ... }` at module level only. A object
+  // built inside a function is a local — `const firstRow = { total: 0,
+  // isFirstLine: 1 }` inside a callback is not a vocabulary, and treating it
+  // as one names unrelated numbers after its keys.
   collect(
     "variable_declarator",
     (node) => node.field("name")?.text(),
     (node) => {
+      if (!isModuleLevel(node)) return undefined;
       const value = node.field("value");
       return value !== undefined && value !== null && (value.kind() as string) === "object"
         ? value
@@ -219,14 +248,60 @@ function fieldToken(subject: string): string | null {
  * share a token with the subject and to actually contain the value, so a
  * coincidental token match on a set that cannot explain the number is refused.
  */
+/**
+ * How well a set's name agrees with a subject.
+ *
+ * One shared word is not agreement when that word is a classifier every
+ * vocabulary uses. `returnCount` and `CountTimeType` share "count"; naming a
+ * loop counter "regular" from a set about how leave time is counted is a
+ * fabrication, and it was published. Two shared words, or one that is not a
+ * classifier, is the bar.
+ */
+const CLASSIFIER_WORDS = new Set([
+  "count",
+  "type",
+  "types",
+  "kind",
+  "code",
+  "codes",
+  "row",
+  "rows",
+  "value",
+  "values",
+  "flag",
+  "flags",
+  "num",
+  "number",
+  "id",
+  "key",
+  "name",
+  "item",
+  "items",
+  "data",
+  "info",
+  "state",
+]);
+
+function agreementScore(subject: string, setName: string, field: string): number | null {
+  const subjectTokens = new Set(nameTokens(subject));
+  const setTokens = nameTokens(setName);
+  if (!setTokens.includes(field)) return null;
+
+  const shared = setTokens.filter((token) => subjectTokens.has(token));
+  if (shared.length < 2 && CLASSIFIER_WORDS.has(field)) return null;
+
+  return shared.length * 100 - (setTokens.length - shared.length) * 25;
+}
+
 export function resolveValue(
   subject: string,
   value: number | string,
   sets: readonly ValueSet[],
+  /** Prefer a vocabulary the same part declares over a stranger's. */
+  preferRoot: string | null = null,
 ): { set: ValueSet; member: ValueSetMember } | null {
-  const subjectTokens = new Set(nameTokens(subject));
   const field = fieldToken(subject);
-  if (subjectTokens.size === 0 || field === null) return null;
+  if (field === null) return null;
 
   let best: { set: ValueSet; member: ValueSetMember; score: number } | null = null;
 
@@ -234,19 +309,16 @@ export function resolveValue(
     const member = set.members.find((candidate) => candidate.value === value);
     if (member === undefined) continue;
 
-    const setTokens = nameTokens(set.name);
-    // The set must name the field itself, not merely the thing holding it.
-    // `lv.Hours` and `LvStatusC` share "lv", which says only that both concern
-    // a leave — naming hours with a status would be a plain falsehood.
-    if (!setTokens.includes(field)) continue;
-    const shared = setTokens.filter((token) => subjectTokens.has(token));
+    const agreement = agreementScore(subject, set.name, field);
+    if (agreement === null) continue;
 
-    // A token the set name carries and the subject does not is a different
-    // concept: `LvAprvStatusC` and `LvStatusC` both agree with `lv.Status` on
-    // "status", and only the extra "aprv" distinguishes the approval's status
-    // from the leave's. Without that penalty the wrong enum names the value.
-    const extra = setTokens.length - shared.length;
-    const score = shared.length * 100 - extra * 25 - set.members.length;
+    const sameRoot = preferRoot !== null && set.rootName === preferRoot;
+    // A vocabulary from another part cannot name a value whose field is
+    // classifier-shaped: 200 is an HTTP status everywhere, and another
+    // service's constant that happens to equal it explains nothing.
+    if (!sameRoot && preferRoot !== null && CLASSIFIER_WORDS.has(field)) continue;
+
+    const score = agreement + (sameRoot ? 1000 : 0) - set.members.length;
     if (best === null || score > best.score) best = { set, member, score };
   }
 
@@ -260,18 +332,23 @@ export function resolveValue(
  * and a payment's both answer to "status", and a range worded from both names
  * values the field can never hold.
  */
-export function bestSetFor(subject: string, sets: readonly ValueSet[]): ValueSet | null {
-  const subjectTokens = new Set(nameTokens(subject));
+export function bestSetFor(
+  subject: string,
+  sets: readonly ValueSet[],
+  preferRoot: string | null = null,
+): ValueSet | null {
   const field = fieldToken(subject);
-  if (subjectTokens.size === 0 || field === null) return null;
+  if (field === null) return null;
 
   let best: { set: ValueSet; score: number } | null = null;
   for (const set of sets) {
-    const setTokens = nameTokens(set.name);
-    if (!setTokens.includes(field)) continue;
-    const shared = setTokens.filter((token) => subjectTokens.has(token));
+    const agreement = agreementScore(subject, set.name, field);
+    if (agreement === null) continue;
 
-    const score = shared.length * 100 - (setTokens.length - shared.length) * 25 - set.members.length;
+    const sameRoot = preferRoot !== null && set.rootName === preferRoot;
+    if (!sameRoot && preferRoot !== null && CLASSIFIER_WORDS.has(field)) continue;
+
+    const score = agreement + (sameRoot ? 1000 : 0) - set.members.length;
     if (best === null || score > best.score) best = { set, score };
   }
   return best === null ? null : best.set;

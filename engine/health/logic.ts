@@ -34,6 +34,31 @@ export interface LogicLimits {
 
 export const DEFAULT_LOGIC_LIMITS: LogicLimits = { maxNamed: 5, repetitionThreshold: 3 };
 
+/**
+ * Words that classify rather than name.
+ *
+ * Two rules sharing only "count" are two counters, not one rule applied twice:
+ * a row-merge counter and a trip counter were reported as disagreeing because
+ * both end in that word. A rule keyed on a classifier is not grouped.
+ */
+const CLASSIFIER_KEYS = new Set([
+  "count",
+  "row",
+  "rows",
+  "index",
+  "size",
+  "length",
+  "total",
+  "num",
+  "number",
+  "value",
+  "id",
+  "code",
+  "type",
+  "flag",
+  "state",
+]);
+
 /** True when the operators differ only by whether the boundary is included. */
 function sameDirectionBoundary(operators: ReadonlySet<string>): boolean {
   const above = new Set([">", ">="]);
@@ -82,20 +107,38 @@ export function findDivergence(
 
   const divergent: { subject: string; literal: number | string; variants: BusinessRule[] }[] = [];
   for (const group of groups.values()) {
-    const operators = new Set(group.map((rule) => rule.operator));
-    const roots = new Set(group.map((rule) => rule.rootName));
-    if (operators.size < 2 || roots.size < 2) continue;
+    if (CLASSIFIER_KEYS.has(subjectKey(group[0]!))) continue;
+
+    // The disagreement must be between parts. One part using both spellings is
+    // usually two different rules, and a third part must not legitimise that
+    // split — so the operators are compared across roots, not across the group.
+    const byRoot = new Map<string, Set<string>>();
+    for (const rule of group) {
+      const existing = byRoot.get(rule.rootName) ?? new Set<string>();
+      existing.add(rule.operator);
+      byRoot.set(rule.rootName, existing);
+    }
+    // Only a part that draws the boundary one way has a position to disagree
+    // from. A part using both spellings is applying two different rules, and
+    // counting it would let its internal split read as a disagreement with
+    // whoever else is present.
+    const decided = new Map<string, string>();
+    for (const [root, ops] of byRoot) {
+      if (ops.size === 1) decided.set(root, [...ops][0]!);
+    }
+    if (decided.size < 2 || new Set(decided.values()).size < 2) continue;
 
     // Only a disagreement about the boundary. `status == 4` here and
     // `status != 4` there are two ordinary rules about one value, not a
     // contradiction; `hours >= 40` against `hours > 40` is one rule that
     // sends exactly 40 two different ways.
-    if (!sameDirectionBoundary(operators)) continue;
+    if (!sameDirectionBoundary(new Set(decided.values()))) continue;
 
     // One representative per spelling, so the finding shows the disagreement
     // rather than every site of it.
     const seen = new Set<string>();
     const variants = group.filter((rule) => {
+      if (decided.get(rule.rootName) !== rule.operator) return false;
       const key = `${rule.rootName}|${rule.operator}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -115,9 +158,11 @@ export function computeLogicFindings(
   const base = { featureId: input.featureId, featureName: input.featureName };
   const findings: FeatureFinding[] = [];
 
+  // Keyed exactly as the grouping keys, or the filter silently drops findings
+  // depending on which spelling happened to come first.
   const ownSubjects = new Set(input.rules.map(subjectKey));
   const divergent = findDivergence(input.allRules).filter((entry) =>
-    ownSubjects.has(entry.subject.split(".").pop()!.toLowerCase()),
+    entry.variants.some((rule) => ownSubjects.has(subjectKey(rule))),
   );
 
   for (const entry of divergent.slice(0, limits.maxNamed)) {

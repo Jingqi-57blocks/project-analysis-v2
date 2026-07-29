@@ -137,11 +137,58 @@ function buildTableIndex(root: StructuralRootInput): TableIndex {
  * Bounded to the statement, so the next statement's verb is never borrowed.
  */
 export function goOperationNear(content: string, index: number): DataOperation {
-  const statement = content.slice(index, index + 400).split("\n\n")[0] ?? "";
-  if (/\.(Create|Save|Updates?|FirstOrCreate|Insert)\s*\(/.test(statement)) return "write";
-  if (/\.(Delete|Unscoped)\s*\(/.test(statement)) return "delete";
-  if (/\.(Find|First|Last|Take|Scan|Pluck|Count|Rows|Select)\s*\(/.test(statement)) return "read";
-  return "unknown";
+  const statement = goStatementFrom(content, index);
+  // A chain routinely breaks after the dot, so whitespace and newlines may sit
+  // between the dot and the verb. Matching only `.Verb(` left nearly every
+  // access in a Go service unclassified, which then read as "never written".
+  const verb = /\.\s*(\w+)\s*\(/g;
+  let match: RegExpExecArray | null;
+  let operation: DataOperation = "unknown";
+
+  while ((match = verb.exec(statement)) !== null) {
+    const name = match[1]!;
+    if (/^(Create|Save|Updates?|FirstOrCreate|Insert)$/.test(name)) return "write";
+    if (/^Delete$/.test(name)) return "delete";
+    if (/^(Find|First|Last|Take|Scan|Pluck|Count|Rows|Select)$/.test(name)) operation = "read";
+  }
+  return operation;
+}
+
+/**
+ * The single statement beginning at an offset.
+ *
+ * Bounded by balanced parentheses and the end of the chain rather than by a
+ * blank line: a window of fixed size reaches into the next statement, and the
+ * next statement's verb would then be read as this access's operation — which
+ * turns a read into a write.
+ */
+function goStatementFrom(content: string, index: number): string {
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let i = index; i < content.length && i < index + 2000; i++) {
+    const char = content[i]!;
+
+    if (quote !== null) {
+      if (char === "\\" && quote !== "`") i += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth -= 1;
+    else if (char === "\n" && depth <= 0) {
+      // The chain continues only if this line ended mid-expression.
+      const line = content.slice(content.lastIndexOf("\n", i - 1) + 1, i).trimEnd();
+      if (!line.endsWith(".") && !line.endsWith("(") && !line.endsWith(",")) {
+        return content.slice(index, i);
+      }
+    }
+  }
+  return content.slice(index, Math.min(content.length, index + 2000));
 }
 
 function scanFile(
