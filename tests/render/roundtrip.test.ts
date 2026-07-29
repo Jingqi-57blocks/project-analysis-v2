@@ -601,6 +601,18 @@ describe("a format is a view, not a second document", () => {
     expect(result.files).toContain("html/report.html");
   });
 
+  it("draws mermaid as a diagram, not as its source", () => {
+    // The map fragment renders a `flowchart` block; a reader wants the picture.
+    const outDir = assembled("export-mermaid", false);
+    exportDocument(outDir, "html", "T");
+    const html = readFileSync(join(outDir, "html", "report.html"), "utf8");
+    expect(html).toContain('<pre class="mermaid">');
+    // Un-escaped so Mermaid can parse it, and the renderer is loaded.
+    expect(html).toContain("flowchart");
+    expect(html).toContain("mermaid.initialize");
+    expect(html).not.toContain('class="language-mermaid"');
+  });
+
   it("refuses a format it does not have", () => {
     const outDir = assembled("export-unknown");
     expect(() => exportDocument(outDir, "docx", "T")).toThrow(UnknownFormatError);
