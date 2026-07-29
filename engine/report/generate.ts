@@ -31,6 +31,7 @@ import { buildTraces } from "../modules/trace.js";
 import { formModel, formModulesFromRoutes, qualifiedFile } from "../modules/form.js";
 import { createSqlSchemaProvider } from "../datamodel/sql.js";
 import { createOrmMigrationProvider } from "../datamodel/orm.js";
+import { createGoModelProvider } from "../datamodel/gostructs.js";
 import { computeSignals } from "../health/signals.js";
 import { createDataUsageProvider } from "../datamodel/usage.js";
 import { detectFeatures } from "../modules/features.js";
@@ -112,7 +113,11 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const filesByRoot: { rootName: string; relPath: string }[] = [];
   const coverageNotes: CoverageNote[] = [];
   const evidenceByRoot = new Map<string, string[]>();
-  const dataProviders = [createSqlSchemaProvider(), createOrmMigrationProvider()];
+  const dataProviders = [
+    createSqlSchemaProvider(),
+    createOrmMigrationProvider(),
+    createGoModelProvider(),
+  ];
   const entityNames = new Set<string>();
   const dataModel: {
     entities: DataModelRecords["entities"][number][];
