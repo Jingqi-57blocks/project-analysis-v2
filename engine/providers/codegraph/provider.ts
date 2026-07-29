@@ -31,6 +31,7 @@ import {
   listFiles,
   queryNodes,
   sharedIndexRoot,
+  withIndexLock,
   type CodeGraphFile,
   type CodeGraphNode,
   type CodeGraphRelation,
@@ -51,8 +52,10 @@ export interface CodeGraphOptions {
   /**
    * Every root this run will analyze, so one index can cover them all.
    *
-   * Given without it, the provider indexes inside each root as before — which
-   * is still correct, just written into the repositories.
+   * Required in practice: the index is written into the directory CodeGraph
+   * is pointed at, and without the roots there is no way to choose one outside
+   * them. A provider built without this supplies nothing and says why, rather
+   * than writing into source it promised not to touch.
    */
   readonly roots?: readonly string[];
 
@@ -236,15 +239,19 @@ function extractFrom(
   let nodes: readonly CodeGraphNode[];
   let files: readonly CodeGraphFile[];
 
-  if (shared !== null) {
-    const prefix = `${relative(shared.parent, root.path)}/`;
-    nodes = scopeNodes(shared.nodes, prefix);
-    files = scopeFiles(shared.files, prefix);
-  } else {
-    ensureIndexed(root.path);
-    nodes = queryNodes(root.path);
-    files = listFiles(root.path);
+  if (shared === null) {
+    // Indexing inside the root would be the only alternative, and analyzed
+    // source is never written to. Failing here degrades one provider and says
+    // why; writing the index would break a guarantee the whole tool rests on.
+    throw new Error(
+      `No directory outside "${root.name}" can hold the index, so no index was built for it. ` +
+        "Analyze from a directory that contains the root rather than from a filesystem root.",
+    );
   }
+
+  const prefix = `${relative(shared.parent, root.path)}/`;
+  nodes = scopeNodes(shared.nodes, prefix);
+  files = scopeFiles(shared.files, prefix);
 
   // Inventory already decided what counts as project content. Honouring that
   // here keeps the provider from describing vendored code the project does
@@ -337,8 +344,13 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
       return resolved;
     }
 
-    ensureIndexed(parent);
-    resolved = { parent, nodes: queryNodes(parent), files: listFiles(parent) };
+    // Indexing and reading happen under one lock. Reading between another
+    // run's rebuild and its completion returns nothing, which would be
+    // reported as a codebase with no symbols rather than as a clash.
+    resolved = withIndexLock(parent, () => {
+      ensureIndexed(parent);
+      return { parent, nodes: queryNodes(parent), files: listFiles(parent) };
+    });
     return resolved;
   };
 

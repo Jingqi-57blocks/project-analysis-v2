@@ -1,73 +1,48 @@
 import { describe, expect, it } from "vitest";
 
 import { computeFeatureFindings } from "../../engine/health/features.js";
-import type { ReportFeature, ReportFlow } from "../../engine/report/model.js";
+import type { ReviewedFeature, ReviewedFlow } from "../../engine/health/features.js";
 
-function flow(overrides: Partial<ReportFlow> = {}): ReportFlow {
+function flow(overrides: Partial<ReviewedFlow> = {}): ReviewedFlow {
   return {
-    entryKey: "svc:POST /v2/leaves",
     method: "POST",
     path: "/v2/leaves",
     steps: [
       {
         kind: "frontend-call",
-        label: "ui",
-        rootName: "ui",
         conditions: [],
         unresolvedReason: null,
-        truncated: false,
         indirect: false,
-        location: "ui/src/api.ts:1",
       },
       {
         kind: "route",
-        label: "POST /v2/leaves",
-        rootName: "svc",
         conditions: ["middleware auth.Authentication"],
         unresolvedReason: null,
-        truncated: false,
         indirect: false,
-        location: "svc/handlers.go:1",
       },
       {
         kind: "handler",
-        label: "Creation",
-        rootName: "svc",
         conditions: [],
         unresolvedReason: null,
-        truncated: false,
         indirect: false,
-        location: "svc/router.go:30",
       },
     ],
-    diagram: "flowchart LR",
-    partial: false,
     ...overrides,
   };
 }
 
-function feature(overrides: Partial<ReportFeature> = {}): ReportFeature {
+function feature(overrides: Partial<ReviewedFeature> = {}): ReviewedFeature {
   return {
     id: "feat_leave",
     name: "Leave",
-    rootNames: ["svc"],
-    signals: ["27 endpoints"],
-    endpoints: [{ method: "POST", path: "/v2/leaves", rootName: "svc" }],
-    dataEntities: [],
     tables: ["wcp_leave"],
     flows: [flow()],
-    totalFlowCount: 1,
-    overviewDiagram: "flowchart LR",
-    partialFlowCount: 0,
-    findings: [],
-    rules: [],
-    conditionCount: 0,
     ...overrides,
   };
 }
 
 /** The route step with its middleware removed. */
-function withoutAuth(): ReportFlow {
+function withoutAuth(): ReviewedFlow {
   const base = flow();
   return {
     ...base,
@@ -109,7 +84,7 @@ describe("computeFeatureFindings", () => {
     expect(all.find((f) => f.id === "endpoints-without-observed-auth")!.severity).toBe("concern");
 
     const some = computeFeatureFindings([
-      feature({ flows: [withoutAuth(), flow()], totalFlowCount: 2 }),
+      feature({ flows: [withoutAuth(), flow()] }),
     ]);
     expect(some.find((f) => f.id === "endpoints-without-observed-auth")!.severity).toBe("notice");
   });
@@ -134,13 +109,9 @@ describe("computeFeatureFindings", () => {
         ...base.steps,
         {
           kind: "data-access",
-          label: "wcp_leave",
-          rootName: "svc",
           conditions: ["write"],
           unresolvedReason: null,
-          truncated: false,
           indirect: true,
-          location: "svc/service.go:12",
         },
       ],
     };
