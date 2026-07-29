@@ -9,6 +9,8 @@
 
 import { createManifestProvider } from "../providers/manifests/provider.js";
 import { createSourceFileProvider } from "../providers/sourcefiles/provider.js";
+import { createDeclarationProvider } from "../providers/symbols/provider.js";
+import { languageOf } from "../text/ast.js";
 import { createOutboundProvider } from "../providers/outbound/provider.js";
 import { createConventionsProvider } from "../providers/conventions/provider.js";
 import { createCodeGraphProvider } from "../providers/codegraph/provider.js";
@@ -65,6 +67,10 @@ export function defaultReaders(
         createCodeGraphProvider({
           callEdges: false,
           roots: [...rootPaths],
+          // The declaration reader has these already; it and CodeGraph
+          // describe one function differently, and both surviving makes the
+          // pair ambiguous rather than agreed.
+          skipSymbolsIn: (relPath) => languageOf(relPath) !== null,
           ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
         }),
       ];
@@ -72,6 +78,7 @@ export function defaultReaders(
   return {
     structural: [
       createSourceFileProvider(),
+      createDeclarationProvider(),
       createManifestProvider(),
       createOutboundProvider(),
       createConventionsProvider(),
