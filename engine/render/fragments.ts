@@ -358,12 +358,42 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       );
     }
     if (failures.length > 0) {
-      parts.push(
-        table(
-          ["Reader", "Where", "What went wrong"],
-          failures.slice(0, 50).map((failure) => [failure.providerId, failure.scope, failure.reason]),
-        ),
-      );
+      // The same limitation repeats once per file — forty screens each noting
+      // that their path mirrors a component. Grouped by what went wrong, a
+      // reader sees each kind once, with a count and a few examples, rather
+      // than a page of near-identical rows. The count keeps it honest: nothing
+      // is dropped, it is summarised.
+      const groups = new Map<
+        string,
+        { providerId: string; reason: string; where: string[] }
+      >();
+      // Most reasons open with the specific path they are about —
+      // `"/leaves" registers a mount…`, `"/auth/SignIn" mirrors a component…`.
+      // That path is already the row's location, so it is dropped for grouping
+      // and from the shown reason, leaving one line per kind of problem.
+      const generalise = (reason: string): string => reason.replace(/^"[^"]*"\s*/, "").trim();
+      for (const failure of failures) {
+        const reason = generalise(failure.reason);
+        const key = `${failure.providerId} ${reason}`;
+        const group = groups.get(key) ?? {
+          providerId: failure.providerId,
+          reason,
+          where: [],
+        };
+        group.where.push(failure.scope);
+        groups.set(key, group);
+      }
+      const rows = [...groups.values()]
+        .sort((a, b) => b.where.length - a.where.length)
+        .map((group) => {
+          const shown = group.where.slice(0, 3).join(", ");
+          const where =
+            group.where.length > 3
+              ? `${shown}, and ${group.where.length - 3} more`
+              : shown;
+          return [group.providerId, where, group.reason];
+        });
+      parts.push(table(["Reader", "Where", "What went wrong"], rows));
     }
     return parts.length === 0
       ? "This run recorded no limits on what it could read, which is itself worth doubting."

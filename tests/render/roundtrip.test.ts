@@ -405,6 +405,26 @@ describe("what the review found", () => {
     expect(diagram).toContain('q["name?"]');
     expect(diagram).not.toContain("name)");
   });
+
+  it("states each kind of limitation once, with a count, not once per file", () => {
+    // 223 screens each noted that their path mirrors a component; the section
+    // listed all 223. One line, "and N more", says the same thing readably.
+    const failures = Array.from({ length: 40 }, (_, n) => ({
+      providerId: "codegraph",
+      scope: `src/pages/Screen${n}.tsx:1`,
+      reason: `"/Screen${n}" mirrors a component's file path rather than an address`,
+    }));
+    const rendered = renderFragment("limitations", {
+      kb,
+      params: {},
+      data: { "coverage-notes": [], "extraction-failures": failures },
+    });
+    const rows = rendered.split("\n").filter((line) => line.startsWith("| codegraph"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("and 37 more");
+    // The per-file path is dropped from the reason, since it repeats the location.
+    expect(rows[0]).not.toContain('"/Screen0"');
+  });
 });
 
 
