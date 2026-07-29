@@ -7,6 +7,7 @@ import { createGinReader } from "../../engine/providers/frameworkroutes/readers/
 import { createExpressReader } from "../../engine/providers/frameworkroutes/readers/express.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { joinRoutePath } from "../../engine/providers/frameworkroutes/readers/types.js";
+import { sharedIndexRoot } from "../../engine/providers/codegraph/cli.js";
 
 let workDir: string;
 
@@ -321,5 +322,28 @@ describe("joinRoutePath", () => {
     expect(joinRoutePath("/ot", "count")).toBe("/ot/count");
     expect(joinRoutePath("", "/health")).toBe("/health");
     expect(joinRoutePath("", "")).toBe("/");
+  });
+});
+
+describe("sharedIndexRoot", () => {
+  it("finds the directory holding every root", () => {
+    expect(sharedIndexRoot(["/w/api", "/w/ui", "/w/worker"])).toBe("/w");
+  });
+
+  it("refuses when the roots do not share one", () => {
+    expect(sharedIndexRoot(["/a/api", "/b/ui"])).toBeNull();
+  });
+
+  it("refuses when a root is itself the shared parent", () => {
+    // Indexing there would index the sibling roots twice, once nested.
+    expect(sharedIndexRoot(["/w", "/w/ui"])).toBeNull();
+  });
+
+  it("refuses a single root, which needs no sharing", () => {
+    expect(sharedIndexRoot(["/w/api"])).toBeNull();
+  });
+
+  it("refuses the filesystem root, which would walk the disk", () => {
+    expect(sharedIndexRoot(["/api", "/ui"])).toBeNull();
   });
 });

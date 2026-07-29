@@ -60,6 +60,8 @@ function feature(overrides: Partial<ReportFeature> = {}): ReportFeature {
     overviewDiagram: "flowchart LR",
     partialFlowCount: 0,
     findings: [],
+    rules: [],
+    conditionCount: 0,
     ...overrides,
   };
 }

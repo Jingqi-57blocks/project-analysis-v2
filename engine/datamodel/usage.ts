@@ -91,6 +91,7 @@ export function dataUsageCapabilities(): ProviderCapabilities {
           "ORM model access and Go table constants are resolved to physical table names; a query assembled at runtime is recorded as unresolved",
           "raw SQL passed as a string to a driver is not parsed here",
           "the operation is read from the ORM method name; a method this reader does not know is recorded as an unknown operation rather than guessed",
+          "for a Go chain the verb is read from the same statement as the table, so a query assembled across statements is unclassified",
           "access through a model whose table name is not declared in the repository stays at the model's name",
         ],
       },
@@ -123,6 +124,71 @@ function buildTableIndex(root: StructuralRootInput): TableIndex {
   }
 
   return { orm, go };
+}
+
+/**
+ * What a `.Table(...)` call goes on to do with the table.
+ *
+ * The verb sits further along the same chain — `.Table(x).Where(...).Updates(...)`
+ * — so reading only the Table call leaves every Go access unclassified, and a
+ * service that writes a table then reads as one that merely reads it. That is
+ * a false statement about ownership, not just a missing one.
+ *
+ * Bounded to the statement, so the next statement's verb is never borrowed.
+ */
+export function goOperationNear(content: string, index: number): DataOperation {
+  const statement = goStatementFrom(content, index);
+  // A chain routinely breaks after the dot, so whitespace and newlines may sit
+  // between the dot and the verb. Matching only `.Verb(` left nearly every
+  // access in a Go service unclassified, which then read as "never written".
+  const verb = /\.\s*(\w+)\s*\(/g;
+  let match: RegExpExecArray | null;
+  let operation: DataOperation = "unknown";
+
+  while ((match = verb.exec(statement)) !== null) {
+    const name = match[1]!;
+    if (/^(Create|Save|Updates?|FirstOrCreate|Insert)$/.test(name)) return "write";
+    if (/^Delete$/.test(name)) return "delete";
+    if (/^(Find|First|Last|Take|Scan|Pluck|Count|Rows|Select)$/.test(name)) operation = "read";
+  }
+  return operation;
+}
+
+/**
+ * The single statement beginning at an offset.
+ *
+ * Bounded by balanced parentheses and the end of the chain rather than by a
+ * blank line: a window of fixed size reaches into the next statement, and the
+ * next statement's verb would then be read as this access's operation — which
+ * turns a read into a write.
+ */
+function goStatementFrom(content: string, index: number): string {
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let i = index; i < content.length && i < index + 2000; i++) {
+    const char = content[i]!;
+
+    if (quote !== null) {
+      if (char === "\\" && quote !== "`") i += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth -= 1;
+    else if (char === "\n" && depth <= 0) {
+      // The chain continues only if this line ended mid-expression.
+      const line = content.slice(content.lastIndexOf("\n", i - 1) + 1, i).trimEnd();
+      if (!line.endsWith(".") && !line.endsWith("(") && !line.endsWith(",")) {
+        return content.slice(index, i);
+      }
+    }
+  }
+  return content.slice(index, Math.min(content.length, index + 2000));
 }
 
 function scanFile(
@@ -207,9 +273,7 @@ function scanFile(
     records.push({
       rootName: root.name,
       entity: table,
-      // A .Table() call names the table; what is done with it is decided by
-      // later calls this reader does not follow.
-      operation: "unknown",
+      operation: goOperationNear(content, match.index),
       mechanism: "gorm",
       symbolId: null,
       provenance: resolved(source, "high"),

@@ -258,8 +258,17 @@ describe("detectFeatures", () => {
   ];
 
   it("names a feature after the domain term its tables and routes share", () => {
+    // Enough tables for the project's own namespace to be recognisable as one:
+    // a token on most tables is a prefix, a token on some is a domain term.
     const { features } = detectFeatures({
-      entityNames: ["wcp_leave", "wcp_leave_detail"],
+      entityNames: [
+        "app_leave",
+        "app_leave_detail",
+        "app_user",
+        "app_project",
+        "app_worklog",
+        "app_invoice",
+      ],
       routes: Array.from({ length: 6 }, (_, index) =>
         route({ path: `/v2/leaves/${index}`, method: "GET" }),
       ),
@@ -267,13 +276,13 @@ describe("detectFeatures", () => {
     });
 
     expect(features[0]!.name).toBe("Leave");
-    expect(features[0]!.entities).toEqual(["wcp_leave", "wcp_leave_detail"]);
+    expect(features[0]!.entities).toEqual(["app_leave", "app_leave_detail"]);
   });
 
   it("refuses a term that appears in only one kind of place", () => {
     // One table nobody else mentions is a table, not a feature.
     const { features } = detectFeatures({
-      entityNames: ["wcp_orphan"],
+      entityNames: ["app_orphan"],
       routes: [],
       files: [],
     });

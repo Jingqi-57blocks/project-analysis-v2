@@ -16,7 +16,6 @@
 import type { DataModelRecords } from "../datamodel/types.js";
 import type { Provenance } from "../structural/provenance.js";
 import type { ReportModel } from "./model.js";
-import { composeIntroduction } from "./intro.js";
 
 export const SPEC_VERSION = "1.0";
 
@@ -61,15 +60,9 @@ export interface SpecEntity {
 export interface ReportSpec {
   readonly specVersion: string;
   readonly run: { readonly id: string; readonly generatedAt: string; readonly workspacePath: string };
-  readonly display: { readonly language: string };
   readonly project: {
     readonly name: string;
     readonly description: string | null;
-    readonly introduction: {
-      readonly quoted: string | null;
-      readonly quotedFrom: string | null;
-      readonly paragraphs: readonly string[];
-    };
     readonly services: readonly {
       readonly name: string;
       readonly language: string | null;
@@ -104,6 +97,14 @@ export interface ReportSpec {
     readonly entities: readonly SpecEntity[];
   };
   readonly health: {
+    /** About the architecture rather than about one capability. */
+    readonly structural: readonly {
+      readonly id: string;
+      readonly severity: string;
+      readonly title: string;
+      readonly finding: string;
+      readonly evidence: readonly string[];
+    }[];
     readonly findings: readonly {
       readonly capability: string;
       readonly capabilityId: string;
@@ -168,6 +169,14 @@ export interface SpecFeature {
   readonly flowsDetailed: number;
   readonly partialFlows: number;
   readonly overviewDiagram: string;
+  readonly conditionCount: number;
+  readonly rules: readonly {
+    readonly statement: string;
+    readonly text: string;
+    readonly service: string;
+    readonly location: string;
+    readonly reason: string;
+  }[];
   readonly findings: readonly {
     readonly id: string;
     readonly severity: string;
@@ -272,15 +281,9 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
       generatedAt: model.generatedAt,
       workspacePath: model.workspacePath,
     },
-    // Carried so a renderer working from this file alone knows which wording
-    // the reader asked for.
-    display: { language: model.language },
     project: {
       name: model.projectName,
       description: model.description,
-      // Composed from what the analysis established rather than written, so it
-      // cannot describe a capability nobody observed.
-      introduction: composeIntroduction(model),
       services: model.roots.map((root) => ({
         name: root.name,
         language: root.language,
@@ -346,6 +349,17 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
       flowsDetailed: feature.flows.length,
       partialFlows: feature.partialFlowCount,
       overviewDiagram: feature.overviewDiagram,
+      // The rules this capability enforces, stated in the project's own names
+      // where it declares any. Notable ones only — every comparison would
+      // bury them among array bounds.
+      conditionCount: feature.conditionCount,
+      rules: feature.rules.map((rule) => ({
+        statement: rule.statement,
+        text: rule.text,
+        service: rule.service,
+        location: rule.location,
+        reason: rule.reason,
+      })),
       findings: feature.findings.map((finding) => ({
         id: finding.id,
         severity: finding.severity,
@@ -373,6 +387,13 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
       entities: nestDataModel(input.dataModel),
     },
     health: {
+      structural: model.structuralFindings.map((finding) => ({
+        id: finding.id,
+        severity: finding.severity,
+        title: finding.title,
+        finding: finding.finding,
+        evidence: finding.evidence,
+      })),
       // Findings about the product, gathered from the capabilities they
       // belong to; the signals below measure the analysis instead.
       findings: model.features.flatMap((feature) =>

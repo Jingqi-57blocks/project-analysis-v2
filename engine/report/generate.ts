@@ -6,7 +6,7 @@
  * behaviour nobody could test on its own.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { selectWorkspace } from "../workspace/select.js";
@@ -34,30 +34,41 @@ import { createOrmMigrationProvider } from "../datamodel/orm.js";
 import { createGoModelProvider } from "../datamodel/gostructs.js";
 import { computeSignals } from "../health/signals.js";
 import { createDataUsageProvider } from "../datamodel/usage.js";
+import { createLogicProvider } from "../providers/logic/provider.js";
+import { valueSetsIn, type ValueSet } from "../semantics/enums.js";
+import { stateRule, type BusinessRule } from "../semantics/rules.js";
+import { computeStructuralFindings } from "../health/structure.js";
 import { detectFeatures } from "../modules/features.js";
 import { assembleFlows } from "../flows/assemble.js";
 import { buildReportFeatures, mapToMermaid } from "./features.js";
 import {
   assembleReport,
-  DEFAULT_LANGUAGE,
   type CoverageNote,
   type MapEdge,
   type ModuleEntryPoint,
-  type OutputLanguage,
 } from "./model.js";
 import { buildJsonReport } from "./json.js";
-import { writeRenderings } from "./render.js";
 import type { DataModelRecords } from "../datamodel/types.js";
 import type { StructuralProvider } from "../structural/provider.js";
-import type { RouteRecord, OutboundCallRecord, DataAccessRecord } from "../structural/boundaries.js";
-import type { ValidationRuleRecord } from "../structural/rules.js";
+import type {
+  RouteRecord,
+  OutboundCallRecord,
+  DataAccessRecord,
+  AuthAnnotationRecord,
+} from "../structural/boundaries.js";
+import type {
+  ValidationRuleRecord,
+  TransactionBoundaryRecord,
+  ErrorHandlingRecord,
+  ConditionRecord,
+  DiscardedErrorRecord,
+} from "../structural/rules.js";
 import type { SymbolRecord, CallEdgeRecord } from "../structural/code.js";
 import type { ModuleContainmentRecord, PackageDependencyRecord } from "../structural/dependencies.js";
 
 export interface GenerateOptions {
   readonly paths: readonly string[];
   readonly outputDir: string;
-  readonly language?: OutputLanguage;
   /** Extra providers — the CodeGraph adapter, when its indexing cost is acceptable. */
   readonly extraProviders?: readonly StructuralProvider[];
   readonly runId?: string;
@@ -76,7 +87,6 @@ export interface GenerateResult {
 export function generateReport(options: GenerateOptions): GenerateResult {
   const runId = options.runId ?? newRunId();
   const generatedAt = options.now ?? new Date().toISOString();
-  const language = options.language ?? DEFAULT_LANGUAGE;
 
   const selection = selectWorkspace({ paths: options.paths });
   const roots = analyzedRoots(selection);
@@ -93,7 +103,12 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     createFrameworkRoutesProvider(),
     createUiCallsProvider(),
     createDataUsageProvider(),
-    ...(options.extraProviders ?? [createCodeGraphProvider({ callEdges: false })]),
+    createLogicProvider(),
+    ...(options.extraProviders ?? [
+      // One index for the whole workspace, so nothing is written inside the
+      // analyzed repositories.
+      createCodeGraphProvider({ callEdges: false, roots: roots.map((root) => root.path) }),
+    ]),
   ];
   const collectors = [createDocumentationCollector(), createCodeTextCollector()];
 
@@ -104,6 +119,12 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const callEdges: CallEdgeRecord[] = [];
   const dataAccess: DataAccessRecord[] = [];
   const validations: ValidationRuleRecord[] = [];
+  const transactions: TransactionBoundaryRecord[] = [];
+  const errorHandling: ErrorHandlingRecord[] = [];
+  const authAnnotations: AuthAnnotationRecord[] = [];
+  const conditions: ConditionRecord[] = [];
+  const discarded: DiscardedErrorRecord[] = [];
+  const valueSets: ValueSet[] = [];
   const containment: ModuleContainmentRecord[] = [];
   const dependencies: PackageDependencyRecord[] = [];
   const allFiles: string[] = [];
@@ -166,6 +187,20 @@ export function generateReport(options: GenerateOptions): GenerateResult {
       else if (record.kind === "validation-rule") {
         validations.push(record.record as ValidationRuleRecord);
       }
+      // These three were extracted on every run and dropped on the floor: the
+      // chain simply had no branch for them, so nothing downstream could tell
+      // a project with no transactions from one nobody looked at.
+      else if (record.kind === "transaction-boundary") {
+        transactions.push(record.record as TransactionBoundaryRecord);
+      } else if (record.kind === "error-handling") {
+        errorHandling.push(record.record as ErrorHandlingRecord);
+      } else if (record.kind === "auth-annotation") {
+        authAnnotations.push(record.record as AuthAnnotationRecord);
+      } else if (record.kind === "condition") {
+        conditions.push(record.record as ConditionRecord);
+      } else if (record.kind === "discarded-error") {
+        discarded.push(record.record as DiscardedErrorRecord);
+      }
       else if (record.kind === "symbol") symbols.push(record.record as SymbolRecord);
       else if (record.kind === "call-edge") callEdges.push(record.record as CallEdgeRecord);
       else if (record.kind === "module-containment") {
@@ -202,6 +237,19 @@ export function generateReport(options: GenerateOptions): GenerateResult {
         const forRoot = entitiesByRoot.get(root.name) ?? new Set<string>();
         forRoot.add(entity.name);
         entitiesByRoot.set(root.name, forRoot);
+      }
+    }
+
+    // The names a project gives its own values, so a rule can be stated in
+    // them rather than in bare numbers.
+    for (const relPath of analyzedFiles) {
+      try {
+        valueSets.push(
+          ...valueSetsIn(root.name, relPath, readFileSync(join(root.path, relPath), "utf8")),
+        );
+      } catch {
+        // A file that cannot be read contributes no names; the rules that
+        // would have used them stay unexplained, which is visible.
       }
     }
 
@@ -434,7 +482,31 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     validations,
     handlerGaps: new Map(handlerResolution.unresolved.map((gap) => [gap.entryKey, gap.reason])),
   });
-  const features = buildReportFeatures(detection.features, flowSet.flows);
+  // Conditions become rules once the project's own names explain their
+  // values; a rule stated in bare numbers is left as written and marked.
+  const rules: BusinessRule[] = conditions.map((condition) => stateRule(condition, valueSets));
+
+  const features = buildReportFeatures(detection.features, flowSet.flows, {
+    rules,
+    discarded,
+    filesByFeature: new Map(
+      detection.features.map((feature) => [feature.id, new Set(feature.filePaths)]),
+    ),
+  });
+
+  const entityColumns = new Map<string, Map<string, string[]>>();
+  for (const field of dataModel.fields) {
+    const byRoot = entityColumns.get(field.entityName) ?? new Map<string, string[]>();
+    byRoot.set(field.rootName, [...(byRoot.get(field.rootName) ?? []), field.name]);
+    entityColumns.set(field.entityName, byRoot);
+  }
+
+  const structuralFindings = computeStructuralFindings({
+    dataAccess,
+    routes,
+    entityColumns,
+    rootNames: roots.map((root) => root.name),
+  });
 
   if (detection.setAside.length > 0) {
     coverageNotes.push({
@@ -480,6 +552,11 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     });
   }
 
+  coverageNotes.push({
+    subject: "conditions",
+    note: `${transactions.length} transaction boundaries, ${errorHandling.length} error-handling sites and ${authAnnotations.length} authorization annotations were read from convention patterns; they are inferred from text, so a match inside a comment or a string is possible`,
+  });
+
   if (screens.length > 0) {
     coverageNotes.push({
       subject: "screens",
@@ -495,7 +572,6 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     workspacePath: selection.workspacePath,
     projectName,
     description: projectDescription,
-    language,
     roots: rootSummaries,
     modules,
     features,
@@ -503,6 +579,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     integrations: rootDependencies(links),
     map,
     mapDiagram: mapToMermaid(map),
+    structuralFindings,
     screens: screens
       .map((screen) => ({
         rootName: screen.rootName,
@@ -524,22 +601,23 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     coverageNotes,
   });
 
-  mkdirSync(options.outputDir, { recursive: true });
+  // Each run gets its own directory. Two runs of a changing codebase are two
+  // different answers, and overwriting the first loses the comparison that
+  // makes a second run worth doing.
+  const outputDir = join(options.outputDir, runId);
+  mkdirSync(outputDir, { recursive: true });
 
-  // The specification is the artifact; every format is rendered from it. That
-  // is what lets a wording change, a restyle, or a new exporter run without
-  // touching the project again — and it keeps the formats agreeing, since a
-  // page can only show what the spec contains.
+  // Facts only. What a reader is shown is a template's business, and the
+  // wording of it belongs to the prompts that template carries — writing
+  // sentences here is the mistake this layer was built out of.
   const spec = buildJsonReport({ model, dataModel, limitations: [] });
-  const jsonPath = join(options.outputDir, "report.json");
+  const jsonPath = join(outputDir, "report.json");
   writeFileSync(jsonPath, `${JSON.stringify(spec, null, 2)}\n`, "utf8");
-
-  const files = [jsonPath, ...writeRenderings(spec, options.outputDir)];
 
   return {
     runId,
-    outputDir: options.outputDir,
-    files,
+    outputDir,
+    files: [jsonPath],
     moduleCount: modules.length,
     featureCount: features.length,
     componentCount: formation.components.length,

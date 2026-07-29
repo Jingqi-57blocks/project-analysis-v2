@@ -59,6 +59,11 @@ const KEY_BUILDERS: {
   // into one record, and two files whose `if err != nil {` land on the same line
   // number would merge into one. Nothing downstream could detect that, because a
   // merge records an extra attribution rather than a conflict.
+  // The subject, operator and value together are the rule; two rules on one
+  // line differ by their text, and the column keeps them apart.
+  condition: (r) =>
+    joinKey([r.rootName, r.subject, r.operator, String(r.literal), location(r.source)]),
+  "discarded-error": (r) => joinKey([r.rootName, r.call, location(r.source)]),
   "auth-annotation": (r) =>
     joinKey([r.rootName, r.symbolId, r.mechanism, r.requirement, location(r.source)]),
   "test-relation": (r) => joinKey([r.rootName, r.testSymbolId, r.targetSymbolId ?? r.targetName]),
