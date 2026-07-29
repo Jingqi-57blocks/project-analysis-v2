@@ -235,3 +235,35 @@ describe("enclosing index across roots", () => {
     expect(index.find(lineRef("b", "src/main.go", 10))).toBeNull();
   });
 });
+
+describe("links are not calls", () => {
+  it("ignores a URL that is the target of a link", () => {
+    // A fresh Vue app ships components full of `<a href="https://...">`.
+    // Recorded as calls, the project map says the system calls Stack
+    // Overflow — which the scaffolding alone is enough to produce.
+    write(
+      "src/components/TheWelcome.vue",
+      `<template>
+  <a href="https://stackoverflow.com/questions/tagged/vue.js" target="_blank">Stack Overflow</a>
+  <img src="https://vuejs.org/logo.svg">
+</template>
+`,
+    );
+    expect(extract(["src/components/TheWelcome.vue"]).records["outbound-call"]).toEqual([]);
+  });
+
+  it("still records a call made from the script of the same file", () => {
+    write(
+      "src/components/Orders.vue",
+      `<template><a href="https://vuejs.org/guide">docs</a></template>
+<script>
+export default { async load() { return fetch("https://api.example.com/orders"); } };
+</script>
+`,
+    );
+    const calls = extract(["src/components/Orders.vue"]).records["outbound-call"];
+    expect(calls.map((call) => call.target)).toEqual([
+      "https://api.example.com/orders",
+    ]);
+  });
+});

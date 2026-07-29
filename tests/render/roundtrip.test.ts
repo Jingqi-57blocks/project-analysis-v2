@@ -35,7 +35,7 @@ function write(path: string, contents: string): void {
 
 beforeAll(() => {
   workDir = mkdtempSync(join(tmpdir(), "pa-render-"));
-  write(join(workDir, "svc", "README.md"), "# Leave service\n\nHandles leave for staff.\n");
+  write(join(workDir, "svc", "README.md"), "# Leave service\n\nHandles leave requests for staff across the whole company, end to end.\n");
   write(join(workDir, "svc", "go.mod"), "module example.com/svc\n\nrequire github.com/gin-gonic/gin v1.9.1\n");
   write(
     join(workDir, "svc", "migrations", "001.sql"),
@@ -380,5 +380,35 @@ describe("what the review found", () => {
   it("does not treat an inherited property as a fragment or a selector", () => {
     expect(hasFragment("toString")).toBe(false);
     expect(() => resolveSelector(kb, "toString", {})).toThrow(SelectorError);
+  });
+});
+
+describe("quoting the project's own words", () => {
+  it("quotes a README rather than inlining its headings", () => {
+    // The description is markdown and carries its own `#`. Inlined, it
+    // outranked the document's structure — the overview had two H1s.
+    const outDir = join(workDir, "out", "quoted");
+    prepare({
+      template: parseTemplate(
+        JSON.stringify({
+          id: "q",
+          title: "T",
+          sections: [
+            { id: "parts", kind: "code", heading: "Parts", fragment: "project-summary", requires: ["run-context"] },
+          ],
+        }),
+        templateDir,
+      ),
+      kb,
+      outDir,
+    });
+
+    const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
+    const bodyHeadings = partial.split("\n").filter((line) => /^# /.test(line));
+    expect(bodyHeadings).toHaveLength(1);
+    expect(partial).toMatch(/^> \S/m);
+    // A multi-root workspace has no single README; saying whose it is keeps
+    // one part's description from standing in for the whole project's.
+    expect(partial).toContain("— from svc");
   });
 });

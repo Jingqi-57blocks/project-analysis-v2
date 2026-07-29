@@ -137,12 +137,16 @@ export function buildFeatureFacts(
     });
 
     const tables = new Set<string>();
+    const nearby = new Set<string>();
     for (const flow of own) {
       for (const step of flow.steps) {
-        if (step.kind === "data-access" && step.unresolvedReason === null) tables.add(step.label);
+        if (step.kind !== "data-access" || step.unresolvedReason !== null) continue;
+        if (step.indirect === true) nearby.add(step.label);
+        else tables.add(step.label);
       }
       flowFacts.push({ ...flow, diagram: flowToMermaid(flow) });
     }
+    for (const table of tables) nearby.delete(table);
 
     const endpoints = feature.routes
       .filter((route) => {
@@ -164,6 +168,7 @@ export function buildFeatureFacts(
       endpoints,
       dataEntities: feature.entities,
       tables: [...tables].sort(),
+      tablesNearby: [...nearby].sort(),
       filePaths: feature.filePaths,
       flowCount: own.length,
       partialFlowCount: own.filter((flow) => flow.partial).length,

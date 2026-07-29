@@ -100,9 +100,15 @@ function coverageLine(coverage: Coverage | undefined, subject: string): string {
     return `${subject[0]!.toUpperCase()}${subject.slice(1)} were read, but none of them belong here.`;
   }
 
+  // The language is part of the answer. A PHP project told what a Go struct
+  // reader cannot do is being shown a true statement about the wrong stack.
   const reasons = coverage.outcomes
     .filter((outcome) => outcome.reason !== null)
-    .map((outcome) => `${outcome.providerId}: ${outcome.reason!}`);
+    .map((outcome) =>
+      outcome.language === "*"
+        ? `${outcome.providerId}: ${outcome.reason!}`
+        : `${outcome.providerId} (${outcome.language}): ${outcome.reason!}`,
+    );
   return reasons.length === 0
     ? `Nothing was found, by readers that did look for ${subject}.`
     : "Nothing was found. What the readers said they cannot do:\n\n" +
@@ -116,7 +122,18 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
     const parts: string[] = [];
     if (context.description !== null) {
-      parts.push(context.description.split("\n\n— ")[0]!.trim(), "");
+      // Quoted, not inlined: the text is a README and carries its own
+      // headings, which inlined would outrank the document's structure. And
+      // attributed, because a multi-root workspace has no single README —
+      // presenting one part's as the whole project's misrepresents it, which
+      // is exactly why the knowledge base records where it came from.
+      const [text, from] = context.description.split("\n\n— ");
+      const quoted = text!
+        .trim()
+        .split("\n")
+        .map((line) => `> ${line.replace(/^#{1,6}\s+/, "")}`)
+        .join("\n");
+      parts.push(from === undefined ? quoted : `${quoted}\n>\n> — from ${from.trim()}`, "");
     }
     parts.push(
       table(
@@ -154,6 +171,14 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         ? `${input.kb.endpoints().length} entry points were read, but no term appeared in enough places to name a capability.`
         : coverageLine(coverage, "entry points");
     }
+    // Capped, and the weaker evidence counted rather than listed beside the
+    // stronger: forty table names in one cell is not something anyone reads,
+    // and most of them were observed near the handler rather than in it.
+    const named = (tables: readonly string[], limit: number): string =>
+      tables.length <= limit
+        ? tables.join(", ")
+        : `${tables.slice(0, limit).join(", ")}, +${tables.length - limit} more`;
+
     return table(
       ["Capability", "Parts", "Endpoints", "Flows", "Tables", "Evidence"],
       features.map((feature) => [
@@ -163,7 +188,14 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         feature.partialFlowCount > 0
           ? `${feature.flowCount} (${feature.partialFlowCount} partial)`
           : feature.flowCount,
-        feature.tables.join(", "),
+        [
+          named(feature.tables, 6),
+          feature.tablesNearby.length === 0
+            ? ""
+            : `(${feature.tablesNearby.length} more seen in the handlers' packages)`,
+        ]
+          .filter((part) => part !== "")
+          .join(" "),
         feature.signals.join(" · "),
       ]),
     );
