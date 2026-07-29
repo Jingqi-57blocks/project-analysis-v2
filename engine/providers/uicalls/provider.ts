@@ -16,7 +16,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { parseCalls, positionAt, scanSource } from "../../text/scan.js";
+import { findCalls, languageOf, literalText, parseSource } from "../../text/ast.js";
 import { inferred, resolved } from "../../structural/provenance.js";
 import { emptyRecords } from "../../structural/kinds.js";
 import type { OutboundCallRecord } from "../../structural/boundaries.js";
@@ -35,8 +35,17 @@ export const PROVIDER_ID = "ui-calls";
 export const PROVIDER_VERSION = "1.0.0";
 
 /** The helpers a browser application makes requests through. */
-const CLIENT_PATTERN =
-  /\b(httpClient|authRequest|axios|fetch|request|api|http)\.(get|post|put|patch|delete|head|options|request)\s*\(/g;
+const CLIENTS = new Set(["httpClient", "authRequest", "axios", "fetch", "request", "api", "http"]);
+const METHODS = new Set([
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "head",
+  "options",
+  "request",
+]);
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".vue", ".svelte"];
 
@@ -140,12 +149,25 @@ function scanFile(
   failures: ExtractionFailure[],
 ): void {
   const content = readFileSync(join(root.path, relPath), "utf8");
-  if (!/\.(get|post|put|patch|delete|head|options|request)\s*\(/.test(content)) return;
+  if (!/\.(get|post|put|patch|delete|head|options|request)\s*[<(]/.test(content)) return;
 
-  const map = scanSource(content, { hashLineComments: false });
+  const language = languageOf(relPath);
+  if (language === null) return;
+  const parsed = parseSource(language, content);
+  if (parsed.root === null) {
+    failures.push({ scope: relPath, reason: parsed.reason ?? "the file could not be parsed" });
+    return;
+  }
+
   const aliases = collectBaseAliases(content);
 
-  for (const call of parseCalls(content, map, CLIENT_PATTERN)) {
+  for (const call of findCalls(parsed.root)) {
+    // `httpClient.post<App.ResponseBase<Leave>>(...)` is the same call as
+    // `httpClient.post(...)`; a scanner looking for a parenthesis after the
+    // method name missed every typed one, and the endpoints they reach were
+    // then reported as having no caller at all.
+    if (!CLIENTS.has(call.receiver) || !METHODS.has(call.method)) continue;
+
     const first = call.args[0];
     if (first === undefined) continue;
 
@@ -154,7 +176,7 @@ function scanFile(
       relPath,
       startLine: call.line,
       endLine: call.line,
-      startColumn: positionAt(map, call.index).column,
+      startColumn: call.column,
       endColumn: null,
     };
 
@@ -162,16 +184,13 @@ function scanFile(
     // name, so it states nothing here.
     const method = call.method === "request" ? null : call.method.toUpperCase();
 
-    const parsed = parseUrlTemplate(first);
-    if (parsed === null) {
-      // A URL built somewhere else is a call whose destination is unknown,
-      // which is a fact worth keeping — dropping it would make the front end
-      // look like it talks to fewer services than it does.
-      const literal = /^['"]([^'"]*)['"]$/.exec(first.trim());
-      if (literal && literal[1]!.startsWith("/")) {
+    const parsed_ = parseUrlTemplate(first.text());
+    if (parsed_ === null) {
+      const literal = literalText(first);
+      if (literal !== null && literal.startsWith("/")) {
         calls.push({
           rootName: root.name,
-          target: literal[1]!,
+          target: literal,
           kind: "http",
           method,
           callerSymbolId: null,
@@ -181,6 +200,9 @@ function scanFile(
         continue;
       }
 
+      // A URL built somewhere else is a call whose destination is unknown,
+      // which is a fact worth keeping — dropping it would make the front end
+      // look like it talks to fewer services than it does.
       calls.push({
         rootName: root.name,
         target: null,
@@ -197,9 +219,9 @@ function scanFile(
       continue;
     }
 
-    const alias = parsed.baseIdentifier === null ? undefined : aliases.get(parsed.baseIdentifier);
-    const baseIdentifier = alias ? alias.baseIdentifier : parsed.baseIdentifier;
-    const path = alias ? `${alias.prefix}${parsed.path === "/" ? "" : parsed.path}` : parsed.path;
+    const alias = parsed_.baseIdentifier === null ? undefined : aliases.get(parsed_.baseIdentifier);
+    const baseIdentifier = alias ? alias.baseIdentifier : parsed_.baseIdentifier;
+    const path = alias ? `${alias.prefix}${parsed_.path === "/" ? "" : parsed_.path}` : parsed_.path;
 
     calls.push({
       rootName: root.name,
