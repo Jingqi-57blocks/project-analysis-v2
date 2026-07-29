@@ -41,7 +41,9 @@ function main(argv: readonly string[]): number {
   });
 
   console.log(`Report written for run ${result.runId}`);
-  console.log(`  ${result.moduleCount} features, ${result.componentCount} components`);
+  console.log(
+    `  ${result.featureCount} features, ${result.moduleCount} modules, ${result.componentCount} components`,
+  );
   for (const file of result.files) console.log(`  ${file}`);
   return 0;
 }

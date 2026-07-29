@@ -17,6 +17,19 @@ import { joinKey } from "./identity.js";
 import type { AssembledModel, AssembledRecord, AttributedFailure } from "./assemble.js";
 import { PROVIDER_ID as FRAMEWORK_ROUTES } from "../providers/frameworkroutes/provider.js";
 
+/**
+ * Whether a record is a framework reader's deliberate incomplete reading.
+ *
+ * The Gin and Express readers emit an inferred record when they saw a real
+ * registration but not its prefix — precisely so the endpoint stays visible.
+ * Those must never be absorbed: their subpath tail-matching some other route
+ * in the same file is a coincidence, not evidence they are the same fact, and
+ * folding them deletes an endpoint nobody else reports.
+ */
+function isDeliberatelyPartial(record: AssembledRecord): boolean {
+  return record.attributions.some((a) => a.providerId === FRAMEWORK_ROUTES);
+}
+
 function isDirect(record: AssembledRecord): boolean {
   const provenance = (record.record as RouteRecord).provenance;
   return provenance.resolutionClass === "declared" || provenance.resolutionClass === "resolved";
@@ -125,6 +138,7 @@ export function consolidateRoutes(model: AssembledModel): AssembledModel {
       (record) => routeOf(record).provenance.resolutionClass === "inferred",
     );
     for (const loser of inferredRecords) {
+      if (isDeliberatelyPartial(loser)) continue;
       const winner = direct.find(
         (candidate) =>
           isPathSuffix(routeOf(candidate).path, routeOf(loser).path) &&
@@ -152,6 +166,7 @@ export function consolidateRoutes(model: AssembledModel): AssembledModel {
     if (absorbed.has(loser)) continue;
     const route = routeOf(loser);
     if (route.provenance.resolutionClass !== "inferred" || !claimedRoots.has(route.rootName)) continue;
+    if (isDeliberatelyPartial(loser)) continue;
     // A bare "/" is a suffix of everything, which is precise at one
     // registration site and a coin-flip across a file. Only the site rule
     // above may use it.
@@ -169,11 +184,28 @@ export function consolidateRoutes(model: AssembledModel): AssembledModel {
     }
   }
 
-  // A mount is not an endpoint. `app.use("/worklogs", router)` serves no
-  // request by itself, and the framework reader has already expanded it into
-  // the full paths of the routes beneath it — so keeping it would publish
-  // "USE /worklogs" as an endpoint that does not exist. Dropped only where a
-  // reader did that expansion, and recorded rather than silently removed.
+  // A mount is not an endpoint: `app.use("/worklogs", router)` serves no
+  // request by itself, and keeping it publishes an endpoint that does not
+  // exist. But `app.use("/x", handler)` *is* one, and a mount whose target the
+  // reader could not follow is the only record of that prefix — so a mount is
+  // dropped only where routes beneath it were actually expanded, which is the
+  // evidence that nothing is lost by removing it.
+  const expandedPrefixes = new Set<string>();
+  for (const record of routes) {
+    if (!isDirect(record)) continue;
+    const route = routeOf(record);
+    expandedPrefixes.add(`${route.rootName}|${route.path}`);
+  }
+  const wasExpanded = (rootName: string, prefix: string): boolean => {
+    const scope = prefix === "/" ? "/" : `${prefix}/`;
+    for (const key of expandedPrefixes) {
+      if (!key.startsWith(`${rootName}|`)) continue;
+      const path = key.slice(rootName.length + 1);
+      if (path === prefix || path.startsWith(scope)) return true;
+    }
+    return false;
+  };
+
   const mountFailures: AttributedFailure[] = [];
   const survivors: AssembledRecord[] = [];
 
@@ -184,12 +216,13 @@ export function consolidateRoutes(model: AssembledModel): AssembledModel {
     if (
       route.method === "USE" &&
       route.provenance.resolutionClass === "inferred" &&
-      claimedRoots.has(route.rootName)
+      claimedRoots.has(route.rootName) &&
+      wasExpanded(route.rootName, route.path)
     ) {
       mountFailures.push({
         providerId: record.attributions[0]?.providerId ?? "unknown",
         scope: `${route.provenance.source.relPath}:${route.provenance.source.startLine}`,
-        reason: `"USE ${route.path}" registers a mount or middleware, not an endpoint; the routes beneath it are reported at their full paths`,
+        reason: `"USE ${route.path}" registers a mount, not an endpoint; the routes beneath it are reported at their full paths`,
       });
       continue;
     }

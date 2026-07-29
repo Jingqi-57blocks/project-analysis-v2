@@ -149,22 +149,28 @@ function dataSteps(
     ];
   }
 
-  // Scoped to the handler's package rather than its file. A Go handler
-  // package splits one feature across router.go, service.go and approvement.go,
-  // and a JS route file's service lives beside it — so the file alone reaches
-  // the database for almost nothing, while the package reaches it for most
-  // handlers. The widening is real and is stated on the step: these are the
-  // tables the handler's package touches, not proof this endpoint touches each.
+  // The handler's own file first, and only its package when that file shows
+  // nothing. A JS service file queries its own tables, so the file is exact;
+  // a Go handler splits one feature across router.go and service.go, so the
+  // file alone reaches the database for almost nothing. Trying the narrow
+  // scope first keeps the precise answer where one exists instead of
+  // attributing every table a shared directory touches to one endpoint.
   const relPath = symbol.provenance.source.relPath;
   const packagePath = relPath.includes("/") ? relPath.slice(0, relPath.lastIndexOf("/")) : "";
-  const inPackage = dataAccess.filter((access) => {
-    if (access.rootName !== route.rootName) return false;
-    const accessPath = access.provenance.source.relPath;
-    const accessPackage = accessPath.includes("/")
-      ? accessPath.slice(0, accessPath.lastIndexOf("/"))
-      : "";
-    return accessPackage === packagePath;
-  });
+  const sameRoot = dataAccess.filter((access) => access.rootName === route.rootName);
+
+  const inFile = sameRoot.filter((access) => access.provenance.source.relPath === relPath);
+  const inPackage =
+    inFile.length > 0
+      ? inFile
+      : sameRoot.filter((access) => {
+          const accessPath = access.provenance.source.relPath;
+          const accessPackage = accessPath.includes("/")
+            ? accessPath.slice(0, accessPath.lastIndexOf("/"))
+            : "";
+          return accessPackage === packagePath;
+        });
+  const scope = inFile.length > 0 ? "file" : "package";
 
   if (inPackage.length === 0) {
     return [
@@ -199,9 +205,13 @@ function dataSteps(
       kind: "data-access",
       label: table,
       rootName: route.rootName,
-      conditions: [...operations].sort(),
-      // Stated on every table: the evidence is package-level, and saying so
-      // is the difference between a fact and an overstatement.
+      // The scope is part of the claim. "Observed in the handler's package" is
+      // a weaker statement than "in the handler itself", and a reader deciding
+      // on it needs to know which one this is.
+      conditions: [
+        ...[...operations].sort(),
+        ...(scope === "package" ? ["observed in the handler's package"] : []),
+      ],
       unresolvedReason: null,
       provenance: record.provenance,
     }));

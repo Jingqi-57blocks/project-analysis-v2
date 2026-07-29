@@ -31,6 +31,30 @@ export interface HandlerResolution {
   readonly unresolved: readonly UnresolvedHandler[];
 }
 
+/**
+ * Whether a symbol's file agrees with the qualifier a registration wrote.
+ *
+ * The qualifier means different things per language: `leave.Deletion` names a
+ * Go package, which is a directory, while `worklogService.getWorkLogsByUser`
+ * names a JS module, which is a file. Matching either — but only as a whole
+ * name, never as a substring anywhere in the path — is what separates the
+ * twelve functions called `Deletion` in one service.
+ */
+function fileAgreesWith(relPath: string, hint: string): boolean {
+  const slash = relPath.lastIndexOf("/");
+  const directory = (slash === -1 ? "" : relPath.slice(0, slash).split("/").pop() ?? "").toLowerCase();
+  const basename = relPath
+    .slice(slash + 1)
+    .replace(/\.\w+$/, "")
+    .toLowerCase();
+
+  if (directory === hint || basename === hint) return true;
+  // `worklogServices.js` for `worklogService`, and `swagger.go` for
+  // `ginSwagger` — a plural or a prefix, not an arbitrary shared substring.
+  if (basename.length >= 4 && (basename.startsWith(hint) || hint.includes(basename))) return true;
+  return false;
+}
+
 function entryKeyOf(route: RouteRecord): string {
   return `${route.rootName}:${route.method ?? "ANY"} ${route.path}`;
 }
@@ -65,20 +89,38 @@ export function resolveHandlers(
       const functionName = segments[segments.length - 1]!;
       const packageHint = segments.length > 1 ? segments[segments.length - 2]!.toLowerCase() : null;
 
-      const matches = symbolsHere.filter((symbol) => {
+      let matches = symbolsHere.filter((symbol) => {
         if (symbol.name !== functionName) return false;
         if (packageHint === null) return true;
-        const qualified = (symbol.qualifiedName ?? "").toLowerCase();
-        const relPath = symbol.provenance.source.relPath.toLowerCase();
-        return qualified.includes(packageHint) || relPath.includes(packageHint);
+        return fileAgreesWith(symbol.provenance.source.relPath, packageHint);
       });
+
+      // `leave.Deletion` names a package-level function. When both a bare
+      // function and a method of some type carry the name, the bare one is
+      // what the registration referred to — a method would have needed a
+      // receiver to be written there at all.
+      if (matches.length > 1) {
+        const plain = matches.filter((symbol) => !(symbol.qualifiedName ?? "").includes("::"));
+        if (plain.length > 0) matches = plain;
+      }
 
       if (matches.length === 1) return { ...route, handlerSymbolId: matches[0]!.id };
 
+      if (matches.length > 1) {
+        // Ambiguity means the handler is one of these. Trying the next
+        // candidate would answer with a different function entirely — and
+        // since the outer candidate is usually a shared wrapper, that answer
+        // would resolve confidently and be wrong for hundreds of routes.
+        unresolved.push({
+          entryKey: entryKeyOf(route),
+          handlerName: name,
+          reason: `${matches.length} symbols named "${functionName}" match; refusing to pick one`,
+        });
+        return route;
+      }
+
       reasons.push(
-        matches.length === 0
-          ? `no symbol named "${functionName}"${packageHint ? ` matching package hint "${packageHint}"` : ""} in ${route.rootName}`
-          : `${matches.length} symbols named "${functionName}" match; refusing to pick one`,
+        `no symbol named "${functionName}"${packageHint ? ` in a package named "${packageHint}"` : ""} in ${route.rootName}`,
       );
     }
 

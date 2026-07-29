@@ -71,11 +71,16 @@ export function buildMountMap(
 
       if (specifier === null) {
         const identifier = leadingName(target)?.split(".")[0];
-        if (identifier) {
-          specifier =
-            new RegExp(
-              `${identifier}[^=\\n]*=\\s*require\\(\\s*['"]([^'"]+)['"]\\s*\\)`,
-            ).exec(content)?.[1] ?? null;
+        // The identifier must match as a whole word and be escaped before it
+        // becomes a pattern. Unanchored, `logRouter` matches inside
+        // `catalogRouter = require('./routes/catalog')` and mounts the wrong
+        // file — publishing endpoints that do not exist as directly observed.
+        if (identifier !== undefined && identifier !== "") {
+          const escaped = identifier.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const declaration = new RegExp(
+            `(?<![\\w$])${escaped}\\s*=\\s*require\\(\\s*['"]([^'"]+)['"]\\s*\\)`,
+          );
+          specifier = declaration.exec(content)?.[1] ?? null;
         }
       }
       if (specifier === null) continue;

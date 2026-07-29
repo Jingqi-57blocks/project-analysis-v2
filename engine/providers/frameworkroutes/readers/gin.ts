@@ -59,6 +59,90 @@ export function handlerNamesOf(arg: string): string[] {
   return wrapped ? [wrapped[2]!, wrapped[1]!] : [];
 }
 
+/**
+ * Byte ranges of the file's top-level function bodies.
+ *
+ * Group variables are local to a function: two functions in one file each
+ * writing `g := e.Group(...)` are two different groups, and resolving them
+ * file-wide makes the second one silently inherit the first one's prefix — a
+ * wrong path, stated as directly observed. Anything outside a function body
+ * forms its own region so nothing is dropped.
+ */
+export function functionRegions(content: string): { start: number; end: number }[] {
+  const regions: { start: number; end: number }[] = [];
+  const map = scanSource(content, { hashLineComments: false });
+
+  for (const match of content.matchAll(/^func\b/gm)) {
+    const start = match.index;
+    if (map.comment[start] === 1) continue;
+
+    let depth = 0;
+    let opened = false;
+    let quote: string | null = null;
+
+    for (let i = start; i < content.length; i++) {
+      const char = content[i]!;
+      if (quote !== null) {
+        if (char === "\\" && quote !== "`") i += 1;
+        else if (char === quote) quote = null;
+        continue;
+      }
+      if (map.comment[i] === 1) continue;
+      if (char === "'" || char === '"' || char === "`") {
+        quote = char;
+        continue;
+      }
+      if (char === "{") {
+        depth += 1;
+        opened = true;
+      } else if (char === "}") {
+        depth -= 1;
+        if (opened && depth === 0) {
+          regions.push({ start, end: i + 1 });
+          break;
+        }
+      }
+    }
+  }
+
+  if (regions.length === 0) return [{ start: 0, end: content.length }];
+
+  // Whatever sits between functions — package-level registration in a var
+  // initializer, for instance — still gets read.
+  const gaps: { start: number; end: number }[] = [];
+  let cursor = 0;
+  for (const region of regions) {
+    if (region.start > cursor) gaps.push({ start: cursor, end: region.start });
+    cursor = region.end;
+  }
+  if (cursor < content.length) gaps.push({ start: cursor, end: content.length });
+
+  return [...regions, ...gaps].sort((a, b) => a.start - b.start);
+}
+
+function rootsIn(content: string, region: { start: number; end: number }): Map<string, GroupInfo> {
+  const groups = new Map<string, GroupInfo>();
+  const text = content.slice(region.start, region.end);
+
+  for (const match of text.matchAll(/([A-Za-z_][\w]*)\s*:?=\s*gin\.(?:New|Default)\s*\(/g)) {
+    groups.set(match[1]!, { prefix: "", middleware: [] });
+  }
+  // `engine := svReg.Gin` — the engine exposed as a struct field, which is how
+  // registration gets split across files in practice.
+  for (const match of text.matchAll(/([A-Za-z_][\w]*)\s*:?=\s*[\w.]+\.(?:Gin|Engine)\b/g)) {
+    if (!groups.has(match[1]!)) groups.set(match[1]!, { prefix: "", middleware: [] });
+  }
+  for (const match of text.matchAll(/([A-Za-z_][\w]*)\s+\*gin\.Engine\b/g)) {
+    groups.set(match[1]!, { prefix: "", middleware: [] });
+  }
+  // A *gin.RouterGroup parameter carries an unknown prefix from its caller.
+  for (const match of text.matchAll(/([A-Za-z_][\w]*)\s+\*gin\.RouterGroup\b/g)) {
+    if (!groups.has(match[1]!)) groups.set(match[1]!, { prefix: null, middleware: [] });
+  }
+
+  return groups;
+}
+
 function scanFile(
   root: StructuralRootInput,
   relPath: string,
@@ -73,135 +157,114 @@ function scanFile(
   const map = scanSource(content, { hashLineComments: false });
   const calls = parseCalls(content, map, CALL_PATTERN);
 
-  const groups = new Map<string, GroupInfo>();
-  for (const match of content.matchAll(/([A-Za-z_][\w]*)\s*:?=\s*gin\.(?:New|Default)\s*\(/g)) {
-    groups.set(match[1]!, { prefix: "", middleware: [] });
-  }
-  // `engine := svReg.Gin` — the engine exposed as a struct field, which is how
-  // registration gets split across files in practice (the reference's
-  // "split registration" hard case). A field named Gin or Engine is taken as
-  // the engine itself, rooted at "".
-  for (const match of content.matchAll(/([A-Za-z_][\w]*)\s*:?=\s*[\w.]+\.(?:Gin|Engine)\b/g)) {
-    if (!groups.has(match[1]!)) groups.set(match[1]!, { prefix: "", middleware: [] });
-  }
-  // `func Handler(engine *gin.Engine)` — the engine arrives as a parameter and
-  // roots this file's chains at "".
-  for (const match of content.matchAll(/([A-Za-z_][\w]*)\s+\*gin\.Engine\b/g)) {
-    groups.set(match[1]!, { prefix: "", middleware: [] });
-  }
-  // A *gin.RouterGroup parameter carries an unknown prefix from its caller.
-  for (const match of content.matchAll(/([A-Za-z_][\w]*)\s+\*gin\.RouterGroup\b/g)) {
-    if (!groups.has(match[1]!)) groups.set(match[1]!, { prefix: null, middleware: [] });
-  }
+  for (const region of functionRegions(content)) {
+    const groups = rootsIn(content, region);
+    const inRegion = calls.filter((call) => call.index >= region.start && call.index < region.end);
 
-  // Group assignments can chain, and a child can appear before its parent
-  // resolves on a single pass — iterate to a fixpoint, bounded.
-  for (let pass = 0; pass < 5; pass++) {
-    let progressed = false;
-    for (const call of calls) {
-      if (call.method !== "Group") continue;
-      const target = assignmentTarget(content, call.index);
-      if (target === null || groups.has(target)) continue;
-
-      const parent = groups.get(call.receiver);
-      if (!parent) continue;
-
-      const subpath = stringLiteral(call.args[0] ?? "") ?? "";
-      groups.set(target, {
-        prefix: parent.prefix === null ? null : joinRoutePath(parent.prefix, subpath),
-        middleware: [...parent.middleware, ...middlewareNames(call.args.slice(1))],
-      });
-      progressed = true;
-    }
-    if (!progressed) break;
-  }
-
-  for (const call of calls) {
-    if (call.method === "Use") {
-      const existing = groups.get(call.receiver);
-      if (existing) {
-        groups.set(call.receiver, {
-          prefix: existing.prefix,
-          middleware: [...existing.middleware, ...middlewareNames(call.args)],
-        });
+    // Document order, because that is Gin's own order: Group() copies the
+    // parent's handler chain as it stands when the call runs, and Use() adds
+    // to what comes after it. Deriving all the groups first and applying Use
+    // afterwards loses every middleware registered on the engine before its
+    // groups were made — which is the ordinary way to install recovery
+    // and CORS.
+    for (const call of inRegion) {
+      if (call.method === "Use") {
+        const existing = groups.get(call.receiver);
+        if (existing) {
+          groups.set(call.receiver, {
+            prefix: existing.prefix,
+            middleware: [...existing.middleware, ...middlewareNames(call.args)],
+          });
+        }
+        continue;
       }
-      continue;
-    }
-    if (call.method === "Group") continue;
 
-    const pathArg = call.method === "Handle" ? call.args[1] : call.args[0];
-    const pathLiteral = pathArg === undefined ? null : stringLiteral(pathArg);
+      if (call.method === "Group") {
+        const target = assignmentTarget(content, call.index);
+        const parent = groups.get(call.receiver);
+        if (target === null || parent === undefined) continue;
 
-    const base = groups.get(call.receiver);
-    if (!base) {
-      // A receiver this file never roots. On a known group any literal is a
-      // subpath (Gin joins `GET("count")` onto the group), but on an unknown
-      // receiver only a leading slash distinguishes a real registration from
-      // something like `zap.Any("key", value)` — a logger call that would
-      // otherwise pollute the failure list with non-routes.
-      if (pathLiteral !== null && pathLiteral.startsWith("/")) {
+        const subpath = stringLiteral(call.args[0] ?? "") ?? "";
+        groups.set(target, {
+          prefix: parent.prefix === null ? null : joinRoutePath(parent.prefix, subpath),
+          middleware: [...parent.middleware, ...middlewareNames(call.args.slice(1))],
+        });
+        continue;
+      }
+
+      const pathArg = call.method === "Handle" ? call.args[1] : call.args[0];
+      const pathLiteral = pathArg === undefined ? null : stringLiteral(pathArg);
+
+      const base = groups.get(call.receiver);
+      if (!base) {
+        // A receiver this region never roots. On a known group any literal is
+        // a subpath (Gin joins `GET("count")` onto the group), but on an
+        // unknown receiver only a leading slash distinguishes a real
+        // registration from something like `zap.Any("key", value)`.
+        if (pathLiteral !== null && pathLiteral.startsWith("/")) {
+          failures.push({
+            scope: `${relPath}:${call.line}`,
+            reason: `route registered on "${call.receiver}", whose group chain could not be resolved in this function`,
+          });
+        }
+        continue;
+      }
+      if (pathLiteral === null) {
         failures.push({
           scope: `${relPath}:${call.line}`,
-          reason: `route registered on "${call.receiver}", whose group chain could not be resolved in this file`,
+          reason: "registration path is not a string literal",
         });
+        continue;
       }
-      continue;
-    }
-    if (pathLiteral === null) {
-      failures.push({
-        scope: `${relPath}:${call.line}`,
-        reason: "registration path is not a string literal",
-      });
-      continue;
-    }
 
-    let method: string | null;
-    let rest: readonly string[];
+      let method: string | null;
+      let rest: readonly string[];
 
-    if (call.method === "Handle") {
-      method = stringLiteral(call.args[0] ?? "");
-      rest = call.args.slice(2);
-    } else {
-      method = call.method === "Any" ? null : call.method;
-      rest = call.args.slice(1);
-    }
-    const subpath = pathLiteral;
+      if (call.method === "Handle") {
+        method = stringLiteral(call.args[0] ?? "");
+        rest = call.args.slice(2);
+      } else {
+        method = call.method === "Any" ? null : call.method;
+        rest = call.args.slice(1);
+      }
 
-    const handlerCandidates = rest.length > 0 ? handlerNamesOf(rest[rest.length - 1]!) : [];
-    const handlerName = handlerCandidates[0] ?? null;
-    const middleware = [...base.middleware, ...middlewareNames(rest.slice(0, -1))];
-    const source = lineRef(root.name, relPath, call.line);
+      const handlerCandidates = rest.length > 0 ? handlerNamesOf(rest[rest.length - 1]!) : [];
+      const handlerName = handlerCandidates[0] ?? null;
+      const middleware = [...base.middleware, ...middlewareNames(rest.slice(0, -1))];
+      const source = lineRef(root.name, relPath, call.line);
 
-    if (base.prefix === null) {
-      // The prefix lives in another file's group chain. The subpath alone is
-      // real but incomplete, so it must not be asserted as the served path.
+      if (base.prefix === null) {
+        // The prefix lives in another function's group chain. The subpath
+        // alone is real but incomplete, so it must not be asserted as the
+        // served path.
+        routes.push({
+          rootName: root.name,
+          method,
+          path: joinRoutePath("", pathLiteral),
+          handlerSymbolId: null,
+          handlerName,
+          handlerCandidates,
+          middleware,
+          provenance: inferred(source, "low"),
+        });
+        failures.push({
+          scope: `${relPath}:${call.line}`,
+          reason: "group prefix arrives as a function parameter; the full path is unknown",
+        });
+        continue;
+      }
+
       routes.push({
         rootName: root.name,
         method,
-        path: joinRoutePath("", subpath),
+        path: joinRoutePath(base.prefix, pathLiteral),
         handlerSymbolId: null,
         handlerName,
         handlerCandidates,
         middleware,
-        provenance: inferred(source, "low"),
+        provenance: resolved(source, "high"),
       });
-      failures.push({
-        scope: `${relPath}:${call.line}`,
-        reason: "group prefix arrives as a function parameter; the full path is unknown",
-      });
-      continue;
     }
-
-    routes.push({
-      rootName: root.name,
-      method,
-      path: joinRoutePath(base.prefix, subpath),
-      handlerSymbolId: null,
-      handlerName,
-      handlerCandidates,
-      middleware,
-      provenance: resolved(source, "high"),
-    });
   }
 }
 
@@ -210,7 +273,7 @@ export function createGinReader(): FrameworkRouteReader {
     id: "gin",
     language: "go",
     limits: [
-      "group chains are followed within one file; a group passed between files carries an unknown prefix",
+      "group chains are followed within one function; a group passed between functions or files carries an unknown prefix",
       "handler identifiers are unwrapped through one call layer only",
       "registration paths that are not string literals are recorded as failures",
     ],

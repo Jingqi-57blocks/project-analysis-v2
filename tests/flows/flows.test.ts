@@ -174,8 +174,10 @@ describe("flowToMermaid", () => {
     const { flows } = assembleFlows(input());
     const diagram = flowToMermaid(flows[0]!);
 
-    expect(diagram).toContain('s2 -->|"write"| s3');
-    expect(diagram).toContain('s2 -->|"write"| s4');
+    // The handler's own file shows no access here, so the package is the
+    // scope — and the edge label says so alongside the operation.
+    expect(diagram).toMatch(/s2 -->\|"write[^"]*"\| s3/);
+    expect(diagram).toMatch(/s2 -->\|"write[^"]*"\| s4/);
     expect(diagram).not.toMatch(/\bs3 -->? *\|?[^\n]*s4/);
   });
 
