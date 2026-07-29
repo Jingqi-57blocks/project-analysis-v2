@@ -28,6 +28,36 @@ export const SPEC_VERSION = "1.0";
  * format never means re-analyzing the project, and a format can only show what
  * the spec actually contains.
  */
+export interface SpecEntity {
+  readonly name: string;
+  readonly kind: string;
+  readonly service: string;
+  readonly qualifier: string | null;
+  readonly fields: readonly {
+    readonly name: string;
+    readonly declaredType: string | null;
+    readonly nullable: boolean | null;
+    readonly primaryKey: boolean;
+    readonly defaultValue: string | null;
+    readonly source: string;
+  }[];
+  readonly relations: readonly {
+    readonly fromField: string | null;
+    readonly toEntity: string;
+    readonly toField: string | null;
+    readonly kind: string;
+    readonly source: string;
+  }[];
+  readonly constraints: readonly {
+    readonly kind: string;
+    readonly fields: readonly string[];
+    readonly expression: string | null;
+    readonly source: string;
+  }[];
+  readonly source: string;
+  readonly confidence: string;
+}
+
 export interface ReportSpec {
   readonly specVersion: string;
   readonly run: { readonly id: string; readonly generatedAt: string; readonly workspacePath: string };
@@ -69,7 +99,10 @@ export interface ReportSpec {
   }[];
   readonly features: readonly SpecFeature[];
   readonly modules: readonly SpecModule[];
-  readonly dataModel: { readonly entityNames: readonly string[]; readonly entities: readonly unknown[] };
+  readonly dataModel: {
+    readonly entityNames: readonly string[];
+    readonly entities: readonly SpecEntity[];
+  };
   readonly health: {
     readonly signals: readonly {
       readonly id: string;
@@ -166,7 +199,7 @@ function sourceOf(provenance: Provenance): string {
  * its columns, not four lists to join. Fields keyed by (entity, name) within a
  * root, so two roots declaring the same table stay separate.
  */
-export function nestDataModel(records: DataModelRecords): readonly unknown[] {
+export function nestDataModel(records: DataModelRecords): readonly SpecEntity[] {
   return records.entities
     .map((entity) => {
       const belongs = (rootName: string, entityName: string): boolean =>

@@ -524,7 +524,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const jsonPath = join(options.outputDir, "report.json");
   writeFileSync(jsonPath, `${JSON.stringify(spec, null, 2)}\n`, "utf8");
 
-  const files = [jsonPath, ...writeRenderings(spec, dataModel, options.outputDir)];
+  const files = [jsonPath, ...writeRenderings(spec, options.outputDir)];
 
   return {
     runId,

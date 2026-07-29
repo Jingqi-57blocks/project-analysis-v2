@@ -12,7 +12,7 @@
  * of step with the identifiers it describes.
  */
 
-import type { DataModelRecords } from "../datamodel/types.js";
+import type { SpecEntity } from "./json.js";
 import type { ReportFeature, ReportFlow, ReportModel } from "./model.js";
 import { composeIntroduction } from "./intro.js";
 
@@ -147,53 +147,42 @@ export function renderFeaturePage(feature: ReportFeature): string {
   return lines.join("\n");
 }
 
-function dataModelSection(records: DataModelRecords): string {
-  if (records.entities.length === 0) {
-    return "No entity declarations were found in the analyzed roots.\n";
-  }
+/**
+ * Rendered from the specification's own entities rather than the records they
+ * came from, so a published report can be re-rendered from the file alone.
+ */
+function dataModelSection(entities: readonly SpecEntity[]): string {
+  if (entities.length === 0) return "No entity declarations were found in the analyzed roots.\n";
 
   const lines: string[] = [];
-  for (const entity of [...records.entities].sort(
-    (a, b) => a.rootName.localeCompare(b.rootName) || a.name.localeCompare(b.name),
-  )) {
-    const fields = records.fields.filter(
-      (field) => field.rootName === entity.rootName && field.entityName === entity.name,
-    );
-    const relations = records.relations.filter(
-      (relation) => relation.rootName === entity.rootName && relation.fromEntity === entity.name,
-    );
-    const constraints = records.constraints.filter(
-      (constraint) =>
-        constraint.rootName === entity.rootName && constraint.entityName === entity.name,
-    );
-
+  for (const entity of entities) {
     lines.push(
       `### ${entity.name}`,
       "",
-      `${entity.kind} in ${entity.rootName} — ${entity.provenance.source.relPath}:${entity.provenance.source.startLine}`,
+      `${entity.kind} in ${entity.service} — ${entity.source}`,
       "",
     );
 
-    if (fields.length > 0) {
+    if (entity.fields.length > 0) {
       lines.push(
         table(
           ["Field", "Type", "Nullable", "Primary key", "Default"],
-          fields.map((field) => [
+          entity.fields.map((field) => [
             field.name,
             field.declaredType ?? "—",
             field.nullable === null ? "unknown" : field.nullable ? "yes" : "no",
-            field.isPrimaryKey ? "yes" : "no",
+            field.primaryKey ? "yes" : "no",
             field.defaultValue ?? "—",
           ]),
         ),
         "",
       );
     }
-    if (relations.length > 0) {
+    if (entity.relations.length > 0) {
       lines.push(
         table(
           ["From field", "To entity", "To field", "Kind"],
-          relations.map((relation) => [
+          entity.relations.map((relation) => [
             relation.fromField ?? "—",
             relation.toEntity,
             relation.toField ?? "—",
@@ -203,11 +192,11 @@ function dataModelSection(records: DataModelRecords): string {
         "",
       );
     }
-    if (constraints.length > 0) {
+    if (entity.constraints.length > 0) {
       lines.push(
         table(
           ["Constraint", "Fields", "Expression"],
-          constraints.map((constraint) => [
+          entity.constraints.map((constraint) => [
             constraint.kind,
             constraint.fields.join(", ") || "—",
             constraint.expression ?? "—",
@@ -344,11 +333,11 @@ export function renderOverviewPage(model: ReportModel): string {
 /** The whole bundle: one overview and one page per feature. */
 export function renderMarkdownReport(
   model: ReportModel,
-  records: DataModelRecords,
+  entities: readonly SpecEntity[],
 ): readonly MarkdownPage[] {
   return [
     { filename: "overview.md", markdown: renderOverviewPage(model) },
-    { filename: "data-model.md", markdown: `# Data model\n\n${dataModelSection(records)}` },
+    { filename: "data-model.md", markdown: `# Data model\n\n${dataModelSection(entities)}` },
     ...model.features.map((feature) => ({
       filename: `modules/${featureSlug(feature)}.md`,
       markdown: renderFeaturePage(feature),

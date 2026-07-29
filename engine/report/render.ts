@@ -15,14 +15,6 @@ import { renderMarkdownReport } from "./markdown.js";
 import { modelFromSpec } from "./spec.js";
 import type { ReportSpec } from "./json.js";
 import type { ReportModel } from "./model.js";
-import type { DataModelRecords } from "../datamodel/types.js";
-
-export const EMPTY_DATA_MODEL: DataModelRecords = {
-  entities: [],
-  fields: [],
-  relations: [],
-  constraints: [],
-};
 
 /**
  * Writes every human- and agent-facing format from one specification.
@@ -30,11 +22,7 @@ export const EMPTY_DATA_MODEL: DataModelRecords = {
  * Exported so a published report can be re-rendered later: the spec on disk is
  * all this needs.
  */
-export function writeRenderings(
-  spec: ReportSpec,
-  dataModel: DataModelRecords,
-  outputDir: string,
-): readonly string[] {
+export function writeRenderings(spec: ReportSpec, outputDir: string): readonly string[] {
   mkdirSync(outputDir, { recursive: true });
   const rendererCopied = copyReportAssets(outputDir);
 
@@ -55,7 +43,7 @@ export function writeRenderings(
       };
   const written: string[] = [];
 
-  for (const page of renderMarkdownReport(model, dataModel)) {
+  for (const page of renderMarkdownReport(model, spec.dataModel.entities)) {
     const path = join(outputDir, page.filename);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, page.markdown, "utf8");
