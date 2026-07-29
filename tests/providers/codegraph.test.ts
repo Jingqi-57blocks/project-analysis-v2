@@ -12,6 +12,7 @@ import {
 } from "../../engine/providers/codegraph/normalize.js";
 import { calleeKey, codegraphCapabilities, PROVIDER_ID } from "../../engine/providers/codegraph/provider.js";
 import { capabilityFor, ANY_LANGUAGE, declaredKinds } from "../../engine/structural/provider.js";
+import { createSourceFileProvider } from "../../engine/providers/sourcefiles/provider.js";
 import type { CodeGraphNode } from "../../engine/providers/codegraph/cli.js";
 
 function node(overrides: Partial<CodeGraphNode> = {}): CodeGraphNode {
@@ -176,13 +177,9 @@ describe("declared capabilities", () => {
   });
 
   it("claims the kinds it actually normalizes", () => {
-    expect(declaredKinds(capabilities)).toEqual([
-      "call-edge",
-      "import",
-      "route",
-      "source-file",
-      "symbol",
-    ]);
+    // No source-file: the inventory visited every file already, and two
+    // readers of one fact can only disagree.
+    expect(declaredKinds(capabilities)).toEqual(["call-edge", "import", "route", "symbol"]);
   });
 
   it("bounds the node query and says so", () => {
@@ -255,5 +252,25 @@ describe("the callee join", () => {
 
   it("leaves a path that does not carry the prefix alone", () => {
     expect(calleeKey("main.go", "Helper", "svc/")).toBe("main.go::Helper");
+  });
+});
+
+describe("source files from the inventory", () => {
+  it("records one per analyzed file, with the language the extension states", () => {
+    const contribution = createSourceFileProvider().extract({
+      name: "svc",
+      path: "/w/svc",
+      analyzedFiles: ["main.go", "app/handler.ts", "README.md", "Makefile"],
+    });
+
+    expect(
+      contribution.records["source-file"].map((file) => [file.relPath, file.language]),
+    ).toEqual([
+      ["main.go", "go"],
+      ["app/handler.ts", "typescript"],
+      ["README.md", "markdown"],
+      // No extension states a language, so none is recorded rather than guessed.
+      ["Makefile", null],
+    ]);
   });
 });
