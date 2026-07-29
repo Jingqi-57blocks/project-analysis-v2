@@ -159,7 +159,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     const codeIndexPath =
       options.readers === undefined
         ? codeIndexLocation(roots.map((root) => root.path), indexOptions)
-        : null;
+        : undefined;
     // Only the structural readers preflight: they are the ones that can be
     // missing at runtime, because some of them shell out to a tool the user
     // may not have installed. The schema readers and collectors are in-process
@@ -272,7 +272,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       workspacePath: selection.workspacePath,
       roots: rootResults,
       providerReport,
-      codeIndexPath,
+      codeIndexPath: codeIndexPath ?? null,
     };
   } catch (error) {
     // A failed run's phase timings are still worth having — they show where
