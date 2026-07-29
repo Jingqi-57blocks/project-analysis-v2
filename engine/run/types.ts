@@ -17,6 +17,9 @@ export interface AnalyzeOptions {
    * declared as a gap rather than silently absent.
    */
   readonly readers?: ReaderSet;
+  /** Where the code index may be written, or that it may not be written at all. */
+  readonly indexRoot?: string;
+  readonly noCodeIndex?: boolean;
   /** Preflighted providers. Defaults to the readers above. */
   readonly providers?: readonly Provider[];
   /** Overrides the generated run id. For tests and for resuming a named run. */
@@ -42,6 +45,8 @@ export interface AnalysisResult {
   readonly workspacePath: string;
   readonly roots: readonly AnalyzedRootResult[];
   readonly providerReport: PreflightReport;
+  /** Where this run wrote a code index, or null if it wrote none. */
+  readonly codeIndexPath: string | null;
 }
 
 /** One phase's cost. `items`/`bytes` are omitted, never forced, when a phase has no natural volume. */

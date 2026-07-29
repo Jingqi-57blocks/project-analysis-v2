@@ -8,7 +8,7 @@ import { beginSnapshot, publishOrRefuse, type SnapshotHandle } from "../snapshot
 import { walkRoot } from "../inventory/walk.js";
 import { recordInventory } from "../inventory/persist.js";
 import { runPreflight, requireAvailable, recordPreflight } from "../providers/index.js";
-import { defaultReaders } from "../kb/build.js";
+import { codeIndexLocation, defaultReaders } from "../kb/build.js";
 import { extractRoot, type RootFacts } from "../kb/extract.js";
 import { derive } from "../kb/derive.js";
 import { recordDerived } from "../kb/persist.js";
@@ -151,7 +151,15 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       }),
     );
 
-    const readers = options.readers ?? defaultReaders(roots.map((root) => root.path));
+    const indexOptions = {
+      ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
+      ...(options.noCodeIndex === true ? { noCodeIndex: true } : {}),
+    };
+    const readers = options.readers ?? defaultReaders(roots.map((root) => root.path), indexOptions);
+    const codeIndexPath =
+      options.readers === undefined
+        ? codeIndexLocation(roots.map((root) => root.path), indexOptions)
+        : null;
     // Only the structural readers preflight: they are the ones that can be
     // missing at runtime, because some of them shell out to a tool the user
     // may not have installed. The schema readers and collectors are in-process
@@ -203,6 +211,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
           runId: handle!.runId,
           generatedAt: now,
           workspacePath: selection.workspacePath,
+          codeIndexPath,
         }),
       (result) => ({ items: countDerived(result.records) }),
     );
@@ -263,6 +272,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       workspacePath: selection.workspacePath,
       roots: rootResults,
       providerReport,
+      codeIndexPath,
     };
   } catch (error) {
     // A failed run's phase timings are still worth having — they show where
