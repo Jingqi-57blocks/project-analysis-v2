@@ -100,7 +100,7 @@ const ENTITY_WEIGHT = 3;
 const MINIMUM_WEIGHT = 8;
 
 /** Roughly singular, enough to make `leaves` and `leave` the same term. */
-function singular(word: string): string {
+export function singular(word: string): string {
   if (word.endsWith("ies") && word.length > 4) return `${word.slice(0, -3)}y`;
   if (word.endsWith("ses") || word.endsWith("xes") || word.endsWith("hes")) return word.slice(0, -2);
   if (word.endsWith("s") && !word.endsWith("ss") && word.length > 3) return word.slice(0, -1);

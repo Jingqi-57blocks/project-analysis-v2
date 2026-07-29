@@ -312,6 +312,32 @@ describe("what must never merge modules", () => {
     expect(withoutResource).toEqual(["svc:GET /api/v1"]);
   });
 
+  it("does not make two modules of one resource spelled two ways", () => {
+    // One service writes `/project/:id`, another `/projects`. Left alone that
+    // was two seventeen-endpoint modules describing the same thing.
+    const make = (path: string): Trace => ({
+      entryKey: `svc:GET ${path}`,
+      entryRoot: "svc",
+      entryMethod: "GET",
+      entryPath: path,
+      steps: [],
+      truncation: "completed",
+      truncationDetail: null,
+      partial: false,
+    });
+
+    const { modules } = formModules([
+      make("/projects"),
+      make("/projects/:id"),
+      make("/project/:id/members"),
+    ]);
+
+    expect(modules).toHaveLength(1);
+    // Named for the spelling most of its entry points use.
+    expect(modules[0]!.name).toBe("projects");
+    expect(modules[0]!.entryKeys).toHaveLength(3);
+  });
+
   it("gives a module a stable id that survives a path change", () => {
     // An entry-point path as an id would mint a new module the day /orders
     // became /v2/orders, for a feature nobody changed.

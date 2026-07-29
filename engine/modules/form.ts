@@ -14,6 +14,7 @@ import type { ModuleContainmentRecord, PackageDependencyRecord } from "../struct
 import type { SymbolRecord } from "../structural/code.js";
 import type { SymbolId } from "../structural/identity.js";
 import type { RouteRecord } from "../structural/boundaries.js";
+import { singular } from "./features.js";
 import type { Trace } from "./trace.js";
 
 /**
@@ -194,6 +195,15 @@ function anchorOf(trace: Trace, skip: number): string | null {
   return candidates.find(namesAResource) ?? null;
 }
 
+/** The spelling most of the entry points actually use, ties broken by name. */
+function commonest(spellings: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const spelling of spellings) counts.set(spelling, (counts.get(spelling) ?? 0) + 1);
+  return [...counts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  )[0]![0];
+}
+
 /**
  * Groups traces that share a behavioural signal.
  *
@@ -203,7 +213,7 @@ function anchorOf(trace: Trace, skip: number): string | null {
  * merging into one module.
  */
 export function formModules(traces: readonly Trace[]): ModuleFormation {
-  const groups = new Map<string, Trace[]>();
+  const groups = new Map<string, { spellings: string[]; traces: Trace[] }>();
   const withoutResource: string[] = [];
   const skip = sharedPrefixLength(traces);
 
@@ -213,13 +223,19 @@ export function formModules(traces: readonly Trace[]): ModuleFormation {
       withoutResource.push(trace.entryKey);
       continue;
     }
-    const existing = groups.get(anchor) ?? [];
-    existing.push(trace);
-    groups.set(anchor, existing);
+    // One service writes `/project/:id`, another `/projects` — the same
+    // resource, and two modules of seventeen endpoints each unless the
+    // spelling is set aside for grouping.
+    const key = singular(anchor.toLowerCase());
+    const existing = groups.get(key) ?? { spellings: [], traces: [] };
+    existing.spellings.push(anchor);
+    existing.traces.push(trace);
+    groups.set(key, existing);
   }
 
-  const modules = [...groups.entries()]
-    .map(([anchor, grouped]) => {
+  const modules = [...groups.values()]
+    .map(({ spellings, traces: grouped }) => {
+      const anchor = commonest(spellings);
       const entryKeys = grouped.map((trace) => trace.entryKey).sort();
       const symbolIds = [
         ...new Set(
