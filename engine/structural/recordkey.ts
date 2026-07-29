@@ -79,7 +79,14 @@ const KEY_BUILDERS: {
   // Go struct that maps it are three declarations of one table, and keying
   // them by file would store three tables and lose the agreement — which is
   // the whole reason the data model was moved into this model.
-  entity: (r) => joinKey([r.rootName, r.qualifier, r.name]),
+  // Without the qualifier, which only one of the three readers can supply. A
+  // table is one table whether the reader that found it knew its schema, and
+  // keying on a field two of them always leave null stored it twice — one row
+  // per reader, the duplication this move was meant to end. The qualifier
+  // merges as an ordinary field, so a disagreement is retained as a conflict.
+  // Two same-named tables in different schemas do share a record; the fields
+  // keep their own provenance, so which declaration each came from survives.
+  entity: (r) => joinKey([r.rootName, r.name]),
   "entity-field": (r) => joinKey([r.rootName, r.entityName, r.name]),
   // Direction and kind included: `orders.user_id → users.id` as a declared
   // foreign key and as an inferred one are the same relation, but a

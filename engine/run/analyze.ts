@@ -49,7 +49,15 @@ function isInside(child: string, parent: string): boolean {
  * output file rather than the mistake they actually made.
  */
 function assertSafeDatabasePath(dbPath: string, roots: readonly { name: string; path: string }[]): void {
-  const resolved = resolve(dbPath);
+  assertOutsideRoots(dbPath, roots);
+}
+
+/** The same refusal for anything else a command writes near analyzed source. */
+export function assertOutsideRoots(
+  outputPath: string,
+  roots: readonly { name: string; path: string }[],
+): void {
+  const resolved = resolve(outputPath);
   for (const root of roots) {
     if (isInside(resolved, resolve(root.path))) {
       throw new UnsafeDatabaseLocationError(resolved, root.name);
@@ -218,6 +226,14 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
             );
           }
           recordEvidence(store, handle!.snapshotId, rootId, facts.evidence);
+
+          for (const failure of facts.vocabularyFailures) {
+            store.run(
+              `INSERT INTO extraction_failures (snapshot_id, source_root_id, provider_id, scope, reason)
+               VALUES (?, ?, 'value-sets', ?, ?)`,
+              [handle!.snapshotId, rootId, failure.scope, failure.reason],
+            );
+          }
         }
         written += recordDerived(
           store,

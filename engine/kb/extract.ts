@@ -17,7 +17,11 @@ import { join } from "node:path";
 
 import { assemble, extractAll, type AssembledModel } from "../structural/assemble.js";
 import { consolidateRoutes } from "../structural/routededupe.js";
-import type { StructuralContribution, StructuralProvider } from "../structural/provider.js";
+import type {
+  ExtractionFailure,
+  StructuralContribution,
+  StructuralProvider,
+} from "../structural/provider.js";
 import { assembleEvidence, collectAll, type AssembledEvidenceSet } from "../semantic/assemble.js";
 import type { SemanticCollector } from "../semantic/types.js";
 import { toStructuralContribution, toStructuralCapabilities } from "../datamodel/persist.js";
@@ -38,6 +42,8 @@ export interface RootFacts {
   }[];
   readonly evidence: AssembledEvidenceSet;
   readonly valueSets: readonly ValueSet[];
+  /** Files whose vocabulary could not be read, so the absence is accounted for. */
+  readonly vocabularyFailures: readonly ExtractionFailure[];
   readonly summary: RootSummaryFact;
   readonly analyzedFiles: readonly string[];
   /**
@@ -94,12 +100,15 @@ export function extractRoot(input: ExtractRootInput): RootFacts {
     ),
   );
 
+  const vocabulary = readValueSets(input.name, input.path, input.analyzedFiles);
+
   return {
     rootName: input.name,
     model,
     contributions,
     evidence: assembleEvidence(input.name, collectAll(input.collectors, rootInput)),
-    valueSets: readValueSets(input.name, input.path, input.analyzedFiles),
+    valueSets: vocabulary.sets,
+    vocabularyFailures: vocabulary.failures,
     summary: {
       name: input.name,
       language: null,
@@ -122,18 +131,22 @@ function readValueSets(
   rootName: string,
   rootPath: string,
   analyzedFiles: readonly string[],
-): readonly ValueSet[] {
+): { sets: readonly ValueSet[]; failures: readonly ExtractionFailure[] } {
   const sets: ValueSet[] = [];
+  const failures: ExtractionFailure[] = [];
   for (const relPath of analyzedFiles) {
     try {
       sets.push(...valueSetsIn(rootName, relPath, readFileSync(join(rootPath, relPath), "utf8")));
-    } catch {
-      // A file that cannot be read contributes no names. The rules that would
-      // have used them stay unexplained, which is visible in the report rather
-      // than silently filled in.
+    } catch (error) {
+      // Recorded, not swallowed: a run where every read threw would otherwise
+      // report a project that names none of its own values.
+      failures.push({
+        scope: relPath,
+        reason: error instanceof Error ? error.message : String(error),
+      });
     }
   }
-  return sets;
+  return { sets, failures };
 }
 
 /** Records of one kind from an assembled model, already merged. */

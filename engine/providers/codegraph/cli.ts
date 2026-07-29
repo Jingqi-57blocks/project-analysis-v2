@@ -167,7 +167,11 @@ export function withIndexLock<T>(rootPath: string, work: () => T): T {
     try {
       mkdirSync(lockPath);
       break;
-    } catch {
+    } catch (error) {
+      // Only an existing lock means someone else is working. A missing parent
+      // or a read-only filesystem would otherwise spin for three minutes and
+      // then blame a lock that was never there.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       if (lockAge(lockPath) > LOCK_STALE_MS) {
         rmSync(lockPath, { recursive: true, force: true });
         continue;

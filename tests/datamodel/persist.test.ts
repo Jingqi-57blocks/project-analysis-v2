@@ -214,3 +214,30 @@ describe("what a reader could not read", () => {
     ).toBe(1);
   });
 });
+
+describe("table identity", () => {
+  it("records one table when one reader knows its schema and another does not", () => {
+    // Only the SQL reader can supply a qualifier; the ORM and Go readers
+    // always leave it null. Keying on it stored the same table twice — one
+    // row per reader, which is the duplication this move exists to end.
+    const withQualifier = withLeaves("sql-schema", "001_init.sql");
+    recordDataModel(store, snapshotId, rootId, {
+      ...withQualifier,
+      records: {
+        ...withQualifier.records,
+        entities: withQualifier.records.entities.map((entity) => ({
+          ...entity,
+          qualifier: "public",
+        })),
+      },
+    });
+    recordDataModel(store, snapshotId, rootId, withLeaves("go-model", "model/leave.go"));
+
+    const entities = readRecords(store, snapshotId, "entity");
+    expect(entities).toHaveLength(1);
+    expect(entities[0]!.attributions.map((a) => a.providerId).sort()).toEqual([
+      "go-model",
+      "sql-schema",
+    ]);
+  });
+});

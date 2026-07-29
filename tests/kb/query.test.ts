@@ -6,7 +6,12 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { runAnalyze } from "../../engine/run/analyze.js";
 import { openStore } from "../../engine/store/open.js";
 import type { Store } from "../../engine/store/types.js";
-import { openKnowledgeBase, SnapshotNotFoundError, type KnowledgeBase } from "../../engine/kb/query.js";
+import {
+  AmbiguousWorkspaceError,
+  openKnowledgeBase,
+  SnapshotNotFoundError,
+  type KnowledgeBase,
+} from "../../engine/kb/query.js";
 import { buildExport } from "../../engine/kb/export.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
@@ -167,9 +172,26 @@ describe("asking the knowledge base questions", () => {
 });
 
 describe("the export", () => {
-  it("is byte-identical across two exports of one run", () => {
-    // A diff between two exports has to mean the code changed.
-    expect(JSON.stringify(buildExport(kb))).toBe(JSON.stringify(buildExport(kb)));
+  it("is byte-identical across two runs over unchanged source", () => {
+    // Exporting one snapshot twice only proves the key order is stable. The
+    // property that matters is that a second analysis of unchanged code
+    // produces the same document, so a diff means the code changed.
+    const secondDb = join(workDir, "second.sqlite");
+    runAnalyze({ paths: [join(workDir, "svc")], dbPath: secondDb, readers: READERS });
+    const second = openStore(secondDb);
+    try {
+      // Only the two fields that are meant to differ. Feature and module ids
+      // are derived from content and must match, so they stay in.
+      const drop = (json: string): string =>
+        json
+          .replaceAll(/"run-\d{8}T\d{6}Z-[0-9a-f]+"/g, '"run"')
+          .replaceAll(/"generatedAt":\s*"[^"]*"/g, '"generatedAt":""');
+      expect(drop(JSON.stringify(buildExport(openKnowledgeBase(second))))).toBe(
+        drop(JSON.stringify(buildExport(kb))),
+      );
+    } finally {
+      second.close();
+    }
   });
 
   it("carries the run identity, so a claim can be traced to an analysis", () => {
@@ -188,5 +210,28 @@ describe("the export", () => {
     // read of the store and nothing else.
     const exported = buildExport(kb) as { project: { name: string | null } };
     expect(exported.project.name).toBe("svc");
+  });
+});
+
+describe("more than one project in one file", () => {
+  it("refuses to guess which workspace was meant", () => {
+    // Answering about the wrong project looks exactly like answering about
+    // the right one.
+    const shared = join(workDir, "shared.sqlite");
+    runAnalyze({ paths: [join(workDir, "svc")], dbPath: shared, readers: READERS });
+
+    const other = join(workDir, "other");
+    mkdirSync(other, { recursive: true });
+    writeFileSync(join(other, "index.ts"), "export const a = 1;\n");
+    runAnalyze({ paths: [other], dbPath: shared, readers: READERS });
+
+    const store2 = openStore(shared);
+    try {
+      expect(() => openKnowledgeBase(store2)).toThrow(AmbiguousWorkspaceError);
+      // Named, it answers about the one asked for.
+      expect(openKnowledgeBase(store2, undefined, other).snapshot.workspacePath).toBe(other);
+    } finally {
+      store2.close();
+    }
   });
 });

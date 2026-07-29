@@ -97,27 +97,46 @@ export function buildExport(kb: KnowledgeBase): unknown {
         filesExcluded: root.excluded,
       })),
       map: {
-        edges: kb.mapEdges().map((edge) => ({
-          from: edge.from,
-          to: edge.to,
-          kind: edge.kind,
-          detail: edge.detail,
-        })),
+        edges: kb
+          .mapEdges()
+          .map((edge) => ({
+            from: edge.from,
+            to: edge.to,
+            kind: edge.kind,
+            detail: edge.detail,
+          }))
+          .sort(
+            (a, b) =>
+              a.from.localeCompare(b.from) ||
+              a.to.localeCompare(b.to) ||
+              a.kind.localeCompare(b.kind),
+          ),
         diagram: context?.mapDiagram ?? "",
       },
-      integrations: kb.integrations().map((edge) => ({
-        from: edge.from,
-        to: edge.to,
-        detail: edge.detail,
-      })),
+      integrations: kb
+        .integrations()
+        .map((edge) => ({ from: edge.from, to: edge.to, detail: edge.detail }))
+        .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to)),
     },
-    screens: kb.screens().map((screen) => ({
-      service: screen.rootName,
-      path: screen.path,
-      // False when the screen sits under a parent declared in another file: a
-      // real path fragment, not the address a user visits.
-      pathComplete: screen.provenance.resolutionClass !== "inferred",
-    })),
+    screens: {
+      // Client routes and endpoints are the same kind of record, so their
+      // coverage is the same answer: an empty list here means nobody read
+      // routes at all, not that the product has no screens.
+      coverage: kb.coverageFor("route"),
+      items: kb
+        .screens()
+        .map((screen) => ({
+          service: screen.rootName,
+          path: screen.path,
+          // False when the screen sits under a parent declared in another
+          // file: a real path fragment, not the address a user visits.
+          pathComplete: screen.provenance.resolutionClass !== "inferred",
+        }))
+        .sort((a, b) => a.service.localeCompare(b.service) || a.path.localeCompare(b.path)),
+    },
+    // Capabilities are worked out from routes and entities. With neither read,
+    // "no capabilities" describes the run rather than the product.
+    featureCoverage: { routes: kb.coverageFor("route"), entities: kb.coverageFor("entity") },
     features: features.map((feature) => {
       const detail = kb.featureDetail(feature.id);
       return {
@@ -183,6 +202,8 @@ export function buildExport(kb: KnowledgeBase): unknown {
         })),
       };
     }),
+    // Modules are grouped from traces, which need the call graph.
+    moduleCoverage: kb.coverageFor("call-edge"),
     modules: kb.modules().map((module) => ({
       id: module.id,
       name: module.name,
@@ -210,12 +231,18 @@ export function buildExport(kb: KnowledgeBase): unknown {
       // without this.
       coverage: kb.coverageFor("entity"),
     },
-    vocabulary: kb.valueSets().map((set) => ({
-      name: set.name,
-      service: set.rootName,
-      location: `${set.rootName}/${set.relPath}:${set.startLine}`,
-      members: set.members,
-    })),
+    vocabulary: {
+      // Value sets are read from files directly rather than by a provider, so
+      // the honest coverage answer is how many files could not be read.
+      unreadFiles: kb.extractionFailures().filter((failure) => failure.providerId === "value-sets")
+        .length,
+      sets: kb.valueSets().map((set) => ({
+        name: set.name,
+        service: set.rootName,
+        location: `${set.rootName}/${set.relPath}:${set.startLine}`,
+        members: set.members,
+      })),
+    },
     health: {
       structural: kb.structuralFindings().map((finding) => ({
         id: finding.id,

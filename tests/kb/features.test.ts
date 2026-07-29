@@ -186,3 +186,37 @@ describe("which rules are worth publishing", () => {
     expect(facts.features[0]!.conditionCount).toBe(0);
   });
 });
+
+describe("evidence that matches what is published", () => {
+  it("counts the endpoints the capability kept, not the ones its term matched", () => {
+    // Detection counts every route carrying the term; ownership then gives a
+    // contested route to one capability only. The two numbers were published
+    // side by side — "2 endpoints" above a list of one.
+    const application = feature({
+      id: "feat_application",
+      term: "application",
+      name: "Application",
+      routes: [route("/v2/leaves"), route("/v2/applications")],
+      signals: ["1 entity", "2 endpoints"],
+    });
+
+    const facts = buildFeatureFacts([application], [flow()]);
+    const published = facts.features[0]!;
+    expect(published.endpoints).toHaveLength(1);
+    expect(published.signals).toContain("1 endpoints");
+    expect(published.signals).not.toContain("2 endpoints");
+  });
+
+  it("drops the endpoint evidence entirely when the capability kept none", () => {
+    const application = feature({
+      id: "feat_application",
+      term: "application",
+      name: "Application",
+      routes: [route("/v2/leaves")],
+      signals: ["1 entity", "1 endpoints", "3 files"],
+    });
+
+    const facts = buildFeatureFacts([application], [flow()]);
+    expect(facts.features[0]!.signals).toEqual(["1 entity", "3 files"]);
+  });
+});

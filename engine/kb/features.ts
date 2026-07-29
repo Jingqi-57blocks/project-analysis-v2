@@ -49,6 +49,19 @@ export interface FeatureFacts {
   readonly rulesByFeature: ReadonlyMap<string, readonly BusinessRule[]>;
 }
 
+/**
+ * Restates the endpoint count over the endpoints the capability kept.
+ *
+ * Detection counts every route whose path carries the term; ownership then
+ * gives a contested route to one capability only. Publishing the first number
+ * beside the second list says "27 endpoints" above nineteen of them.
+ */
+function restateEndpointCount(signals: readonly string[], owned: number): readonly string[] {
+  return signals
+    .map((signal) => (/^\d+ endpoints?$/.test(signal) ? `${owned} endpoints` : signal))
+    .filter((signal) => signal !== "0 endpoints");
+}
+
 /** The field a rule is about, as one word — the same key the detectors use. */
 function fieldWord(subject: string): string {
   const last = subject.split(".").pop() ?? subject;
@@ -131,22 +144,24 @@ export function buildFeatureFacts(
       flowFacts.push({ ...flow, diagram: flowToMermaid(flow) });
     }
 
+    const endpoints = feature.routes
+      .filter((route) => {
+        const key = `${route.rootName}:${route.method ?? "ANY"} ${route.path}`;
+        const owned = owner.get(key);
+        // An endpoint no flow claimed keeps its term match: it is still this
+        // feature's best home, and dropping it would lose it entirely.
+        return owned === undefined || owned === feature.id;
+      })
+      .map((route) => ({ method: route.method, path: route.path, rootName: route.rootName }));
+
     return {
       id: feature.id,
       name: feature.name,
       term: feature.term,
       weight: feature.weight,
       rootNames: feature.rootNames,
-      signals: feature.signals,
-      endpoints: feature.routes
-        .filter((route) => {
-          const key = `${route.rootName}:${route.method ?? "ANY"} ${route.path}`;
-          const owned = owner.get(key);
-          // An endpoint no flow claimed keeps its term match: it is still
-          // this feature's best home, and dropping it would lose it entirely.
-          return owned === undefined || owned === feature.id;
-        })
-        .map((route) => ({ method: route.method, path: route.path, rootName: route.rootName })),
+      signals: restateEndpointCount(feature.signals, endpoints.length),
+      endpoints,
       dataEntities: feature.entities,
       tables: [...tables].sort(),
       filePaths: feature.filePaths,

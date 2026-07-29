@@ -10,7 +10,7 @@ import {
   toRoute,
   toSymbol,
 } from "../../engine/providers/codegraph/normalize.js";
-import { codegraphCapabilities, PROVIDER_ID } from "../../engine/providers/codegraph/provider.js";
+import { calleeKey, codegraphCapabilities, PROVIDER_ID } from "../../engine/providers/codegraph/provider.js";
 import { capabilityFor, ANY_LANGUAGE, declaredKinds } from "../../engine/structural/provider.js";
 import type { CodeGraphNode } from "../../engine/providers/codegraph/cli.js";
 
@@ -240,5 +240,20 @@ describe("callee resolution", () => {
 
     expect(edge.provenance.source.startLine).toBeNull();
     expect(edge.provenance.source.relPath).toBe("util.go");
+  });
+});
+
+describe("the callee join", () => {
+  it("keys a relation from the index root the same way as a scoped symbol", () => {
+    // Symbols are stripped to their own root; callee relations come back
+    // relative to the directory holding every root. Keyed as they arrive,
+    // the two sides never meet and every call edge resolves to null.
+    expect(calleeKey("svc/main.go", "Helper", "svc/")).toBe(
+      calleeKey("main.go", "Helper"),
+    );
+  });
+
+  it("leaves a path that does not carry the prefix alone", () => {
+    expect(calleeKey("main.go", "Helper", "svc/")).toBe("main.go::Helper");
   });
 });

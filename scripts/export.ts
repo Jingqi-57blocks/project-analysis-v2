@@ -1,7 +1,7 @@
 /**
  * Writes a knowledge base out as one JSON document.
  *
- *   pnpm run export -- [--db path] [--run id] [--out path]
+ *   pnpm run export -- [--db path] [--run id] [--workspace path] [--out path]
  *
  * Reads a stored analysis; it never opens the project. A knowledge base can be
  * exported on a machine that does not have the source at all, and the same run
@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { openStore } from "../engine/store/open.js";
 import { openKnowledgeBase } from "../engine/kb/query.js";
 import { renderExport } from "../engine/kb/export.js";
+import { assertOutsideRoots } from "../engine/run/analyze.js";
 
 const DEFAULT_DB_PATH = "./.analysis/kb.sqlite";
 
@@ -29,12 +30,20 @@ function main(argv: readonly string[]): number {
 
   const store = openStore(dbPath);
   try {
-    const kb = openKnowledgeBase(store, runId);
+    const kb = openKnowledgeBase(store, runId, value("--workspace"));
     // Named after the run rather than overwritten. Two runs of a changing
     // codebase are two answers, and losing the first loses the comparison that
     // made the second worth doing.
     const outPath = resolve(
       value("--out") ?? `./.analysis/export/${kb.snapshot.runId ?? kb.snapshot.id}.json`,
+    );
+    // Writing into an analyzed root would surface as drift on the next run.
+    assertOutsideRoots(
+      outPath,
+      store.all<{ name: string; path: string }>(
+        "SELECT name, path FROM source_roots WHERE snapshot_id = ?",
+        [kb.snapshot.id],
+      ),
     );
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, renderExport(kb), "utf8");
