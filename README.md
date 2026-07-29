@@ -29,6 +29,8 @@ scripts/    development tooling
 
 ```bash
 pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowledge base
+                     [--index-root dir]          #   put the code index elsewhere
+                     [--no-code-index]           #   or skip it entirely
 pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
 pnpm run export  -- [--db kb.sqlite] [--run id]  # the knowledge base as one JSON document
 
@@ -37,9 +39,14 @@ pnpm run render -- prepare module --param module=<id>
 pnpm run render -- assemble <runDir> [--html]
 ```
 
-`analyze` is the only command that touches the project, and it only reads:
-analyzed source is never written to, and the code index one of the readers
-builds is written beside the roots rather than inside any of them.
+`analyze` is the only command that touches the project, and it reads
+everything except one thing: the code indexer writes a cache into the
+directory it is pointed at, and offers no way to relocate it. Every run prints
+that path before writing, and records it in the knowledge base so the reports
+say so too. `--index-root` moves it, at the cost of indexing only what is
+under the directory you name; `--no-code-index` skips it and declares the
+missing symbols as a gap. Removing this exception entirely is
+[57B-225](https://linear.app/57blocks-prd/issue/57B-225).
 
 Everything after that reads the knowledge base. `export` produces the same
 bytes for the same run and needs no access to the source at all.

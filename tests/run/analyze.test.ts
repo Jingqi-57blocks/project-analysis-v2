@@ -355,3 +355,61 @@ describe("runAnalyze — drift between capture and publish", () => {
     }
   });
 });
+
+describe("where the code index goes", () => {
+  it("says where it will write one, so nobody has to find it afterwards", () => {
+    const result = runAnalyze({ paths: [alphaPath], dbPath, readers: NO_READERS });
+    // With readers pinned there is no indexer, and the run says so rather
+    // than leaving the question open.
+    expect(result.codeIndexPath).toBeNull();
+  });
+
+  it("writes none when told not to, and records that as a gap", { timeout: 600_000 }, () => {
+    const result = runAnalyze({ paths: [alphaPath], dbPath, noCodeIndex: true });
+    expect(result.codeIndexPath).toBeNull();
+
+    const store = openResultStore();
+    try {
+      const notes = store.all<{ payload: string }>(
+        "SELECT payload FROM derived_records WHERE snapshot_id = ? AND kind = 'coverage-note'",
+        [result.snapshotId],
+      );
+      // Refusing the write is supported, and what it costs is stated: on a
+      // project whose frameworks the in-process readers do not cover, it is
+      // the difference between a described system and an empty one.
+      const note = notes
+        .map((row) => JSON.parse(row.payload) as { subject: string; note: string })
+        .find((entry) => entry.subject === "code-index");
+      expect(note?.note).toContain("no code index was built");
+    } finally {
+      store.close();
+    }
+  });
+
+  it("puts the index exactly where it was told, not one directory above", { timeout: 600_000 }, () => {
+    const elsewhere = join(workDir, "index-here");
+    mkdirSync(elsewhere, { recursive: true });
+    const result = runAnalyze({ paths: [alphaPath], dbPath, indexRoot: elsewhere });
+    expect(result.codeIndexPath).toBe(elsewhere);
+  });
+
+  it("records the location in the knowledge base, not only in the terminal", { timeout: 600_000 }, () => {
+    // A limitation visible only to whoever ran the command is one nobody
+    // reading the report ever sees.
+    const result = runAnalyze({ paths: [alphaPath], dbPath });
+
+    const store = openResultStore();
+    try {
+      const notes = store
+        .all<{ payload: string }>(
+          "SELECT payload FROM derived_records WHERE snapshot_id = ? AND kind = 'coverage-note'",
+          [result.snapshotId],
+        )
+        .map((note) => JSON.parse(note.payload) as { subject: string; note: string });
+      const written = notes.find((note) => note.subject === "code-index");
+      expect(written?.note).toContain(result.codeIndexPath!);
+    } finally {
+      store.close();
+    }
+  });
+});

@@ -28,11 +28,9 @@ import {
   calleesOf,
   codegraphVersion,
   ensureIndexed,
-  listFiles,
   queryNodes,
   sharedIndexRoot,
   withIndexLock,
-  type CodeGraphFile,
   type CodeGraphNode,
   type CodeGraphRelation,
 } from "./cli.js";
@@ -42,7 +40,6 @@ import {
   toCallEdge,
   toImport,
   toRoute,
-  toSourceFile,
   toSymbol,
 } from "./normalize.js";
 
@@ -60,6 +57,13 @@ export interface CodeGraphOptions {
   readonly roots?: readonly string[];
 
   /**
+   * Index here, exactly. Named by a caller who has chosen where the cache may
+   * be written, so it is used as given rather than run through the
+   * common-ancestor rule — which would put it one directory higher than asked.
+   */
+  readonly indexRoot?: string;
+
+  /**
    * Whether to query callees per symbol.
    *
    * That loop is one subprocess per callable symbol and dominates extraction —
@@ -69,6 +73,17 @@ export interface CodeGraphOptions {
    * for a codebase without calls.
    */
   readonly callEdges?: boolean;
+
+  /**
+   * Leave symbols in files another reader already parsed.
+   *
+   * Two providers describing one function under different identities is not a
+   * merge — the ids differ, so both records survive, and the linking stage
+   * then sees two symbols of one name and refuses the match as ambiguous.
+   * Measured on WCP-V2: handler resolution fell from 438 to 38. Partitioning
+   * by file is what lets both readers contribute without competing.
+   */
+  readonly skipSymbolsIn?: (relPath: string) => boolean;
 }
 
 /** Symbol kinds worth asking for callees. Querying every constant would multiply cost for no edges. */
@@ -87,7 +102,8 @@ export function codegraphCapabilities(options: CodeGraphOptions = {}): ProviderC
 
   return {
     declarations: [
-      { kind: "source-file", language: ANY_LANGUAGE, support: "full", limits: [] },
+      // Supplied by the inventory, which visited every file already.
+      { kind: "source-file", language: ANY_LANGUAGE, support: "none", limits: [] },
       {
         kind: "symbol",
         language: ANY_LANGUAGE,
@@ -179,6 +195,12 @@ function standingGaps(): readonly CapabilityGap[] {
       language: ANY_LANGUAGE,
       reason: "supplied by the outbound-call detector, not by this provider",
     },
+    {
+      kind: "source-file",
+      language: ANY_LANGUAGE,
+      reason:
+        "supplied by the inventory, which visited every file and knows why any was skipped",
+    },
   ];
 }
 
@@ -216,7 +238,6 @@ interface Extraction {
 interface SharedIndex {
   readonly parent: string;
   readonly nodes: readonly CodeGraphNode[];
-  readonly files: readonly CodeGraphFile[];
   /** True when the query came back full, so there were probably more nodes. */
   readonly truncated: boolean;
 }
@@ -241,11 +262,6 @@ function scopeNodes(nodes: readonly CodeGraphNode[], prefix: string): readonly C
     .map((node) => ({ ...node, filePath: node.filePath.slice(prefix.length) }));
 }
 
-function scopeFiles(files: readonly CodeGraphFile[], prefix: string): readonly CodeGraphFile[] {
-  return files
-    .filter((file) => file.path.startsWith(prefix))
-    .map((file) => ({ ...file, path: file.path.slice(prefix.length) }));
-}
 
 function extractFrom(
   root: StructuralRootInput,
@@ -255,7 +271,6 @@ function extractFrom(
   const failures: ExtractionFailure[] = [];
 
   let nodes: readonly CodeGraphNode[];
-  let files: readonly CodeGraphFile[];
 
   if (shared === null) {
     // Indexing inside the root would be the only alternative, and analyzed
@@ -269,7 +284,6 @@ function extractFrom(
 
   const prefix = `${relative(shared.parent, root.path)}/`;
   nodes = scopeNodes(shared.nodes, prefix);
-  files = scopeFiles(shared.files, prefix);
 
   if (shared.truncated) {
     failures.push({
@@ -344,9 +358,15 @@ function extractFrom(
   return {
     records: {
       ...emptyRecords(),
-      "source-file": files.filter((f) => included(f.path)).map((f) => toSourceFile(root.name, f)),
-      symbol: symbolNodes.map((node) => toSymbol(root.name, node)),
-      import: usableNodes.filter((n) => isKind(n, "import")).map((n) => toImport(root.name, n)),
+      // Only where nobody else read the file: overlapping symbols carry
+      // different identities, and the linking stage reads two of one name as
+      // ambiguous rather than as agreement.
+      symbol: symbolNodes
+        .filter((node) => options.skipSymbolsIn?.(node.filePath) !== true)
+        .map((node) => toSymbol(root.name, node)),
+      import: usableNodes
+        .filter((n) => isKind(n, "import") && options.skipSymbolsIn?.(n.filePath) !== true)
+        .map((n) => toImport(root.name, n)),
       route: usableNodes.filter((n) => isKind(n, "route")).map((n) => toRoute(root.name, n)),
       "call-edge": callEdges,
     },
@@ -363,7 +383,7 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
   const sharedIndex = (): SharedIndex | null => {
     if (resolved !== undefined) return resolved;
 
-    const parent = sharedIndexRoot(options.roots ?? []);
+    const parent = options.indexRoot ?? sharedIndexRoot(options.roots ?? []);
     if (parent === null) {
       resolved = null;
       return resolved;
@@ -378,7 +398,6 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
       return {
         parent,
         nodes,
-        files: listFiles(parent),
         truncated: nodes.length >= NODE_LIMIT,
       };
     });
