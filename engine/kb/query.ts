@@ -177,6 +177,12 @@ export interface ReliabilitySignal {
   readonly discardedErrors: number;
 }
 
+export interface TestPresence {
+  readonly rootName: string;
+  readonly testCount: number;
+  readonly sample: readonly string[];
+}
+
 export interface FeatureDetail {
   readonly feature: FeatureFact;
   readonly flows: readonly FeatureFlowFact[];
@@ -623,6 +629,34 @@ export class KnowledgeBase {
         transactionBoundaries: count(transactions, root),
         discardedErrors: count(discarded, root),
       }));
+  }
+
+  /**
+   * How many tests name each service, and a sample of what they are named.
+   *
+   * A count of test *names*, not a coverage percentage: a service absent here
+   * had no test detected at all, and a service present may still test only its
+   * utilities. Both are stated so a reader draws the right, bounded conclusion
+   * rather than reading a number as a guarantee. Every analysed root is
+   * listed, including the ones with zero — silence about a service with no
+   * tests is the finding lost.
+   */
+  testPresence(): readonly TestPresence[] {
+    const names = this.evidence("test-name");
+    const byRoot = new Map<string, string[]>();
+    for (const root of this.runContext()?.roots ?? []) byRoot.set(root.name, []);
+    for (const entry of names) {
+      const existing = byRoot.get(entry.rootName) ?? [];
+      existing.push(entry.text);
+      byRoot.set(entry.rootName, existing);
+    }
+    return [...byRoot.entries()]
+      .map(([rootName, testNames]) => ({
+        rootName,
+        testCount: testNames.length,
+        sample: testNames.slice(0, 6),
+      }))
+      .sort((a, b) => b.testCount - a.testCount || a.rootName.localeCompare(b.rootName));
   }
 
   /** What broke without stopping the run. */

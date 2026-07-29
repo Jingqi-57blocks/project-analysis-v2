@@ -1,0 +1,37 @@
+{
+  "id": "coverage",
+  "title": "$project — coverage",
+  "params": [],
+  "sections": [
+    {
+      "id": "how-much-was-read",
+      "kind": "llm",
+      "heading": "How much of the system this analysis understood",
+      "prompt": "prompts/how-much-was-read.md",
+      "requires": ["run-context", "signals", "coverage-notes"],
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 }
+    },
+    {
+      "id": "map",
+      "kind": "code",
+      "heading": "How it fits together",
+      "fragment": "project-map",
+      "requires": ["map-edges"]
+    },
+    {
+      "id": "tests",
+      "kind": "llm",
+      "heading": "Where the tests are, and where they are not",
+      "prompt": "prompts/tests.md",
+      "requires": ["test-presence", "run-context", "reliability"],
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 }
+    },
+    {
+      "id": "limitations",
+      "kind": "code",
+      "heading": "What this analysis could not reach",
+      "fragment": "limitations",
+      "requires": ["coverage-notes", "extraction-failures"]
+    }
+  ]
+}

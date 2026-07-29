@@ -79,6 +79,7 @@ const SELECTORS: Readonly<Record<string, Resolver>> = {
   "outbound-calls": (kb) => kb.outboundCalls(),
   dependencies: (kb) => kb.dependencies(),
   reliability: (kb) => kb.reliability(),
+  "test-presence": (kb) => kb.testPresence(),
   "coverage-notes": (kb) => kb.coverageNotes(),
   "extraction-failures": (kb) => kb.extractionFailures(),
   evidence: (kb, kind) => kb.evidence(kind ?? undefined),
