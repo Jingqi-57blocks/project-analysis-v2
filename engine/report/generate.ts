@@ -105,6 +105,10 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const containment: ModuleContainmentRecord[] = [];
   const dependencies: PackageDependencyRecord[] = [];
   const allFiles: string[] = [];
+  // Kept unqualified alongside the qualified list: the qualified form is a
+  // collision-proof key with its own escaping, and splitting it back apart
+  // turns "wcp-ui" into "wcp-ui|src".
+  const filesByRoot: { rootName: string; relPath: string }[] = [];
   const coverageNotes: CoverageNote[] = [];
   const evidenceByRoot = new Map<string, string[]>();
   const dataProviders = [createSqlSchemaProvider(), createOrmMigrationProvider()];
@@ -124,6 +128,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     const analyzedFiles = walk.analyzed.map((file) => file.relPath);
     // Qualified by root: two roots sharing a relative path must stay two files.
     allFiles.push(...analyzedFiles.map((relPath) => qualifiedFile(root.name, relPath)));
+    filesByRoot.push(...analyzedFiles.map((relPath) => ({ rootName: root.name, relPath })));
 
     // Generated files hold example payloads and mock URLs that are not calls
     // the system makes. Inventory already classified them, so the provider
@@ -403,10 +408,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const detection = detectFeatures({
     entityNames: [...entityNames],
     routes,
-    files: allFiles.map((qualified) => {
-      const slash = qualified.indexOf("/");
-      return { rootName: qualified.slice(0, slash), relPath: qualified.slice(slash + 1) };
-    }),
+    files: filesByRoot,
   });
   const flowSet = assembleFlows({
     features: detection.features,
