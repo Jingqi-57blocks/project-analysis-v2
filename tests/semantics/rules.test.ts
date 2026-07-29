@@ -36,6 +36,7 @@ function condition(overrides: Partial<ConditionRecord>): ConditionRecord {
     literalKind: "numeric",
     text: "order.Status == 2",
     enclosingFunction: "Handle",
+    guarded: null,
     source,
     provenance: resolved(source, "high"),
     ...overrides,

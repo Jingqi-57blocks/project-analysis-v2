@@ -83,6 +83,14 @@ export interface ConditionRecord {
   /** The whole comparison as written, for a reader who wants the original. */
   readonly text: string;
   readonly enclosingFunction: string | null;
+  /**
+   * What the guarded branch does, where the condition guards one.
+   *
+   * `rejects` means the branch leaves the function — a return or a throw — so
+   * failing the test stops the work. That is the difference between a rule a
+   * reader can follow and a comparison sitting in a list.
+   */
+  readonly guarded: "rejects" | "continues" | null;
   readonly source: SourceRef;
   readonly provenance: Provenance;
 }

@@ -135,12 +135,43 @@ function conditionsIn(
       literalKind: literal.kind,
       text: node.text().replaceAll(/\s+/g, " ").slice(0, 200),
       enclosingFunction: enclosingFunctionName(node),
+      guarded: guardedOutcome(node),
       source,
       provenance: resolved(source, "high"),
     });
   }
 
   return records;
+}
+
+const EXIT_KINDS = new Set<string>(["return_statement", "throw_statement"]);
+
+/**
+ * What happens when the branch this condition guards is taken.
+ *
+ * A branch that leaves the function is a rejection: the work stops there. One
+ * that falls through carries on. A condition guarding neither — inside an
+ * expression, say — has no branch to describe.
+ */
+function guardedOutcome(node: SgNode): "rejects" | "continues" | null {
+  let current: SgNode | null = node.parent();
+  for (let depth = 0; current !== null && depth < 4; depth++) {
+    const kind = current.kind() as string;
+    if (kind === "if_statement") {
+      const body =
+        current.field("consequence") ??
+        current.children().find((child) => (child.kind() as string).includes("block"));
+      if (body === undefined || body === null) return null;
+
+      // Only the branch's own exits count; a nested function's return is its.
+      const exits = body
+        .children()
+        .some((child) => EXIT_KINDS.has(child.kind() as string));
+      return exits ? "rejects" : "continues";
+    }
+    current = current.parent();
+  }
+  return null;
 }
 
 function flip(operator: string): string {

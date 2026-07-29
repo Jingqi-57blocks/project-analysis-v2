@@ -29,6 +29,10 @@ export interface BusinessRule {
   readonly relPath: string;
   readonly startLine: number;
   readonly text: string;
+  /** What the guarded branch does, where this condition guards one. */
+  readonly guarded: "rejects" | "continues" | null;
+  /** The function this rule is enforced in, so a flow can find its own. */
+  readonly enclosingFunction: string | null;
 }
 
 /**
@@ -138,6 +142,8 @@ export function stateRule(
     relPath: condition.source.relPath,
     startLine: condition.source.startLine ?? 0,
     text: condition.text,
+    guarded: condition.guarded,
+    enclosingFunction: condition.enclosingFunction,
   };
 }
 

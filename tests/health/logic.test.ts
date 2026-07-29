@@ -15,6 +15,8 @@ function rule(overrides: Partial<BusinessRule>): BusinessRule {
     relPath: "svc.go",
     startLine: 1,
     text: "leave.Hours > 40",
+    guarded: null,
+    enclosingFunction: null,
     ...overrides,
   };
 }
