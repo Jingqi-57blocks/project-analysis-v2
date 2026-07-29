@@ -50,7 +50,7 @@ import {
   type OutputLanguage,
 } from "./model.js";
 import { buildJsonReport } from "./json.js";
-import { writeRenderings } from "./render.js";
+import { writeRenderings, type RenderFormat } from "./render.js";
 import type { DataModelRecords } from "../datamodel/types.js";
 import type { StructuralProvider } from "../structural/provider.js";
 import type {
@@ -77,6 +77,8 @@ export interface GenerateOptions {
   readonly extraProviders?: readonly StructuralProvider[];
   readonly runId?: string;
   readonly now?: string;
+  /** Which renderings to write. Defaults to the base plus pages. */
+  readonly formats?: readonly RenderFormat[];
 }
 
 export interface GenerateResult {
@@ -613,7 +615,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const jsonPath = join(options.outputDir, "report.json");
   writeFileSync(jsonPath, `${JSON.stringify(spec, null, 2)}\n`, "utf8");
 
-  const files = [jsonPath, ...writeRenderings(spec, options.outputDir)];
+  const files = [jsonPath, ...writeRenderings(spec, options.outputDir, options.formats)];
 
   return {
     runId,
