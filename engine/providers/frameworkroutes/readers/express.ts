@@ -1,24 +1,27 @@
 /**
- * Reads Express route registrations: a mount-map pass over `app.use(...)`
- * calls, then balanced-parenthesis parsing of `router.METHOD(...)` blocks —
- * which routinely span several lines, so line regexes are known-insufficient.
+ * Reads Express route registrations from the parsed source.
  *
- * Express handlers are usually anonymous closures. Their identity is taken
- * from the first `xService.method(` call inside the closure body — the thing
- * the route actually does — and stays null when none is found, with the
- * registration's location kept.
+ * Two passes, because a registration's path is only half-written where it is
+ * declared: `app.use('/worklogs', require('./routes/worklogs')(passport))`
+ * mounts a file at a prefix, and `router.get('/me', ...)` inside that file
+ * completes it. Neither half means anything alone.
+ *
+ * Express handlers are usually anonymous closures, so a handler's identity is
+ * taken from the first service call inside it — the thing the route actually
+ * does — and stays null when there is none.
  */
 
 import { readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
+import type { SgNode } from "@ast-grep/napi";
 
-import { leadingName, parseCalls, scanSource, stringLiteral } from "../../../text/scan.js";
+import { findCalls, languageOf, literalText, parseSource } from "../../../text/ast.js";
 import { inferred, lineRef, resolved } from "../../../structural/provenance.js";
 import type { RouteRecord } from "../../../structural/boundaries.js";
 import type { ExtractionFailure, StructuralRootInput } from "../../../structural/provider.js";
 import { joinRoutePath, type FrameworkReading, type FrameworkRouteReader } from "./types.js";
 
-const ROUTE_PATTERN = /\b([A-Za-z_$][\w$]*)\.(get|post|put|patch|delete|all|use)\s*\(/g;
+const METHODS = new Set(["get", "post", "put", "patch", "delete", "head", "options", "all"]);
 const SOURCE_EXTENSIONS = [".js", ".cjs", ".mjs", ".ts"];
 
 function isSourceFile(relPath: string): boolean {
@@ -39,12 +42,40 @@ function resolveModule(
   return null;
 }
 
+/** The specifier of any `require(...)` anywhere inside a node. */
+function requiredSpecifier(node: SgNode): string | null {
+  for (const call of findCalls(node)) {
+    if (call.callee !== "require") continue;
+    const specifier = literalText(call.args[0]);
+    if (specifier !== null) return specifier;
+  }
+  return null;
+}
+
 /**
- * Pass 1: which route file is mounted at which prefix.
+ * The nearest declaration of an identifier, or null.
  *
- * Handles the inline form `app.use('/p', require('./routes/x')(passport))` and
- * the identifier form where the require sits earlier in the same file.
+ * Resolved against the declaration's own node rather than by searching text,
+ * so `logRouter` cannot match inside `catalogRouter` — the defect that mounted
+ * one file's routes at another file's prefix.
  */
+function declarationOf(root: SgNode, name: string): SgNode | null {
+  for (const kind of ["variable_declarator", "assignment_expression"]) {
+    let nodes: SgNode[];
+    try {
+      nodes = root.findAll({ rule: { kind: kind as never } });
+    } catch {
+      continue;
+    }
+    for (const node of nodes) {
+      const declared = node.field("name")?.text() ?? node.field("left")?.text() ?? "";
+      if (declared === name) return node;
+    }
+  }
+  return null;
+}
+
+/** Which route file is mounted at which prefix. */
 export function buildMountMap(
   root: StructuralRootInput,
   files: readonly string[],
@@ -61,26 +92,25 @@ export function buildMountMap(
     }
     if (!content.includes(".use(")) continue;
 
-    const map = scanSource(content, { hashLineComments: false });
-    for (const call of parseCalls(content, map, /\b([A-Za-z_$][\w$]*)\.(use)\s*\(/g)) {
-      const prefix = stringLiteral(call.args[0] ?? "");
-      if (prefix === null || !prefix.startsWith("/") || call.args.length < 2) continue;
+    const language = languageOf(relPath);
+    if (language === null) continue;
+    const parsed = parseSource(language, content);
+    if (parsed.root === null) continue;
 
-      const target = call.args[1]!;
-      let specifier = /require\(\s*['"]([^'"]+)['"]\s*\)/.exec(target)?.[1] ?? null;
+    for (const call of findCalls(parsed.root)) {
+      if (call.method !== "use") continue;
+      const prefix = literalText(call.args[0]);
+      const target = call.args[1];
+      if (prefix === null || !prefix.startsWith("/") || target === undefined) continue;
 
+      let specifier = requiredSpecifier(target);
       if (specifier === null) {
-        const identifier = leadingName(target)?.split(".")[0];
-        // The identifier must match as a whole word and be escaped before it
-        // becomes a pattern. Unanchored, `logRouter` matches inside
-        // `catalogRouter = require('./routes/catalog')` and mounts the wrong
-        // file — publishing endpoints that do not exist as directly observed.
-        if (identifier !== undefined && identifier !== "") {
-          const escaped = identifier.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          const declaration = new RegExp(
-            `(?<![\\w$])${escaped}\\s*=\\s*require\\(\\s*['"]([^'"]+)['"]\\s*\\)`,
-          );
-          specifier = declaration.exec(content)?.[1] ?? null;
+        // The mount names a variable, so the require is wherever that
+        // variable was declared.
+        const identifier = /^[A-Za-z_$][\w$]*/.exec(target.text())?.[0];
+        if (identifier !== undefined) {
+          const declaration = declarationOf(parsed.root, identifier);
+          if (declaration !== null) specifier = requiredSpecifier(declaration);
         }
       }
       if (specifier === null) continue;
@@ -98,18 +128,25 @@ export function buildMountMap(
 }
 
 /** The closure's effective identity: the first service call inside it. */
-export function serviceCallIn(closureText: string): string | null {
-  const match = /\b([A-Za-z_$][\w$]*[Ss]ervices?)\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/.exec(closureText);
-  return match ? `${match[1]}.${match[2]}` : null;
+export function serviceCallIn(node: SgNode): string | null {
+  for (const call of findCalls(node)) {
+    if (/[Ss]ervices?$/.test(call.receiver)) return call.callee;
+  }
+  return null;
 }
 
-function handlerOf(arg: string): { name: string | null; fromClosure: boolean } {
-  const trimmed = arg.trim();
-  if (/^[\w$.]+$/.test(trimmed)) return { name: trimmed, fromClosure: false };
+function handlerOf(node: SgNode): { name: string | null; fromClosure: boolean } {
+  const text = node.text();
+  if (/^[\w$.]+$/.test(text)) return { name: text, fromClosure: false };
+  return { name: serviceCallIn(node), fromClosure: true };
+}
 
-  // wrapAsync(async (req, res) => { ... }) or a bare closure.
-  const service = serviceCallIn(trimmed);
-  return { name: service, fromClosure: true };
+/** Names a middleware argument by what it calls, or by what it is. */
+function middlewareName(node: SgNode): string | null {
+  if ((node.kind() as string) === "call_expression") {
+    return node.field("function")?.text() ?? null;
+  }
+  return /^[\w$.]+$/.test(node.text()) ? node.text() : null;
 }
 
 function scanRouteFile(
@@ -120,27 +157,49 @@ function scanRouteFile(
   failures: ExtractionFailure[],
 ): void {
   const content = readFileSync(join(root.path, relPath), "utf8");
-  const map = scanSource(content, { hashLineComments: false });
+  if (!content.includes("express.Router")) return;
+
+  const language = languageOf(relPath);
+  if (language === null) return;
+  const parsed = parseSource(language, content);
+  if (parsed.root === null) {
+    failures.push({ scope: relPath, reason: parsed.reason ?? "the file could not be parsed" });
+    return;
+  }
 
   const routerVars = new Set<string>();
-  for (const match of content.matchAll(/([A-Za-z_$][\w$]*)\s*=\s*express\.Router\s*\(/g)) {
-    routerVars.add(match[1]!);
+  for (const call of findCalls(parsed.root)) {
+    if (call.callee !== "express.Router") continue;
+    let node: SgNode | null = call.node.parent();
+    for (let depth = 0; node !== null && depth < 3; depth++) {
+      const name = node.field("name")?.text() ?? node.field("left")?.text();
+      if (name !== undefined && /^[A-Za-z_$][\w$]*$/.test(name)) {
+        routerVars.add(name);
+        break;
+      }
+      node = node.parent();
+    }
   }
   if (routerVars.size === 0) return;
 
-  // router.use(mw) applies to registrations after it, in order.
+  // router.use(mw) applies to registrations after it, in document order.
   const fileMiddleware: string[] = [];
 
-  for (const call of parseCalls(content, map, ROUTE_PATTERN)) {
+  for (const call of findCalls(parsed.root)) {
     if (!routerVars.has(call.receiver)) continue;
 
     if (call.method === "use") {
-      const maybePath = stringLiteral(call.args[0] ?? "");
-      if (maybePath === null) fileMiddleware.push(...call.args.map(leadingName).filter((n): n is string => n !== null));
+      // A path-scoped use is a nested mount, not a middleware for everything
+      // after it, and this reader does not follow those.
+      if (literalText(call.args[0]) !== null) continue;
+      fileMiddleware.push(
+        ...call.args.map(middlewareName).filter((name): name is string => name !== null),
+      );
       continue;
     }
+    if (!METHODS.has(call.method)) continue;
 
-    const subpath = stringLiteral(call.args[0] ?? "");
+    const subpath = literalText(call.args[0]);
     if (subpath === null) {
       failures.push({
         scope: `${relPath}:${call.line}`,
@@ -151,11 +210,11 @@ function scanRouteFile(
 
     const rest = call.args.slice(1);
     const handlerArg = rest[rest.length - 1];
-    const handler = handlerArg === undefined ? { name: null, fromClosure: false } : handlerOf(handlerArg);
-    const handlerCandidates = handler.name === null ? [] : [handler.name];
+    const handler =
+      handlerArg === undefined ? { name: null, fromClosure: false } : handlerOf(handlerArg);
     const middleware = [
       ...fileMiddleware,
-      ...rest.slice(0, -1).map(leadingName).filter((name): name is string => name !== null),
+      ...rest.slice(0, -1).map(middlewareName).filter((name): name is string => name !== null),
     ];
     const method = call.method === "all" ? null : call.method.toUpperCase();
     const source = lineRef(root.name, relPath, call.line);
@@ -171,7 +230,7 @@ function scanRouteFile(
           path: joinRoutePath("", subpath),
           handlerSymbolId: null,
           handlerName: handler.name,
-          handlerCandidates,
+          handlerCandidates: handler.name === null ? [] : [handler.name],
           middleware,
           provenance: inferred(source, "low"),
         });
@@ -189,7 +248,7 @@ function scanRouteFile(
         path: joinRoutePath(prefix, subpath),
         handlerSymbolId: null,
         handlerName: handler.name,
-        handlerCandidates,
+        handlerCandidates: handler.name === null ? [] : [handler.name],
         middleware,
         provenance: resolved(source, handler.fromClosure ? "medium" : "high"),
       });
@@ -205,6 +264,7 @@ export function createExpressReader(): FrameworkRouteReader {
       "mounts are read from app.use with a string prefix; nested router mounts are not followed",
       "a closure handler's identity is the first service call inside it, or null",
       "route files not reachable from an observed mount keep their subpath at low confidence",
+      "registrations on the application object rather than a router are not read",
     ],
 
     detect(root: StructuralRootInput): boolean {
