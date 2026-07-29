@@ -246,6 +246,22 @@ export class KnowledgeBase {
     };
   }
 
+  /** Every flow through the capabilities a module serves. */
+  flowsForModule(moduleId: string): readonly FeatureFlowFact[] {
+    const detail = this.moduleDetail(moduleId);
+    return detail === null
+      ? []
+      : detail.features.flatMap((feature) => this.flowsForFeature(feature.id));
+  }
+
+  /** Every published rule of the capabilities a module serves. */
+  rulesForModule(moduleId: string): readonly BusinessRule[] {
+    const detail = this.moduleDetail(moduleId);
+    return detail === null
+      ? []
+      : detail.features.flatMap((feature) => this.rulesForFeature(feature.id));
+  }
+
   /** Which modules serve a capability. A capability can span several. */
   modulesForFeature(featureId: string): readonly ModuleFact[] {
     const ids = new Set(
