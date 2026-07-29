@@ -70,7 +70,7 @@ function flowSection(flow: ReportFlow): string {
 }
 
 export function renderFeaturePage(feature: ReportFeature): string {
-  const lines = [
+  const parts = [
     `# ${feature.name}`,
     "",
     `Services: ${feature.rootNames.join(", ") || "—"}`,
@@ -83,8 +83,27 @@ export function renderFeaturePage(feature: ReportFeature): string {
     "",
   ];
 
+  // Before the inventory, not after it: what is worth checking is why someone
+  // opened this page, and a section below forty endpoints is a section nobody
+  // reaches.
+  if (feature.findings.length > 0) {
+    parts.push(
+      "## What to look at",
+      "",
+      table(
+        ["Severity", "Observation", "Examples"],
+        feature.findings.map((finding) => [
+          finding.severity,
+          finding.finding,
+          finding.evidence.join(", ") || "—",
+        ]),
+      ),
+      "",
+    );
+  }
+
   if (feature.endpoints.length > 0) {
-    lines.push(
+    parts.push(
       "## Endpoints",
       "",
       table(
@@ -100,51 +119,35 @@ export function renderFeaturePage(feature: ReportFeature): string {
   }
 
   if (feature.tables.length > 0 || feature.dataEntities.length > 0) {
-    lines.push("## Data", "");
+    parts.push("## Data", "");
     if (feature.tables.length > 0) {
-      lines.push(`Tables its handlers touch: ${feature.tables.join(", ")}`, "");
+      parts.push(`Tables its handlers touch: ${feature.tables.join(", ")}`, "");
     }
     if (feature.dataEntities.length > 0) {
-      lines.push(`Entities named after it: ${feature.dataEntities.join(", ")}`, "");
+      parts.push(`Entities named after it: ${feature.dataEntities.join(", ")}`, "");
     }
   }
 
-  if (feature.findings.length > 0) {
-    lines.push(
-      "## What to look at",
-      "",
-      table(
-        ["Severity", "Observation", "Examples"],
-        feature.findings.map((finding) => [
-          finding.severity,
-          finding.finding,
-          finding.evidence.join(", ") || "—",
-        ]),
-      ),
-      "",
-    );
-  }
-
-  lines.push("## Flows", "");
+  parts.push("## Flows", "");
   if (feature.flows.length === 0) {
-    lines.push("No flow could be assembled for this feature's endpoints.", "");
+    parts.push("No flow could be assembled for this feature's endpoints.", "");
   } else {
     if (feature.totalFlowCount > feature.flows.length) {
-      lines.push(
+      parts.push(
         `${feature.flows.length} of ${feature.totalFlowCount} flows are detailed here.`,
         "",
       );
     }
     if (feature.partialFlowCount > 0) {
-      lines.push(
+      parts.push(
         `${feature.partialFlowCount} of ${feature.totalFlowCount} flows have at least one hop that could not be established.`,
         "",
       );
     }
-    for (const flow of feature.flows) lines.push(flowSection(flow));
+    for (const flow of feature.flows) parts.push(flowSection(flow));
   }
 
-  return lines.join("\n");
+  return parts.join("\n");
 }
 
 /**
@@ -265,6 +268,48 @@ export function renderOverviewPage(model: ReportModel): string {
     );
   }
 
+  // What to look at, in one place. Scattering findings across forty feature
+  // pages means a reader has to already suspect something to find it.
+  const findings = model.features.flatMap((feature) =>
+    feature.findings.map((finding) => ({ feature, finding })),
+  );
+  const rank: Record<string, number> = { concern: 0, notice: 1, info: 2 };
+  findings.sort(
+    (a, b) =>
+      (rank[a.finding.severity] ?? 3) - (rank[b.finding.severity] ?? 3) ||
+      a.feature.name.localeCompare(b.feature.name),
+  );
+
+  if (findings.length > 0) {
+    const counts = findings.reduce<Record<string, number>>((totals, { finding }) => {
+      totals[finding.severity] = (totals[finding.severity] ?? 0) + 1;
+      return totals;
+    }, {});
+
+    lines.push(
+      "## What to look at",
+      "",
+      `${findings.length} observations across ${
+        new Set(findings.map((entry) => entry.feature.id)).size
+      } capabilities` +
+        `${Object.entries(counts)
+          .map(([severity, count]) => ` — ${count} ${severity}`)
+          .join("")}.`,
+      "",
+      table(
+        ["Severity", "Capability", "Observation", "Examples"],
+        findings.map(({ feature, finding }) => [
+          finding.severity,
+          `[${feature.name}](modules/${featureSlug(feature)}.md)`,
+          finding.finding,
+          finding.evidence.slice(0, 3).join(", ") || "—",
+        ]),
+      ),
+      "",
+    );
+  }
+
+
   if (model.screens.length > 0) {
     lines.push(
       "## Screens",
@@ -308,7 +353,10 @@ export function renderOverviewPage(model: ReportModel): string {
 
   if (model.signals.length > 0) {
     lines.push(
-      "## Health",
+      // Not "health": these measure how much of the system this run could
+      // reach, which is a statement about the analysis rather than about the
+      // product a reader is deciding on.
+      "## How much this analysis could see",
       "",
       table(
         ["Severity", "Signal", "Finding"],

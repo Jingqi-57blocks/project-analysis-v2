@@ -104,6 +104,15 @@ export interface ReportSpec {
     readonly entities: readonly SpecEntity[];
   };
   readonly health: {
+    readonly findings: readonly {
+      readonly capability: string;
+      readonly capabilityId: string;
+      readonly id: string;
+      readonly severity: string;
+      readonly title: string;
+      readonly finding: string;
+      readonly evidence: readonly string[];
+    }[];
     readonly signals: readonly {
       readonly id: string;
       readonly severity: string;
@@ -364,6 +373,19 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
       entities: nestDataModel(input.dataModel),
     },
     health: {
+      // Findings about the product, gathered from the capabilities they
+      // belong to; the signals below measure the analysis instead.
+      findings: model.features.flatMap((feature) =>
+        feature.findings.map((finding) => ({
+          capability: feature.name,
+          capabilityId: feature.id,
+          id: finding.id,
+          severity: finding.severity,
+          title: finding.title,
+          finding: finding.finding,
+          evidence: finding.evidence,
+        })),
+      ),
       signals: model.signals.map((signal) => ({
         id: signal.id,
         severity: signal.severity,
