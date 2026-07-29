@@ -140,6 +140,23 @@ describe("assembleFlows", () => {
     expect(caller.unresolvedReason).toContain("outside the workspace");
   });
 
+  it("marks a table observed in the package rather than the handler as indirect", () => {
+    // The text hedges; the drawing must too, or a direct arrow asserts this
+    // endpoint touches the table.
+    const { flows } = assembleFlows(input());
+    const data = flows[0]!.steps.filter((step) => step.kind === "data-access");
+    expect(data.every((step) => step.indirect === true)).toBe(true);
+  });
+
+  it("does not mark access found in the handler's own file as indirect", () => {
+    const { flows } = assembleFlows(
+      input({ dataAccess: [access("wcp_leave", "write", HANDLER_FILE)] }),
+    );
+    const data = flows[0]!.steps.find((step) => step.kind === "data-access")!;
+    expect(data.indirect).toBe(false);
+    expect(data.conditions).not.toContain("observed in the handler's package");
+  });
+
   it("does not reach into another package for data access", () => {
     const { flows } = assembleFlows(
       input({ dataAccess: [access("wcp_user", "read", "internal/handlers/user/service.go")] }),
@@ -181,8 +198,10 @@ describe("flowToMermaid", () => {
 
     // The handler's own file shows no access here, so the package is the
     // scope — and the edge label says so alongside the operation.
-    expect(diagram).toMatch(/s2 -->\|"write[^"]*"\| s3/);
-    expect(diagram).toMatch(/s2 -->\|"write[^"]*"\| s4/);
+    // Package-scoped evidence draws a weaker edge; the fixture's access sits
+    // beside the handler rather than in its file.
+    expect(diagram).toMatch(/s2 -\.->\|"write[^"]*"\| s3/);
+    expect(diagram).toMatch(/s2 -\.->\|"write[^"]*"\| s4/);
     expect(diagram).not.toMatch(/\bs3 -->? *\|?[^\n]*s4/);
   });
 
@@ -218,7 +237,7 @@ describe("flowToMermaid", () => {
     const diagram = featureOverviewMermaid("Leave", flows);
 
     expect(diagram).toContain("c_ui --> e0");
-    expect(diagram).toContain("e0 --> t_wcp_leave");
+    expect(diagram).toMatch(/e0 -\.?-?-?> t_wcp_leave/);
   });
 
   it("says how many endpoints an overview left out", () => {

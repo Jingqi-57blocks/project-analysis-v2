@@ -45,6 +45,7 @@ function toFlow(flow: ReportSpec["features"][number]["flows"][number]): ReportFl
       conditions: step.conditions ?? [],
       unresolvedReason: step.unresolved,
       truncated: step.truncated === true,
+      indirect: step.indirect === true,
       location: step.location,
     })),
     diagram: flow.diagram,

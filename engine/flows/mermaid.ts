@@ -89,11 +89,15 @@ export function flowToMermaid(flow: FeatureFlow): string {
       lines.push(`  ${from} -.->|"${escapeLabel(step.unresolvedReason)}"| ${to}`);
       continue;
     }
+    // Evidence from the handler's package rather than the handler itself is
+    // drawn as a weaker edge. A solid arrow from this endpoint to a table
+    // asserts that this endpoint touches it, which is more than was observed.
+    const arrow = step.indirect === true ? "-.->" : "-->";
     if (step.conditions.length > 0) {
-      lines.push(`  ${from} -->|"${escapeLabel(step.conditions.join(", "))}"| ${to}`);
+      lines.push(`  ${from} ${arrow}|"${escapeLabel(step.conditions.join(", "))}"| ${to}`);
       continue;
     }
-    lines.push(`  ${from} --> ${to}`);
+    lines.push(`  ${from} ${arrow} ${to}`);
   }
 
   for (const id of dashed) {
@@ -133,7 +137,9 @@ export function featureOverviewMermaid(
       }
       if (step.kind === "data-access") {
         tables.add(step.label);
-        edges.add(`  ${endpoint} --> t_${slug(step.label)}`);
+        edges.add(
+          `  ${endpoint} ${step.indirect === true ? "-.->" : "-->"} t_${slug(step.label)}`,
+        );
       }
     }
   });

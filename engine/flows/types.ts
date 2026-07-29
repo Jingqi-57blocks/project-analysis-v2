@@ -46,6 +46,15 @@ export interface FlowStep {
    * having more than a dozen tables, which understates what was resolved.
    */
   readonly truncated?: boolean;
+  /**
+   * True when the step was observed near the handler rather than in it.
+   *
+   * Package-scoped data access is the common case: a Go handler splits one
+   * feature across several files, so the tables its package touches are the
+   * best evidence available — but they are not proof this endpoint touches
+   * each one, and a diagram drawing a direct arrow says otherwise.
+   */
+  readonly indirect?: boolean;
   readonly provenance: Provenance | null;
 }
 

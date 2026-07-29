@@ -95,6 +95,7 @@ export interface SpecFlowStep {
   readonly location: string | null;
   readonly unresolved: string | null;
   readonly truncated: boolean;
+  readonly indirect: boolean;
 }
 
 export interface SpecFlow {
@@ -278,6 +279,9 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
           // A step shortened for display, rather than one that could not be
           // established — a consumer must not read the two as the same thing.
           truncated: step.truncated,
+          // Observed in the handler's package rather than the handler itself,
+          // so a consumer can weigh it as the weaker evidence it is.
+          indirect: step.indirect,
         })),
       })),
       flowCount: feature.totalFlowCount,

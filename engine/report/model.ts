@@ -105,6 +105,8 @@ export interface ReportFlowStep {
   readonly unresolvedReason: string | null;
   /** True when the step stands in for others left out of the display. */
   readonly truncated: boolean;
+  /** True when observed near the handler rather than in it. */
+  readonly indirect: boolean;
   /** `root/path:line`, so a claim can be checked against the source. */
   readonly location: string | null;
 }

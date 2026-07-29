@@ -40,7 +40,9 @@ export interface HandlerResolution {
  * name, never as a substring anywhere in the path — is what separates the
  * twelve functions called `Deletion` in one service.
  */
-function fileAgreesWith(relPath: string, hint: string): boolean {
+type HintStrength = "directory" | "file" | "none";
+
+function agreementWith(relPath: string, hint: string): HintStrength {
   const slash = relPath.lastIndexOf("/");
   const directory = (slash === -1 ? "" : relPath.slice(0, slash).split("/").pop() ?? "").toLowerCase();
   const basename = relPath
@@ -48,11 +50,12 @@ function fileAgreesWith(relPath: string, hint: string): boolean {
     .replace(/\.\w+$/, "")
     .toLowerCase();
 
-  if (directory === hint || basename === hint) return true;
+  if (directory === hint) return "directory";
+  if (basename === hint) return "file";
   // `worklogServices.js` for `worklogService`, and `swagger.go` for
   // `ginSwagger` — a plural or a prefix, not an arbitrary shared substring.
-  if (basename.length >= 4 && (basename.startsWith(hint) || hint.includes(basename))) return true;
-  return false;
+  if (basename.length >= 4 && (basename.startsWith(hint) || hint.includes(basename))) return "file";
+  return "none";
 }
 
 function entryKeyOf(route: RouteRecord): string {
@@ -89,11 +92,25 @@ export function resolveHandlers(
       const functionName = segments[segments.length - 1]!;
       const packageHint = segments.length > 1 ? segments[segments.length - 2]!.toLowerCase() : null;
 
-      let matches = symbolsHere.filter((symbol) => {
-        if (symbol.name !== functionName) return false;
-        if (packageHint === null) return true;
-        return fileAgreesWith(symbol.provenance.source.relPath, packageHint);
-      });
+      const named = symbolsHere.filter((symbol) => symbol.name === functionName);
+      let matches: SymbolRecord[];
+
+      if (packageHint === null) {
+        matches = named;
+      } else {
+        // A Go qualifier names a package, which is a directory; a JavaScript
+        // one usually names a module, which is a file. Both are worth
+        // matching, but the directory is the stronger claim — without ranking
+        // them, `internal/model/leave.go` competes with the handler in
+        // `handlers/leave/` and the pair reads as ambiguous.
+        const byStrength = named.map((symbol) => ({
+          symbol,
+          strength: agreementWith(symbol.provenance.source.relPath, packageHint),
+        }));
+        const directory = byStrength.filter((entry) => entry.strength === "directory");
+        const file = byStrength.filter((entry) => entry.strength === "file");
+        matches = (directory.length > 0 ? directory : file).map((entry) => entry.symbol);
+      }
 
       // `leave.Deletion` names a package-level function. When both a bare
       // function and a method of some type carry the name, the bare one is

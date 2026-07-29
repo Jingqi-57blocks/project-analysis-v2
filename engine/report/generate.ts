@@ -447,6 +447,24 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     });
   }
 
+  // A schema the report shows fields for, against the tables it says are
+  // touched. Silence here reads as "these 45 tables are the data model",
+  // when two thirds of what the code uses has no entity at all — the schema
+  // providers read SQL and ORM migrations, and a service that declares its
+  // tables in Go contributes none.
+  const describedEntities = new Set(entityNames);
+  const touchedTables = new Set<string>();
+  for (const access of dataAccess) {
+    if (access.entity !== null) touchedTables.add(access.entity);
+  }
+  const undescribed = [...touchedTables].filter((table) => !describedEntities.has(table));
+  if (undescribed.length > 0) {
+    coverageNotes.push({
+      subject: "data-model",
+      note: `fields and constraints are described for ${describedEntities.size} entities, but ${undescribed.length} further tables are used by code without a schema declaration this run could read; their columns are not in this report`,
+    });
+  }
+
   if (screens.length > 0) {
     coverageNotes.push({
       subject: "screens",

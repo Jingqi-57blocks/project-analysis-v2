@@ -213,6 +213,7 @@ function dataSteps(
         ...(scope === "package" ? ["observed in the handler's package"] : []),
       ],
       unresolvedReason: null,
+      indirect: scope === "package",
       provenance: record.provenance,
     }));
 

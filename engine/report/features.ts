@@ -25,6 +25,7 @@ function toReportStep(step: FlowStep): ReportFlowStep {
     conditions: step.conditions,
     unresolvedReason: step.unresolvedReason,
     truncated: step.truncated === true,
+    indirect: step.indirect === true,
     location: locationOf(step),
   };
 }
@@ -59,6 +60,11 @@ export function buildReportFeatures(
   flows: readonly FeatureFlow[],
   limits: FeatureViewLimits = DEFAULT_FEATURE_LIMITS,
 ): readonly ReportFeature[] {
+  // An endpoint belongs to one feature. Listing it under every feature whose
+  // term appears anywhere in its path puts cancel-a-leave-application under
+  // "Application", a workflow it has nothing to do with, and dilutes both.
+  const owner = new Map<string, string>();
+  for (const flow of flows) owner.set(flow.entryKey, flow.featureId);
   const byFeature = new Map<string, FeatureFlow[]>();
   for (const flow of flows) {
     const existing = byFeature.get(flow.featureId) ?? [];
@@ -84,11 +90,19 @@ export function buildReportFeatures(
       name: feature.name,
       rootNames: feature.rootNames,
       signals: feature.signals,
-      endpoints: feature.routes.map((route) => ({
-        method: route.method,
-        path: route.path,
-        rootName: route.rootName,
-      })),
+      endpoints: feature.routes
+        .filter((route) => {
+          const key = `${route.rootName}:${route.method ?? "ANY"} ${route.path}`;
+          const owned = owner.get(key);
+          // An endpoint no flow claimed keeps its term match: it is still
+          // this feature's best home, and dropping it would lose it entirely.
+          return owned === undefined || owned === feature.id;
+        })
+        .map((route) => ({
+          method: route.method,
+          path: route.path,
+          rootName: route.rootName,
+        })),
       dataEntities: feature.entities,
       tables: [...tables].sort(),
       flows: own.slice(0, limits.maxFlows).map(toReportFlow),
