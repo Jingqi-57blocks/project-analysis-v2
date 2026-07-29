@@ -1,0 +1,192 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeAll, afterAll, describe, expect, it } from "vitest";
+
+import { runAnalyze } from "../../engine/run/analyze.js";
+import { openStore } from "../../engine/store/open.js";
+import type { Store } from "../../engine/store/types.js";
+import { openKnowledgeBase, SnapshotNotFoundError, type KnowledgeBase } from "../../engine/kb/query.js";
+import { buildExport } from "../../engine/kb/export.js";
+import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
+import { createLogicProvider } from "../../engine/providers/logic/provider.js";
+import { createConventionsProvider } from "../../engine/providers/conventions/provider.js";
+import { createSqlSchemaProvider } from "../../engine/datamodel/sql.js";
+import { createDataUsageProvider } from "../../engine/datamodel/usage.js";
+import { createDocumentationCollector } from "../../engine/collectors/documentation.js";
+
+const READERS = {
+  structural: [
+    createFrameworkRoutesProvider(),
+    createLogicProvider(),
+    createConventionsProvider(),
+    createDataUsageProvider(),
+  ],
+  data: [createSqlSchemaProvider()],
+  collectors: [createDocumentationCollector()],
+};
+
+let workDir: string;
+let store: Store;
+let kb: KnowledgeBase;
+let runId: string;
+
+function write(relativePath: string, contents: string): void {
+  const full = join(workDir, "svc", relativePath);
+  mkdirSync(join(full, ".."), { recursive: true });
+  writeFileSync(full, contents);
+}
+
+beforeAll(() => {
+  workDir = mkdtempSync(join(tmpdir(), "pa-query-"));
+  write("README.md", "# Leave service\n\nHandles leave requests for staff across the company.\n");
+  write("go.mod", "module example.com/svc\n\nrequire github.com/gin-gonic/gin v1.9.1\n");
+  write(
+    "migrations/001_init.sql",
+    "CREATE TABLE leaves (id INT PRIMARY KEY, hours INT NOT NULL);\n",
+  );
+  write(
+    "router.go",
+    [
+      "package main",
+      "",
+      "func Register(engine *gin.Engine) {",
+      '\tv2 := engine.Group("/v2")',
+      '\tv2.POST("/leaves", Apply)',
+      '\tv2.GET("/leaves", List)',
+      "}",
+    ].join("\n"),
+  );
+  write(
+    "leave.go",
+    [
+      "package main",
+      "",
+      "const (",
+      "\tLeaveStatusDraft = 1",
+      "\tLeaveStatusApproved = 2",
+      ")",
+      "",
+      "func Apply(c *gin.Context) {",
+      "\tif lv.Hours > 40 {",
+      "\t\treturn",
+      "\t}",
+      '\tdb.Table("leaves").Create(&lv)',
+      "}",
+    ].join("\n"),
+  );
+
+  const dbPath = join(workDir, "kb.sqlite");
+  const result = runAnalyze({ paths: [join(workDir, "svc")], dbPath, readers: READERS });
+  runId = result.runId;
+  store = openStore(dbPath);
+  kb = openKnowledgeBase(store);
+});
+
+afterAll(() => {
+  store.close();
+  rmSync(workDir, { recursive: true, force: true });
+});
+
+describe("choosing a snapshot", () => {
+  it("reads the latest published run when none is named", () => {
+    expect(kb.snapshot.runId).toBe(runId);
+  });
+
+  it("reads the run it was given", () => {
+    expect(openKnowledgeBase(store, runId).snapshot.runId).toBe(runId);
+  });
+
+  it("refuses a run that does not exist rather than falling back to another", () => {
+    // Falling back would answer questions about a different analysis while
+    // looking like it answered about the one asked for.
+    expect(() => openKnowledgeBase(store, "run-20200101T000000Z-abcdef")).toThrow(
+      SnapshotNotFoundError,
+    );
+  });
+
+  it("says nothing has been analyzed rather than throwing something opaque", () => {
+    const empty = openStore(join(workDir, "empty.sqlite"));
+    try {
+      expect(() => openKnowledgeBase(empty)).toThrow(/Run `analyze` first/);
+    } finally {
+      empty.close();
+    }
+  });
+});
+
+describe("asking the knowledge base questions", () => {
+  it("answers what this run was", () => {
+    const context = kb.runContext();
+    expect(context?.runId).toBe(runId);
+    expect(context?.description).toContain("leave requests");
+  });
+
+  it("separates what the project serves from what it shows", () => {
+    // An indexer reports both as routes. Listing them together would have
+    // something rebuilding this project create an endpoint per screen.
+    expect(kb.endpoints().length).toBeGreaterThan(0);
+    expect(kb.screens()).toEqual([]);
+  });
+
+  it("returns a table with its columns rather than four lists to join", () => {
+    const model = kb.entityModel("leaves");
+    expect(model?.fields.map((field) => field.name).sort()).toEqual(["hours", "id"]);
+  });
+
+  it("says whether anything looked, so an empty list can be read correctly", () => {
+    const looked = kb.coverageFor("entity");
+    expect(looked.attempted).toBe(true);
+
+    // No reader in this set supplies test relations. "None" here is about the
+    // run, not about the project, and the caller can tell.
+    const nobodyLooked = kb.coverageFor("test-relation");
+    expect(nobodyLooked.attempted).toBe(false);
+  });
+
+  it("hands back the rules as stated, with what explained them", () => {
+    const rules = kb.businessRules();
+    const hours = rules.find((rule) => rule.text.includes("40"));
+    expect(hours?.guarded).toBe("rejects");
+  });
+
+  it("finds the vocabulary that explains a subject", () => {
+    const set = kb.valueSetExplaining("lv.LeaveStatus");
+    expect(set?.members.map((member) => member.name)).toContain("LeaveStatusApproved");
+  });
+
+  it("says what it could not establish", () => {
+    expect(kb.coverageNotes().length).toBeGreaterThan(0);
+  });
+
+  it("returns nothing rather than guessing for a capability that does not exist", () => {
+    expect(kb.featureDetail("feat_nonexistent")).toBeNull();
+    expect(kb.moduleDetail("mod_nonexistent")).toBeNull();
+    expect(kb.entityModel("nonexistent")).toBeNull();
+  });
+});
+
+describe("the export", () => {
+  it("is byte-identical across two exports of one run", () => {
+    // A diff between two exports has to mean the code changed.
+    expect(JSON.stringify(buildExport(kb))).toBe(JSON.stringify(buildExport(kb)));
+  });
+
+  it("carries the run identity, so a claim can be traced to an analysis", () => {
+    const exported = buildExport(kb) as { run: { id: string; identity: string } };
+    expect(exported.run.id).toBe(runId);
+    expect(exported.run.identity).toHaveLength(64);
+  });
+
+  it("states data-model coverage beside the data model", () => {
+    const exported = buildExport(kb) as { dataModel: { coverage: { attempted: boolean } } };
+    expect(exported.dataModel.coverage.attempted).toBe(true);
+  });
+
+  it("needs no access to the project it describes", () => {
+    // The source is gone from this handle's point of view; the export is a
+    // read of the store and nothing else.
+    const exported = buildExport(kb) as { project: { name: string | null } };
+    expect(exported.project.name).toBe("svc");
+  });
+});
