@@ -207,3 +207,29 @@ describe("declared capabilities", () => {
     expect(declarations[0]!.limits.join(" ")).toContain("schema declared in application code");
   });
 });
+
+describe("two schemas, one table name", () => {
+  it("keeps both tables and gives each its own columns", () => {
+    // Keyed by bare name, the second CREATE replaced the first — one table
+    // vanished, and its columns were published as the other's, with a
+    // provenance pointing at a line that does not declare them.
+    write(
+      "migrations/001_init.sql",
+      `CREATE TABLE public.users (id INT PRIMARY KEY, email TEXT);
+CREATE TABLE audit.users (id INT PRIMARY KEY, changed_at TIMESTAMP);
+`,
+    );
+    const { records } = extract(["migrations/001_init.sql"]);
+
+    expect(records.entities.map((entity) => entity.qualifier).sort()).toEqual([
+      "audit",
+      "public",
+    ]);
+    expect(records.fields.map((field) => field.name).sort()).toEqual([
+      "changed_at",
+      "email",
+      "id",
+      "id",
+    ]);
+  });
+});

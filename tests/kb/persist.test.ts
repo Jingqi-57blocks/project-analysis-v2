@@ -64,6 +64,7 @@ const context: RunContext = {
   projectName: "workspace",
   description: null,
   roots: [{ name: "svc", language: "go", analyzed: 10, excluded: 1 }],
+  mapDiagram: "flowchart LR\n  n_svc[\"svc\"]",
   dispositions: {
     behavioralSource: 5,
     technicalOnly: 2,

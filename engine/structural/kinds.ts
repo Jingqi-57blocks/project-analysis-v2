@@ -37,6 +37,12 @@ import type {
   TransactionBoundaryRecord,
   ValidationRuleRecord,
 } from "./rules.js";
+import type {
+  ConstraintRecord,
+  DataRelationRecord,
+  EntityRecord,
+  FieldRecord,
+} from "../datamodel/types.js";
 
 /**
  * Kinds that fall out of code structure itself, in any language.
@@ -79,6 +85,15 @@ export const CONDITIONAL_KINDS = [
   "error-handling",
   "condition",
   "discarded-error",
+  // What the project stores. Three readers find these — SQL DDL, ORM
+  // migrations, Go structs — and a table declared in two of them is one table
+  // that two readers agree on, which is exactly what this model already knows
+  // how to represent. Keeping them in a list beside it would have counted that
+  // agreement as duplication, with nothing recording that it was agreement.
+  "entity",
+  "entity-field",
+  "entity-relation",
+  "entity-constraint",
 ] as const;
 
 export const STRUCTURAL_KINDS = [...UNIVERSAL_KINDS, ...CONDITIONAL_KINDS] as const;
@@ -116,6 +131,10 @@ export interface StructuralRecords {
   readonly "error-handling": readonly ErrorHandlingRecord[];
   readonly condition: readonly ConditionRecord[];
   readonly "discarded-error": readonly DiscardedErrorRecord[];
+  readonly entity: readonly EntityRecord[];
+  readonly "entity-field": readonly FieldRecord[];
+  readonly "entity-relation": readonly DataRelationRecord[];
+  readonly "entity-constraint": readonly ConstraintRecord[];
 }
 
 /**
@@ -154,6 +173,10 @@ export function emptyRecords(): StructuralRecords {
     "error-handling": [],
     condition: [],
     "discarded-error": [],
+    entity: [],
+    "entity-field": [],
+    "entity-relation": [],
+    "entity-constraint": [],
   };
 }
 

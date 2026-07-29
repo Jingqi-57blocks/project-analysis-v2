@@ -172,3 +172,71 @@ describe("accounting", () => {
     expect(failures).toEqual([]);
   });
 });
+
+describe("what a guard does when it fires", () => {
+  it("reads a Go branch that returns as one that rejects", () => {
+    // Go nests a block's statements one level deeper than the script
+    // grammars do. Reading only the block's direct children found no return
+    // in any Go branch, so every guard in the language this tool was built
+    // against was published as one that carries on.
+    write(
+      "svc.go",
+      `package svc
+func Approve(r Request) error {
+	if r.Hours > 40 {
+		return errors.New("too many")
+	}
+	return nil
+}
+`,
+    );
+    const { conditions } = extract(["svc.go"]);
+    expect(conditions[0]!.guarded).toBe("rejects");
+  });
+
+  it("reads a Go branch that falls through as one that continues", () => {
+    write(
+      "svc.go",
+      `package svc
+func Approve(r Request) {
+	if r.Hours > 40 {
+		r.Flag = true
+	}
+	save(r)
+}
+`,
+    );
+    const { conditions } = extract(["svc.go"]);
+    expect(conditions[0]!.guarded).toBe("continues");
+  });
+
+  it("reads a TypeScript branch that throws as one that rejects", () => {
+    write(
+      "svc.ts",
+      `export function approve(hours: number): void {
+  if (hours > 40) {
+    throw new Error("too many");
+  }
+  save(hours);
+}
+`,
+    );
+    const { conditions } = extract(["svc.ts"]);
+    expect(conditions[0]!.guarded).toBe("rejects");
+  });
+
+  it("credits a nested function's return to that function, not to the branch", () => {
+    write(
+      "svc.ts",
+      `export function approve(hours: number): void {
+  if (hours > 40) {
+    schedule(() => { return 1; });
+  }
+  save(hours);
+}
+`,
+    );
+    const { conditions } = extract(["svc.ts"]);
+    expect(conditions[0]!.guarded).toBe("continues");
+  });
+});

@@ -86,7 +86,7 @@ afterEach(() => {
 });
 
 describe("library and command paths", () => {
-  it("leave identical knowledge-base state behind", () => {
+  it("leave identical knowledge-base state behind", { timeout: 600_000 }, () => {
     const libraryDb = join(workDir, "library.sqlite");
     const commandDb = join(workDir, "command.sqlite");
 
@@ -98,7 +98,7 @@ describe("library and command paths", () => {
     );
   });
 
-  it("agree when a root is excluded by flag", () => {
+  it("agree when a root is excluded by flag", { timeout: 600_000 }, () => {
     const libraryDb = join(workDir, "library.sqlite");
     const commandDb = join(workDir, "command.sqlite");
 

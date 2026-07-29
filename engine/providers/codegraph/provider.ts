@@ -31,6 +31,7 @@ import {
   listFiles,
   queryNodes,
   sharedIndexRoot,
+  withIndexLock,
   type CodeGraphFile,
   type CodeGraphNode,
   type CodeGraphRelation,
@@ -51,8 +52,10 @@ export interface CodeGraphOptions {
   /**
    * Every root this run will analyze, so one index can cover them all.
    *
-   * Given without it, the provider indexes inside each root as before — which
-   * is still correct, just written into the repositories.
+   * Required in practice: the index is written into the directory CodeGraph
+   * is pointed at, and without the roots there is no way to choose one outside
+   * them. A provider built without this supplies nothing and says why, rather
+   * than writing into source it promised not to touch.
    */
   readonly roots?: readonly string[];
 
@@ -89,7 +92,9 @@ export function codegraphCapabilities(options: CodeGraphOptions = {}): ProviderC
         kind: "symbol",
         language: ANY_LANGUAGE,
         support: "full",
-        limits: [`at most ${NODE_LIMIT} nodes per root`],
+        // The index covers the directory holding every root, so the cap is
+        // shared across them and across whatever else sits beside them.
+        limits: [`at most ${NODE_LIMIT} nodes across the indexed directory`],
       },
       {
         kind: "call-edge",
@@ -212,6 +217,22 @@ interface SharedIndex {
   readonly parent: string;
   readonly nodes: readonly CodeGraphNode[];
   readonly files: readonly CodeGraphFile[];
+  /** True when the query came back full, so there were probably more nodes. */
+  readonly truncated: boolean;
+}
+
+/**
+ * One spelling for both sides of the callee join.
+ *
+ * Symbols arrive with the root prefix already stripped; callee relations come
+ * straight from a query against the index root and still carry it. Built
+ * separately, the two sides never match — every edge resolves to null and is
+ * published as "calls something named X, target could not be established",
+ * which is untrue of the source and comes with no failure beside it.
+ */
+export function calleeKey(relPath: string, name: string, prefix = ""): string {
+  const path = prefix !== "" && relPath.startsWith(prefix) ? relPath.slice(prefix.length) : relPath;
+  return `${path}::${name}`;
 }
 
 function scopeNodes(nodes: readonly CodeGraphNode[], prefix: string): readonly CodeGraphNode[] {
@@ -236,14 +257,25 @@ function extractFrom(
   let nodes: readonly CodeGraphNode[];
   let files: readonly CodeGraphFile[];
 
-  if (shared !== null) {
-    const prefix = `${relative(shared.parent, root.path)}/`;
-    nodes = scopeNodes(shared.nodes, prefix);
-    files = scopeFiles(shared.files, prefix);
-  } else {
-    ensureIndexed(root.path);
-    nodes = queryNodes(root.path);
-    files = listFiles(root.path);
+  if (shared === null) {
+    // Indexing inside the root would be the only alternative, and analyzed
+    // source is never written to. Failing here degrades one provider and says
+    // why; writing the index would break a guarantee the whole tool rests on.
+    throw new Error(
+      `No directory outside "${root.name}" can hold the index, so no index was built for it. ` +
+        "Analyze from a directory that contains the root rather than from a filesystem root.",
+    );
+  }
+
+  const prefix = `${relative(shared.parent, root.path)}/`;
+  nodes = scopeNodes(shared.nodes, prefix);
+  files = scopeFiles(shared.files, prefix);
+
+  if (shared.truncated) {
+    failures.push({
+      scope: root.name,
+      reason: `the index query returned its ${NODE_LIMIT}-node maximum, so some of this root's symbols were not read`,
+    });
   }
 
   // Inventory already decided what counts as project content. Honouring that
@@ -269,13 +301,13 @@ function extractFrom(
   const symbolsByName = new Map<string, SymbolId>();
   const ambiguousNames = new Set<string>();
   for (const node of symbolNodes) {
-    const key = `${node.filePath}::${node.name}`;
+    const key = calleeKey(node.filePath, node.name);
     if (symbolsByName.has(key)) ambiguousNames.add(key);
     else symbolsByName.set(key, nodeSymbolId(root.name, node));
   }
 
   const resolveCallee = (relation: CodeGraphRelation): SymbolId | null => {
-    const key = `${relation.filePath}::${relation.name}`;
+    const key = calleeKey(relation.filePath, relation.name, prefix);
     if (ambiguousNames.has(key)) return null;
     return symbolsByName.get(key) ?? null;
   };
@@ -337,8 +369,19 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
       return resolved;
     }
 
-    ensureIndexed(parent);
-    resolved = { parent, nodes: queryNodes(parent), files: listFiles(parent) };
+    // Indexing and reading happen under one lock. Reading between another
+    // run's rebuild and its completion returns nothing, which would be
+    // reported as a codebase with no symbols rather than as a clash.
+    resolved = withIndexLock(parent, () => {
+      ensureIndexed(parent);
+      const nodes = queryNodes(parent);
+      return {
+        parent,
+        nodes,
+        files: listFiles(parent),
+        truncated: nodes.length >= NODE_LIMIT,
+      };
+    });
     return resolved;
   };
 
@@ -390,15 +433,27 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
         // Indexing or querying failed outright. Returning an empty
         // contribution with the reason recorded degrades only this provider,
         // leaving any other provider's findings intact.
+        //
+        // Every kind this provider claims becomes a gap. Without that, the
+        // standing declaration still says "symbol: full support" and the
+        // accounting reads "supplied, 0 records" — a project reported as
+        // having no code, from a run where nothing could be read.
+        const reason = error instanceof Error ? error.message : String(error);
+        const failedGaps: CapabilityGap[] = capabilities.declarations
+          .filter((declaration) => declaration.support !== "none")
+          .map((declaration) => ({
+            kind: declaration.kind,
+            language: declaration.language,
+            reason: `extraction failed for ${root.name}: ${reason}`,
+          }));
+
         return {
           providerId: PROVIDER_ID,
           providerVersion: installed ?? VERIFIED_VERSION,
           rootName: root.name,
           records: emptyRecords(),
-          gaps: [...standingGaps(), ...versionGap],
-          failures: [
-            { scope: root.name, reason: error instanceof Error ? error.message : String(error) },
-          ],
+          gaps: [...failedGaps, ...standingGaps(), ...versionGap],
+          failures: [{ scope: root.name, reason }],
         };
       }
     },

@@ -136,6 +136,8 @@ export interface RunContext {
   /** Quoted from the project's own prose where it has any, never composed. */
   readonly description: string | null;
   readonly roots: readonly RootSummaryFact[];
+  /** The system's shape as one picture. Mermaid source, like a flow's. */
+  readonly mapDiagram: string;
   readonly dispositions: DispositionCounts;
   /** Endpoints belonging to no detected feature, so the count stays honest. */
   readonly unassignedEndpointCount: number;

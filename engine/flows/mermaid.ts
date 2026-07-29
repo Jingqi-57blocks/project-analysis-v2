@@ -9,6 +9,7 @@
  */
 
 import type { FeatureFlow, FlowStep } from "./types.js";
+import type { MapEdge } from "../kb/facts.js";
 
 /**
  * Mermaid has no escape syntax inside node labels: a `"` ends the label and a
@@ -163,4 +164,43 @@ export function featureOverviewMermaid(
 /** A Mermaid-safe identifier for arbitrary text. */
 function slug(text: string): string {
   return text.replaceAll(/[^\w]/g, "_");
+}
+
+/**
+ * The project map as a diagram.
+ *
+ * The edge kinds carry different meanings — one of our services calling
+ * another is not the same as either of them calling Stripe — so they are drawn
+ * with different shapes rather than left for a reader to infer from names.
+ */
+export function mapToMermaid(edges: readonly MapEdge[]): string {
+  if (edges.length === 0) return "flowchart LR\n  none[\"no connections were observed\"]";
+
+  const lines = ["flowchart LR"];
+  const declared = new Set<string>();
+  const seenEdges = new Set<string>();
+
+  const declare = (name: string, kind: MapEdge["kind"], side: "from" | "to"): string => {
+    const id = `n_${slug(name)}`;
+    if (declared.has(id)) return id;
+    declared.add(id);
+
+    const label = escapeLabel(name);
+    if (kind === "datastore" && side === "to") lines.push(`  ${id}[("${label}")]`);
+    else if (kind === "external" && side === "to") lines.push(`  ${id}(["${label}"])`);
+    else lines.push(`  ${id}["${label}"]`);
+    return id;
+  };
+
+  for (const edge of edges) {
+    const from = declare(edge.from, edge.kind, "from");
+    const to = declare(edge.to, edge.kind, "to");
+    const label = edge.detail === null ? "" : `|"${escapeLabel(edge.detail)}"|`;
+    const line = `  ${from} -->${label} ${to}`;
+    if (seenEdges.has(line)) continue;
+    seenEdges.add(line);
+    lines.push(line);
+  }
+
+  return lines.join("\n");
 }

@@ -147,6 +147,25 @@ function conditionsIn(
 const EXIT_KINDS = new Set<string>(["return_statement", "throw_statement"]);
 
 /**
+ * Grammars that wrap a block's contents in one more node.
+ *
+ * Go's block is `{`, `statement_list`, `}` — the statements are a level deeper
+ * than in the script grammars, where they are the block's own children.
+ * Reading only the direct children found no `return` in any Go branch, so
+ * every guard in the language this tool was built against was reported as one
+ * that carries on. Nothing downstream could tell: "continues" is a plausible
+ * answer, and it was published as fact.
+ */
+const STATEMENT_WRAPPERS = new Set<string>(["statement_list", "statement_block"]);
+
+/** The statements a block runs, whichever level its grammar puts them at. */
+function statementsOf(block: SgNode): readonly SgNode[] {
+  const children = block.children();
+  const wrapper = children.find((child) => STATEMENT_WRAPPERS.has(child.kind() as string));
+  return wrapper === undefined ? children : wrapper.children();
+}
+
+/**
  * What happens when the branch this condition guards is taken.
  *
  * A branch that leaves the function is a rejection: the work stops there. One
@@ -164,9 +183,7 @@ function guardedOutcome(node: SgNode): "rejects" | "continues" | null {
       if (body === undefined || body === null) return null;
 
       // Only the branch's own exits count; a nested function's return is its.
-      const exits = body
-        .children()
-        .some((child) => EXIT_KINDS.has(child.kind() as string));
+      const exits = statementsOf(body).some((child) => EXIT_KINDS.has(child.kind() as string));
       return exits ? "rejects" : "continues";
     }
     current = current.parent();
