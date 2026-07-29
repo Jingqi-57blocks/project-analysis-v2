@@ -183,6 +183,14 @@ export interface TestPresence {
   readonly sample: readonly string[];
 }
 
+export interface EndpointPermission {
+  readonly rootName: string;
+  readonly method: string | null;
+  readonly path: string;
+  /** The middleware declared on the route — auth checks, validation, and more. */
+  readonly middleware: readonly string[];
+}
+
 export interface FeatureDetail {
   readonly feature: FeatureFact;
   readonly flows: readonly FeatureFlowFact[];
@@ -323,6 +331,30 @@ export class KnowledgeBase {
     if (feature === undefined) return [];
     const owned = new Set(feature.filePaths);
     return this.guards().filter((guard) => owned.has(`${guard.rootName}/${guard.source.relPath}`));
+  }
+
+  /**
+   * Each of a capability's endpoints, with the access checks declared on it.
+   *
+   * The declared authorisation only — the middleware named on the route. A
+   * check written inside a handler is out of reach, so an endpoint with nothing
+   * here is one where no check was *declared*, not one that is provably open;
+   * and a capability whose endpoints show only a bare "signed in" enforces any
+   * finer permission (who may approve, say) inside the handler, not at the
+   * boundary. Stated so a reader draws the honest conclusion.
+   */
+  permissionsForFeature(featureId: string): readonly EndpointPermission[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const key = (route: { rootName: string; method: string | null; path: string }): string =>
+      `${route.rootName} ${route.method ?? "ANY"} ${route.path}`;
+    const routes = new Map(this.endpoints().map((route) => [key(route), route] as const));
+    return feature.endpoints.map((endpoint) => ({
+      rootName: endpoint.rootName,
+      method: endpoint.method,
+      path: endpoint.path,
+      middleware: routes.get(key(endpoint))?.middleware ?? [],
+    }));
   }
 
   /**

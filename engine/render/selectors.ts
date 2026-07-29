@@ -69,6 +69,7 @@ const SELECTORS: Readonly<Record<string, Resolver>> = {
   decisions: (kb) => kb.decisions(),
   "feature-decisions": (kb, id) => (id === null ? [] : kb.decisionsForFeature(id)),
   "feature-guards": (kb, id) => (id === null ? [] : kb.guardsForFeature(id)),
+  "feature-permissions": (kb, id) => (id === null ? [] : kb.permissionsForFeature(id)),
   guards: (kb) => kb.guards(),
   "structural-findings": (kb, severity) => kb.structuralFindings(severity ?? undefined),
   "feature-findings": (kb, severity) => kb.featureFindings(severity ?? undefined),

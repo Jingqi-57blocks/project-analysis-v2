@@ -49,6 +49,15 @@
       "omitWhenEmpty": true
     },
     {
+      "id": "who-can",
+      "kind": "llm",
+      "heading": "Who can do what",
+      "prompt": "prompts/who-can.md",
+      "requires": ["feature-permissions:$capability"],
+      "contract": { "maxWords": 500, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
       "id": "data",
       "kind": "code",
       "heading": "What it remembers",
