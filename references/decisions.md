@@ -28,6 +28,13 @@ own, which is where the rule a reader actually needs usually lives — `if type
 **Nothing truncated** on either target, at a bound of 6 levels and 32
 branches. The bound exists for machine-generated code; neither of these is.
 
+## What it costs
+
+Reading 400 WCP Go files — 102,224 lines — takes **1.6 s**, or 15.5 µs per
+line, parsing included. Against a whole-project analyze of roughly 13 s that is
+affordable, and it happens once when the knowledge base is built, never on
+export.
+
 ## What a branch does not record
 
 Its effects. Tables and calls have readers of their own with their own
