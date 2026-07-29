@@ -16,7 +16,18 @@ import { readDerived, readDerivedFor, readDerivedOne, readLinks, readLinksTo } f
 import { derivedKey, type DerivedKind, type DerivedRecords } from "./kinds.js";
 import { readRecords } from "../structural/persist.js";
 import type { StructuralKind } from "../structural/kinds.js";
-import type { DataAccessRecord, RouteRecord } from "../structural/boundaries.js";
+import type {
+  AuthAnnotationRecord,
+  DataAccessRecord,
+  OutboundCallRecord,
+  RouteRecord,
+} from "../structural/boundaries.js";
+import type { PackageDependencyRecord } from "../structural/dependencies.js";
+import type {
+  DiscardedErrorRecord,
+  ErrorHandlingRecord,
+  TransactionBoundaryRecord,
+} from "../structural/rules.js";
 import type {
   ConstraintRecord,
   DataRelationRecord,
@@ -149,6 +160,21 @@ export interface EntityModel {
   readonly fields: readonly FieldRecord[];
   readonly relations: readonly DataRelationRecord[];
   readonly constraints: readonly ConstraintRecord[];
+}
+
+export interface DataOwnership {
+  readonly table: string;
+  readonly writers: readonly string[];
+  /** Roots that read but were not seen to write — reading across a boundary. */
+  readonly readers: readonly string[];
+  readonly sharing: "single-owner" | "read-across-a-boundary" | "written-by-several";
+}
+
+export interface ReliabilitySignal {
+  readonly rootName: string;
+  readonly errorHandlingSites: number;
+  readonly transactionBoundaries: number;
+  readonly discardedErrors: number;
 }
 
 export interface FeatureDetail {
@@ -505,6 +531,98 @@ export class KnowledgeBase {
         recordCount: row.record_count,
       })),
     };
+  }
+
+  /** Every observed read or write of a store, as recorded. */
+  dataAccess(): readonly DataAccessRecord[] {
+    return this.structural("data-access") as readonly DataAccessRecord[];
+  }
+
+  /**
+   * Who writes and who reads each table, and how strong the sharing evidence is.
+   *
+   * A table one service writes and another only reads is a boundary crossed
+   * without an interface; a table two services both write is a rule enforced in
+   * two places. The distinction a reader needs is which of those it is, so it
+   * is computed here rather than left for prose to re-derive and get wrong.
+   *
+   * `entity` is null for a query built at runtime; those cannot be attributed
+   * to a table and are left out rather than bundled under a made-up name.
+   */
+  dataOwnership(): readonly DataOwnership[] {
+    const WRITES = new Set(["write", "update", "delete", "schema-change"]);
+    const byTable = new Map<string, { writers: Set<string>; readers: Set<string> }>();
+    for (const access of this.dataAccess()) {
+      if (access.entity === null || access.entity === "") continue;
+      const entry = byTable.get(access.entity) ?? { writers: new Set(), readers: new Set() };
+      if (WRITES.has(access.operation)) entry.writers.add(access.rootName);
+      else if (access.operation === "read") entry.readers.add(access.rootName);
+      else entry.readers.add(access.rootName);
+      byTable.set(access.entity, entry);
+    }
+
+    return [...byTable.entries()]
+      .map(([table, { writers, readers }]) => {
+        const readOnly = [...readers].filter((root) => !writers.has(root));
+        const sharing: DataOwnership["sharing"] =
+          writers.size > 1
+            ? "written-by-several"
+            : readOnly.length > 0 && writers.size >= 1
+              ? "read-across-a-boundary"
+              : "single-owner";
+        return {
+          table,
+          writers: [...writers].sort(),
+          readers: readOnly.sort(),
+          sharing,
+        };
+      })
+      .sort((a, b) => a.table.localeCompare(b.table));
+  }
+
+  /** Declared authentication and authorization requirements. */
+  authAnnotations(): readonly AuthAnnotationRecord[] {
+    return this.structural("auth-annotation") as readonly AuthAnnotationRecord[];
+  }
+
+  /** Calls leaving a service over a network boundary. */
+  outboundCalls(): readonly OutboundCallRecord[] {
+    return this.structural("outbound-call") as readonly OutboundCallRecord[];
+  }
+
+  /** Third-party packages each service declares it depends on. */
+  dependencies(): readonly PackageDependencyRecord[] {
+    return this.structural("package-dependency") as readonly PackageDependencyRecord[];
+  }
+
+  /**
+   * Signals about how the code copes with failure, per service.
+   *
+   * Counts, not verdicts: the presence of a catch says nothing about whether it
+   * swallows the error, and a reader is told exactly that. Grouped by service
+   * because "which part has no transactions" is the shape of the question.
+   */
+  reliability(): readonly ReliabilitySignal[] {
+    const errors = this.structural("error-handling") as readonly ErrorHandlingRecord[];
+    const transactions = this.structural("transaction-boundary") as readonly TransactionBoundaryRecord[];
+    const discarded = this.structural("discarded-error") as readonly DiscardedErrorRecord[];
+
+    const roots = new Set<string>([
+      ...errors.map((record) => record.rootName),
+      ...transactions.map((record) => record.rootName),
+      ...discarded.map((record) => record.rootName),
+    ]);
+    const count = (records: readonly { rootName: string }[], root: string): number =>
+      records.filter((record) => record.rootName === root).length;
+
+    return [...roots]
+      .sort()
+      .map((root) => ({
+        rootName: root,
+        errorHandlingSites: count(errors, root),
+        transactionBoundaries: count(transactions, root),
+        discardedErrors: count(discarded, root),
+      }));
   }
 
   /** What broke without stopping the run. */
