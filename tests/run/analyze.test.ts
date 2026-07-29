@@ -164,6 +164,7 @@ describe("runAnalyze — happy path", () => {
     const result = runAnalyze({
       paths: [alphaPath, betaPath],
       dbPath,
+      readers: NO_READERS,
       providers: [fakeProvider("a", "available")],
     });
 
@@ -215,7 +216,7 @@ describe("runAnalyze — knowledge-base location", () => {
     // "alpha-output" starts with "alpha" as a string but is not inside it —
     // a prefix comparison rather than a path comparison would wrongly refuse.
     const siblingDb = join(workDir, "alpha-output", "kb.sqlite");
-    expect(() => runAnalyze({ paths: [alphaPath], dbPath: siblingDb })).not.toThrow();
+    expect(() => runAnalyze({ paths: [alphaPath], dbPath: siblingDb, readers: NO_READERS })).not.toThrow();
     expect(existsSync(siblingDb)).toBe(true);
   });
 
