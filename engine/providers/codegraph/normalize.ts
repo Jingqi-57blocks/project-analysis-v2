@@ -157,6 +157,7 @@ export function toRoute(rootName: string, node: CodeGraphNode): RouteRecord {
     // routes confidently and sometimes wrongly.
     handlerSymbolId: null,
     handlerName: null,
+    handlerCandidates: [],
     middleware: [],
     provenance: inferred(source, "low"),
   };

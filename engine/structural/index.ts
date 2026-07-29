@@ -132,3 +132,5 @@ export { buildEnclosingIndex } from "./enclosing.js";
 
 export type { CoverageLevel, CoverageCell, KindCoverage, CoverageMatrix, ProviderReport } from "./coverage.js";
 export { buildCoverageMatrix, renderCoverageMatrix } from "./coverage.js";
+
+export { consolidateRoutes } from "./routededupe.js";

@@ -25,6 +25,15 @@ export interface RouteRecord {
   readonly handlerSymbolId: SymbolId | null;
   /** Kept even when the handler symbol is unresolved — an anonymous closure still has a site. */
   readonly handlerName: string | null;
+  /**
+   * Every name the registration could mean, most-likely first. A wrapped
+   * registration reads two ways — `ginSwagger.WrapHandler(swaggerFiles.Handler)`
+   * is the wrapper doing the work, `e.CatchError(leave.Creation)` is the inner
+   * function doing it — and a reader cannot tell which without knowing what
+   * the repository defines. Recording both lets the post-assembly join pick
+   * the one that resolves instead of a heuristic guessing here.
+   */
+  readonly handlerCandidates: readonly string[];
   readonly middleware: readonly string[];
   readonly provenance: Provenance;
 }

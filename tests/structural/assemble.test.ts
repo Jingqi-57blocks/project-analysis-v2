@@ -39,7 +39,9 @@ function routeContribution(
           method: "POST",
           path: "/users",
           handlerSymbolId: handlerId,
-          handlerName: overrides.handlerName === undefined ? "CreateUser" : overrides.handlerName,
+          handlerName:
+            overrides.handlerName === undefined ? "CreateUser" : overrides.handlerName,
+          handlerCandidates: [],
           middleware: [],
           provenance,
         },

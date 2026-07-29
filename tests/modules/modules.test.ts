@@ -43,6 +43,7 @@ function route(path: string, handler: SymbolRecord | null, rootName = "svc"): Ro
     path,
     handlerSymbolId: handler?.id ?? null,
     handlerName: handler?.name ?? null,
+    handlerCandidates: [],
     middleware: [],
     provenance: inferred(lineRef(rootName, "routes.go", 3), "low"),
   };
