@@ -24,7 +24,14 @@ const DEFAULT_DB_PATH = "./.analysis/kb.sqlite";
 
 function flagValue(argv: readonly string[], flag: string): string | undefined {
   const index = argv.indexOf(flag);
-  return index >= 0 ? argv[index + 1] : undefined;
+  if (index < 0) return undefined;
+  const value = argv[index + 1];
+  // Silently falling back would use a different knowledge base, or drop the
+  // language, without saying so.
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`${flag} needs a value`);
+  }
+  return value;
 }
 
 function params(argv: readonly string[]): Record<string, string> {
@@ -108,7 +115,11 @@ function runAssemble(argv: readonly string[]): number {
   return 0;
 }
 
-function main(argv: readonly string[]): number {
+function main(input: readonly string[]): number {
+  // `pnpm run render -- prepare ...` forwards the separator as an argument.
+  // Read positionally, that separator was the command, so the documented
+  // invocation always printed usage and exited 1.
+  const argv = input[0] === "--" ? input.slice(1) : input;
   const command = argv[0];
   const rest = argv.slice(1);
   if (command === "prepare") return runPrepare(rest);

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -10,7 +10,8 @@ import { openKnowledgeBase, type KnowledgeBase } from "../../engine/kb/query.js"
 import { loadTemplate, parseTemplate } from "../../engine/render/template.js";
 import { prepare } from "../../engine/render/prepare.js";
 import { assemble, UnansweredSectionsError } from "../../engine/render/assemble.js";
-import { SelectorError } from "../../engine/render/selectors.js";
+import { resolveSelector, SelectorError } from "../../engine/render/selectors.js";
+import { hasFragment } from "../../engine/render/fragments.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
 import { createSqlSchemaProvider } from "../../engine/datamodel/sql.js";
@@ -247,5 +248,137 @@ describe("assemble", () => {
       store = openStore(join(workDir, "kb.sqlite"));
       kb = openKnowledgeBase(store);
     }
+  });
+});
+
+describe("what the review found", () => {
+  it("hands a fragment data a parameterized selector fetched", () => {
+    // The section writes `module-flows:$module`; the fragment asks for
+    // `module-flows`. Keyed only as written, every module document said
+    // "nothing to show" over flows it had been given.
+    const modules = kb.modules();
+    if (modules.length === 0) return;
+
+    const outDir = join(workDir, "out", "param-key");
+    prepare({
+      template: parseTemplate(
+        JSON.stringify({
+          id: "m",
+          title: "$module",
+          params: ["module"],
+          sections: [
+            { id: "flows", kind: "code", heading: "Flows", fragment: "module-surface", requires: ["module-detail:$module"] },
+          ],
+        }),
+        templateDir,
+      ),
+      kb,
+      outDir,
+      params: { module: modules[0]!.id },
+    });
+
+    const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
+    expect(partial).not.toContain("_Nothing to show here._");
+    expect(partial).toContain("| Part | Symbols |");
+  });
+
+  it("refuses a param that names nothing in this knowledge base", () => {
+    expect(() =>
+      prepare({
+        template: parseTemplate(
+          JSON.stringify({
+            id: "m",
+            title: "$module",
+            params: ["module"],
+            sections: [
+              { id: "s", kind: "code", fragment: "module-surface", requires: ["module-detail:$module"] },
+            ],
+          }),
+          templateDir,
+        ),
+        kb,
+        outDir: join(workDir, "out", "ghost-module"),
+        params: { module: "mod_does_not_exist" },
+      }),
+    ).toThrow(/Nothing in this knowledge base matches module=mod_does_not_exist/);
+  });
+
+  it("keeps a section that asks only for what could not be established", () => {
+    // `coverage-notes` matched a `coverage` prefix meant for `coverage:<kind>`,
+    // so the section whose job is stating limits was always omitted.
+    const outDir = join(workDir, "out", "limits");
+    prepare({
+      template: parseTemplate(
+        JSON.stringify({
+          id: "l",
+          title: "T",
+          sections: [
+            {
+              id: "limitations",
+              kind: "code",
+              heading: "Limits",
+              fragment: "limitations",
+              requires: ["coverage-notes"],
+              omitWhenEmpty: true,
+            },
+          ],
+        }),
+        templateDir,
+      ),
+      kb,
+      outDir,
+    });
+    expect(readFileSync(join(outDir, "report.partial.md"), "utf8")).toContain("## Limits");
+  });
+
+  it("clears an answer written from an older slice", () => {
+    const { outDir } = prepareInto("stale");
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "Written from the old data.");
+    prepare({ template: loadTemplate(templateDir), kb, outDir });
+    expect(existsSync(join(outDir, "tasks", "intro", "answer.md"))).toBe(false);
+  });
+
+  it("refuses a section the prepared document has no hole for", () => {
+    const { outDir } = prepareInto("no-marker");
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "An answer.");
+    const partialPath = join(outDir, "report.partial.md");
+    writeFileSync(
+      partialPath,
+      readFileSync(partialPath, "utf8").replaceAll(/<!-- llm:intro:(begin|end) -->/g, ""),
+    );
+    expect(() => assemble(outDir)).toThrow(/no marker for this section/);
+  });
+
+  it("refuses when a task directory named by the manifest is missing", () => {
+    // Enumerating tasks/ alone, an unwritten section left its marker in the
+    // document and assemble exited 0.
+    const { outDir } = prepareInto("no-task");
+    rmSync(join(outDir, "tasks", "intro"), { recursive: true, force: true });
+    expect(() => assemble(outDir)).toThrow(UnansweredSectionsError);
+  });
+
+  it("says an answer was refused rather than never written", () => {
+    const { outDir } = prepareInto("refused");
+    writeFileSync(
+      join(outDir, "tasks", "intro", "answer.md"),
+      Array.from({ length: 40 }, (_, n) => `word${n}`).join(" "),
+    );
+    const result = assemble(outDir, true);
+    expect(result.markdown).toContain("written but refused");
+    expect(result.markdown).not.toContain("was not written.");
+  });
+
+  it("counts headings outside fenced code, and allows sub-headings under each item", () => {
+    const { outDir } = prepareInto("headings");
+    writeFileSync(
+      join(outDir, "tasks", "intro", "answer.md"),
+      "Body.\n\n```md\n# not a heading\n```\n",
+    );
+    expect(() => assemble(outDir)).not.toThrow();
+  });
+
+  it("does not treat an inherited property as a fragment or a selector", () => {
+    expect(hasFragment("toString")).toBe(false);
+    expect(() => resolveSelector(kb, "toString", {})).toThrow(SelectorError);
   });
 });

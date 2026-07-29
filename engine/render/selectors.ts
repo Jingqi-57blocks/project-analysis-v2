@@ -35,6 +35,8 @@ const SELECTORS: Readonly<Record<string, Resolver>> = {
   "module-detail": (kb, id) => (id === null ? null : kb.moduleDetail(id)),
   "module-flows": (kb, id) => (id === null ? [] : kb.flowsForModule(id)),
   "module-rules": (kb, id) => (id === null ? [] : kb.rulesForModule(id)),
+  "module-entities": (kb, id) => (id === null ? [] : kb.entitiesForModule(id)),
+  "module-findings": (kb, id) => (id === null ? [] : kb.findingsForModule(id)),
   components: (kb) => kb.components(),
   endpoints: (kb) => kb.endpoints(),
   screens: (kb) => kb.screens(),
@@ -72,10 +74,11 @@ export function resolveSelector(
   params: Readonly<Record<string, string>>,
 ): unknown {
   const [name, rawArgument] = splitSelector(selector);
-  const resolver = SELECTORS[name];
-  if (resolver === undefined) {
+  // Own properties only, or `toString` resolves to a function.
+  if (!Object.hasOwn(SELECTORS, name)) {
     throw new SelectorError(selector, `Available: ${selectorNames().join(", ")}`);
   }
+  const resolver = SELECTORS[name]!;
 
   let argument: string | null = rawArgument;
   if (rawArgument !== null && rawArgument.startsWith("$")) {

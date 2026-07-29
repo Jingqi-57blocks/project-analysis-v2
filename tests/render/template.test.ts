@@ -95,3 +95,84 @@ describe("the shipped templates", () => {
     expect(orphaned).toEqual(["endpoints-table"]);
   });
 });
+
+describe("a fragment gets what its section was told to require", () => {
+  // The check CI was missing: a template can name a real fragment and a real
+  // selector and still hand the fragment nothing it reads, because a
+  // parameterized selector is keyed with its argument.
+  const READS: Readonly<Record<string, readonly string[]>> = {
+    "project-summary": ["run-context"],
+    "project-map": ["run-context", "map-edges"],
+    "features-table": ["features"],
+    "screens-table": ["screens"],
+    "endpoints-table": ["endpoints"],
+    "data-model": ["module-entities", "entity-models"],
+    "rules-table": ["module-rules", "feature-rules", "business-rules"],
+    "value-sets": ["value-sets"],
+    flows: ["module-flows", "feature-flows"],
+    "findings-table": ["structural-findings", "module-findings", "feature-findings"],
+    "signals-table": ["signals"],
+    "module-surface": ["module-detail"],
+    limitations: ["coverage-notes", "extraction-failures"],
+  };
+
+  for (const id of ["overview", "module"]) {
+    it(`${id} gives every code section a selector its fragment reads`, () => {
+      for (const section of loadTemplate(id).sections) {
+        if (section.kind !== "code") continue;
+        const reads = READS[section.fragment];
+        expect(reads, `no expectation recorded for ${section.fragment}`).toBeDefined();
+        const bases = section.requires.map((selector) => selector.split(":")[0]!);
+        expect(
+          reads!.some((name) => bases.includes(name)),
+          `${section.id} requires [${bases.join(", ")}] but ${section.fragment} reads [${reads!.join(", ")}]`,
+        ).toBe(true);
+      }
+    });
+  }
+});
+
+describe("contracts are checked when the template is read", () => {
+  it("refuses a word limit that is not a number", () => {
+    // `100 > "ten"` is NaN-false, so the check silently does nothing.
+    expect(() =>
+      parseTemplate(
+        json({
+          id: "t",
+          title: "T",
+          sections: [
+            { id: "a", kind: "llm", prompt: "p.md", requires: [], contract: { maxWords: "ten" } },
+          ],
+        }),
+        "/t",
+      ),
+    ).toThrow(/positive whole number/);
+  });
+
+  it("refuses a null heading level", () => {
+    expect(() =>
+      parseTemplate(
+        json({
+          id: "t",
+          title: "T",
+          sections: [
+            { id: "a", kind: "llm", prompt: "p.md", requires: [], contract: { maxHeadingLevel: null } },
+          ],
+        }),
+        "/t",
+      ),
+    ).toThrow(/positive whole number/);
+  });
+
+  it("refuses a section id that would escape its directory", () => {
+    expect(() =>
+      parseTemplate(json({ id: "t", title: "T", sections: [{ id: "../../escaped", kind: "code", fragment: "limitations" }] }), "/t"),
+    ).toThrow(/only letters, digits/);
+  });
+
+  it("refuses a section id that would break the marker comment", () => {
+    expect(() =>
+      parseTemplate(json({ id: "t", title: "T", sections: [{ id: "a-->b", kind: "code", fragment: "limitations" }] }), "/t"),
+    ).toThrow(/only letters, digits/);
+  });
+});

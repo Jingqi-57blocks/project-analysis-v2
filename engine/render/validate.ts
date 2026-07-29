@@ -22,6 +22,13 @@ export interface AnswerProblem {
 
 const HEADING = /^(#{1,6})\s+\S/gm;
 const CITATION = /\[kb:([^\]]+)\]/g;
+const FENCE = /^```[^\n]*\n[\s\S]*?^```/gm;
+
+/** A `#` inside a fenced block is an example, not a heading. */
+function headingLevels(answer: string): number[] {
+  const prose = answer.replaceAll(FENCE, "");
+  return [...prose.matchAll(HEADING)].map((match) => match[1]!.length);
+}
 
 export function countWords(text: string): number {
   return text.trim() === "" ? 0 : text.trim().split(/\s+/).length;
@@ -65,7 +72,7 @@ export function validateAnswer(
     }
   }
 
-  const headings = [...answer.matchAll(HEADING)].map((match) => match[1]!.length);
+  const headings = headingLevels(answer);
   if (contract.maxHeadingLevel !== undefined) {
     const tooShallow = headings.filter((level) => level < contract.maxHeadingLevel!);
     if (tooShallow.length > 0) {
@@ -77,8 +84,13 @@ export function validateAnswer(
 
   if (contract.requiredHeadings !== undefined) {
     const expected = expectedCount(contract.requiredHeadings, data);
-    if (expected !== null && headings.length !== expected) {
-      refuse(`${headings.length} headings for ${expected} items — one per item was asked for`);
+    // Counted at the shallowest level used. An answer that gives each item a
+    // heading and then breaks it down with sub-headings satisfies "one per
+    // item"; counting every heading refused it.
+    const top = headings.length === 0 ? 0 : Math.min(...headings);
+    const atTop = headings.filter((level) => level === top).length;
+    if (expected !== null && atTop !== expected) {
+      refuse(`${atTop} top-level headings for ${expected} items — one per item was asked for`);
     }
   }
 

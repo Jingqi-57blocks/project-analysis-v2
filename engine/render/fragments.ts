@@ -74,20 +74,31 @@ function mermaid(source: string): string {
 }
 
 /**
+ * Whether any reader supplied records of a kind.
+ *
+ * Not how many. `capability_results` holds one row per provider *and*
+ * language, each carrying that provider's whole count for the kind, so
+ * summing the column counts the same records several times over — a number
+ * stated to a reader that no row in the knowledge base supports.
+ */
+function anyRead(coverage: Coverage | undefined): boolean {
+  return (coverage?.outcomes ?? []).some((outcome) => outcome.recordCount > 0);
+}
+
+/**
  * How to read an empty list — the project has none, or nobody looked.
  *
  * When the readers did supply records of that kind, their standing limits are
- * not the explanation and printing them implies otherwise. That case gets a
- * plain statement of what was read instead.
+ * not the explanation and printing them implies otherwise.
  */
 function coverageLine(coverage: Coverage | undefined, subject: string): string {
   if (coverage === undefined) return "";
   if (!coverage.attempted) {
     return `No reader in this run looked for ${subject}, so nothing here says whether the project has any.`;
   }
-
-  const found = coverage.outcomes.reduce((total, outcome) => total + outcome.recordCount, 0);
-  if (found > 0) return `${found} were read. None of them ended up here.`;
+  if (anyRead(coverage)) {
+    return `${subject[0]!.toUpperCase()}${subject.slice(1)} were read, but none of them belong here.`;
+  }
 
   const reasons = coverage.outcomes
     .filter((outcome) => outcome.reason !== null)
@@ -135,15 +146,12 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     const features = pick<readonly FeatureFact[]>(input, "features") ?? [];
     if (features.length === 0) {
       const coverage = pick<Coverage>(input, "coverage:route");
-      const routes = (coverage?.outcomes ?? []).reduce(
-        (total, outcome) => total + outcome.recordCount,
-        0,
-      );
       // A capability needs one term to appear in more than one kind of place.
       // With entry points read and none forming one, the absence is about the
-      // grouping, not about whether anything was looked at.
-      return routes > 0
-        ? `${routes} entry points were read, but no term appeared in enough places to name a capability.`
+      // grouping rather than about whether anything was looked at. The count
+      // comes from the records themselves; the coverage rows cannot be summed.
+      return anyRead(coverage)
+        ? `${input.kb.endpoints().length} entry points were read, but no term appeared in enough places to name a capability.`
         : coverageLine(coverage, "entry points");
     }
     return table(
@@ -193,7 +201,9 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
   },
 
   "data-model": (input) => {
-    const models = (pick<readonly (EntityModel | null)[]>(input, "entity-models") ?? []).filter(
+    const models = (
+      firstOf<readonly (EntityModel | null)[]>(input, ["module-entities", "entity-models"]) ?? []
+    ).filter(
       (model): model is EntityModel => model !== null,
     );
     if (models.length === 0) {
@@ -293,16 +303,20 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         "structural-findings",
       ) ?? [];
     const perFeature =
-      pick<readonly { featureName: string; severity: string; title: string; finding: string }[]>(
+      firstOf<readonly { featureName: string; severity: string; title: string; finding: string }[]>(
         input,
-        "feature-findings",
+        ["module-findings", "feature-findings"],
       ) ?? [];
 
     const rows = [
       ...structural.map((finding) => [finding.severity, "the architecture", finding.title, finding.finding]),
       ...perFeature.map((finding) => [finding.severity, finding.featureName, finding.title, finding.finding]),
     ];
-    if (rows.length === 0) return "Nothing was found that needs a second look.";
+    if (rows.length === 0) {
+      // Not a clean bill of health: findings are derived from what was read,
+      // and a run that read little derives little.
+      return "No findings were derived. That is a statement about what this analysis looked for, not a verdict on the code.";
+    }
     return table(["Severity", "About", "Finding", "What was observed"], rows);
   },
 
@@ -376,12 +390,12 @@ export function fragmentNames(): readonly string[] {
   return Object.keys(FRAGMENTS).sort();
 }
 
+/** Own properties only — `toString` is not a fragment. */
 export function hasFragment(name: string): boolean {
-  return name in FRAGMENTS;
+  return Object.hasOwn(FRAGMENTS, name);
 }
 
 export function renderFragment(name: string, input: FragmentInput): string {
-  const fragment = FRAGMENTS[name];
-  if (fragment === undefined) throw new FragmentError(name);
-  return fragment(input);
+  if (!hasFragment(name)) throw new FragmentError(name);
+  return FRAGMENTS[name]!(input);
 }

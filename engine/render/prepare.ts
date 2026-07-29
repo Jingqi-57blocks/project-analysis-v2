@@ -10,7 +10,7 @@
  * Code, Codex CLI or anything else with an agent in it.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { KnowledgeBase } from "../kb/query.js";
@@ -48,16 +48,45 @@ export interface PrepareResult {
   readonly omitted: readonly string[];
 }
 
+interface Collected {
+  /** Keyed as the template wrote it — this is what the task's data.json holds. */
+  readonly slice: Record<string, unknown>;
+  /**
+   * The same values, also reachable by the selector's bare name.
+   *
+   * A section writes `module-flows:$module`; the fragment that renders flows
+   * asks for `module-flows`. Keyed only as written, every parameterized
+   * lookup missed and the section rendered "nothing to show" over data it
+   * had been handed.
+   */
+  readonly lookup: Record<string, unknown>;
+  /** Parameterized selectors that resolved to nothing at all. */
+  readonly unresolved: readonly string[];
+}
+
 function collect(
   kb: KnowledgeBase,
   section: Section,
   params: Readonly<Record<string, string>>,
-): Record<string, unknown> {
-  const data: Record<string, unknown> = {};
+): Collected {
+  const slice: Record<string, unknown> = {};
+  const lookup: Record<string, unknown> = {};
+  const unresolved: string[] = [];
+
   for (const selector of section.requires) {
-    data[selector] = resolveSelector(kb, selector, params);
+    const value = resolveSelector(kb, selector, params);
+    slice[selector] = value;
+    lookup[selector] = value;
+
+    const base = selector.split(":")[0]!;
+    if (!(base in lookup)) lookup[base] = value;
+
+    // Null from a `$param` selector means the thing named does not exist —
+    // distinct from a list that is legitimately empty.
+    if (value === null && selector.includes(":$")) unresolved.push(selector);
   }
-  return data;
+
+  return { slice, lookup, unresolved };
 }
 
 export function prepare(options: PrepareOptions): PrepareResult {
@@ -82,14 +111,25 @@ export function prepare(options: PrepareOptions): PrepareResult {
   let codeSections = 0;
 
   for (const section of template.sections) {
-    const data = collect(kb, section, params);
+    const { slice, lookup, unresolved } = collect(kb, section, params);
 
-    // Coverage is about how to read an empty section, so it never keeps one
-    // alive. Counting it, every section that asked for coverage stayed.
-    const content = Object.entries(data)
-      .filter(([selector]) => !selector.startsWith("coverage"))
+    if (unresolved.length > 0) {
+      // A document about something that is not there would read as a
+      // confident description of an empty thing.
+      throw new Error(
+        `Nothing in this knowledge base matches ${unresolved
+          .map((selector) => `${selector.split(":$")[1]!}=${params[selector.split(":$")[1]!]!}`)
+          .join(", ")}. Check \`export\` for the ids this run holds.`,
+      );
+    }
+
+    // Coverage says how to read an empty section, so it never keeps one alive
+    // — but `coverage-notes` is content, and matching it by prefix dropped the
+    // one section whose whole job is saying what could not be established.
+    const content = Object.entries(slice)
+      .filter(([selector]) => !selector.startsWith("coverage:"))
       .map(([, value]) => value);
-    if (section.omitWhenEmpty === true && content.every(isEmptyResult)) {
+    if (section.omitWhenEmpty === true && content.length > 0 && content.every(isEmptyResult)) {
       omitted.push(section.id);
       continue;
     }
@@ -98,7 +138,7 @@ export function prepare(options: PrepareOptions): PrepareResult {
 
     if (section.kind === "code") {
       if (!hasFragment(section.fragment)) throw new FragmentError(section.fragment);
-      const body = renderFragment(section.fragment, { data, params, kb });
+      const body = renderFragment(section.fragment, { data: lookup, params, kb });
       lines.push(body === "" ? "_Nothing to show here._" : body, "");
       codeSections += 1;
       continue;
@@ -107,10 +147,14 @@ export function prepare(options: PrepareOptions): PrepareResult {
     const dir = join(tasksDir, section.id);
     mkdirSync(dir, { recursive: true });
 
+    // A prepare re-run against a changed knowledge base leaves an answer
+    // written from the old slice, which assemble would publish as ✓.
+    rmSync(join(dir, "answer.md"), { force: true });
+
     const promptPath = join(dir, "prompt.md");
     const dataPath = join(dir, "data.json");
     writeFileSync(promptPath, promptFor(template, section, options.language), "utf8");
-    writeFileSync(dataPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    writeFileSync(dataPath, `${JSON.stringify(slice, null, 2)}\n`, "utf8");
     writeFileSync(
       join(dir, "task.json"),
       `${JSON.stringify(
