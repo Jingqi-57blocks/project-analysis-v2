@@ -11,6 +11,7 @@ import { createManifestProvider } from "../providers/manifests/provider.js";
 import { createOutboundProvider } from "../providers/outbound/provider.js";
 import { createConventionsProvider } from "../providers/conventions/provider.js";
 import { createCodeGraphProvider } from "../providers/codegraph/provider.js";
+import { sharedIndexRoot } from "../providers/codegraph/cli.js";
 import { createFrameworkRoutesProvider } from "../providers/frameworkroutes/provider.js";
 import { createUiCallsProvider } from "../providers/uicalls/provider.js";
 import { createLogicProvider } from "../providers/logic/provider.js";
@@ -30,6 +31,20 @@ export interface ReaderSet {
   readonly collectors: readonly SemanticCollector[];
 }
 
+export interface ReaderOptions {
+  /**
+   * Where the code index may be written.
+   *
+   * CodeGraph writes into whatever directory it is pointed at and offers no
+   * flag to relocate that, so choosing a location and choosing what gets
+   * indexed are the same choice. Naming a directory that does not contain the
+   * roots means no symbols from it — declared as a gap, not left as silence.
+   */
+  readonly indexRoot?: string;
+  /** Skip the code index entirely, and declare the resulting absence. */
+  readonly noCodeIndex?: boolean;
+}
+
 /**
  * Every reader, for a workspace with these roots.
  *
@@ -38,11 +53,21 @@ export interface ReaderSet {
  * structure — what everything downstream actually needs — come from two cheap
  * queries. The omission is declared as a capability limit, so nothing reads it
  * as a codebase without calls.
- *
- * Its index lives beside the repositories rather than inside each of them,
- * which is what keeps the analyzed source untouched.
  */
-export function defaultReaders(rootPaths: readonly string[]): ReaderSet {
+export function defaultReaders(
+  rootPaths: readonly string[],
+  options: ReaderOptions = {},
+): ReaderSet {
+  const codeIndex = options.noCodeIndex === true
+    ? []
+    : [
+        createCodeGraphProvider({
+          callEdges: false,
+          roots: [...rootPaths],
+          ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
+        }),
+      ];
+
   return {
     structural: [
       createManifestProvider(),
@@ -52,9 +77,24 @@ export function defaultReaders(rootPaths: readonly string[]): ReaderSet {
       createUiCallsProvider(),
       createDataUsageProvider(),
       createLogicProvider(),
-      createCodeGraphProvider({ callEdges: false, roots: [...rootPaths] }),
+      ...codeIndex,
     ],
     data: [createSqlSchemaProvider(), createOrmMigrationProvider(), createGoModelProvider()],
     collectors: [createDocumentationCollector(), createCodeTextCollector()],
   };
+}
+
+/**
+ * The directory a run will write its code index into, before it writes it.
+ *
+ * Stated rather than discovered. Everything else this tool does to an analyzed
+ * project is a read, and a user told that has no way to find out otherwise
+ * except by noticing the directory afterwards.
+ */
+export function codeIndexLocation(
+  rootPaths: readonly string[],
+  options: ReaderOptions = {},
+): string | null {
+  if (options.noCodeIndex === true) return null;
+  return options.indexRoot ?? sharedIndexRoot(rootPaths);
 }

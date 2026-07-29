@@ -2,9 +2,16 @@
  * Runs one full analysis over a workspace and persists it to a knowledge base.
  *
  *   pnpm run analyze -- <path...> [--include a,b] [--exclude c,d] [--db path]
+ *                                [--index-root dir] [--no-code-index]
  *
  * The knowledge base defaults to `./.analysis/kb.sqlite`, gitignored — never
  * point `--db` inside an analyzed target; targets stay read-only.
+ *
+ * One exception, and it is stated before every run rather than discovered
+ * afterwards: the code indexer writes a cache into the directory it is
+ * pointed at and offers no flag to relocate it. `--index-root` chooses a
+ * different directory, at the cost of indexing only what is under it;
+ * `--no-code-index` skips it and declares the missing symbols as a gap.
  */
 
 import { resolve } from "node:path";
@@ -18,6 +25,8 @@ interface Args {
   readonly paths: readonly string[];
   readonly include?: readonly string[];
   readonly exclude?: readonly string[];
+  readonly indexRoot?: string;
+  readonly noCodeIndex?: boolean;
   readonly dbPath: string;
 }
 
@@ -32,7 +41,7 @@ function parseArgs(argv: readonly string[]): Args {
       .map((s) => s.trim())
       .filter(Boolean);
 
-  const valueFlags = new Set(["--db", "--include", "--exclude"]);
+  const valueFlags = new Set(["--db", "--include", "--exclude", "--index-root"]);
   const paths: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
@@ -45,16 +54,23 @@ function parseArgs(argv: readonly string[]): Args {
   }
 
   if (paths.length === 0) {
-    throw new Error("Usage: analyze <path...> [--include a,b] [--exclude c,d] [--db path]");
+    throw new Error(
+      "Usage: analyze <path...> [--include a,b] [--exclude c,d] [--db path] " +
+        "[--index-root dir] [--no-code-index]",
+    );
   }
 
   const include = splitList("--include");
   const exclude = splitList("--exclude");
 
+  const indexRoot = value("--index-root");
+
   return {
     paths,
     ...(include ? { include } : {}),
     ...(exclude ? { exclude } : {}),
+    ...(indexRoot ? { indexRoot: resolve(indexRoot) } : {}),
+    ...(argv.includes("--no-code-index") ? { noCodeIndex: true } : {}),
     dbPath: resolve(value("--db") ?? DEFAULT_DB_PATH),
   };
 }
@@ -65,6 +81,8 @@ function main(argv: readonly string[]): number {
     paths: args.paths,
     ...(args.include ? { include: args.include } : {}),
     ...(args.exclude ? { exclude: args.exclude } : {}),
+    ...(args.indexRoot ? { indexRoot: args.indexRoot } : {}),
+    ...(args.noCodeIndex ? { noCodeIndex: true } : {}),
     dbPath: args.dbPath,
   });
 
@@ -79,6 +97,11 @@ function main(argv: readonly string[]): number {
   }
   console.log(`  providers checked: ${result.providerReport.results.length}`);
   console.log(`  knowledge base: ${args.dbPath}`);
+  console.log(
+    result.codeIndexPath === null
+      ? "  code index: none written"
+      : `  code index: ${result.codeIndexPath}/.codegraph — the only thing written near the source`,
+  );
 
   return 0;
 }

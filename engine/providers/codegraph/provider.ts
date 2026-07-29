@@ -60,6 +60,13 @@ export interface CodeGraphOptions {
   readonly roots?: readonly string[];
 
   /**
+   * Index here, exactly. Named by a caller who has chosen where the cache may
+   * be written, so it is used as given rather than run through the
+   * common-ancestor rule — which would put it one directory higher than asked.
+   */
+  readonly indexRoot?: string;
+
+  /**
    * Whether to query callees per symbol.
    *
    * That loop is one subprocess per callable symbol and dominates extraction —
@@ -363,7 +370,7 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
   const sharedIndex = (): SharedIndex | null => {
     if (resolved !== undefined) return resolved;
 
-    const parent = sharedIndexRoot(options.roots ?? []);
+    const parent = options.indexRoot ?? sharedIndexRoot(options.roots ?? []);
     if (parent === null) {
       resolved = null;
       return resolved;

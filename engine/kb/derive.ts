@@ -37,6 +37,8 @@ export interface DeriveInput {
   readonly runId: string;
   readonly generatedAt: string;
   readonly workspacePath: string;
+  /** Where this run wrote a code index, when it wrote one. */
+  readonly codeIndexPath?: string | null;
 }
 
 export interface Derived {
@@ -101,6 +103,16 @@ export function derive(input: DeriveInput): Derived {
       rootCount: input.roots.length,
     }),
   ];
+
+  // The one thing this tool writes near the source it reads. Recorded here so
+  // it reaches a reader, rather than living only in the terminal output of
+  // whoever happened to run it.
+  if (input.codeIndexPath !== undefined && input.codeIndexPath !== null) {
+    notes.push({
+      subject: "code-index",
+      note: `a code index was written to ${input.codeIndexPath}/.codegraph — the only thing this analysis writes anywhere near the project, and the indexer offers no way to put it elsewhere; pass --index-root to move it or --no-code-index to skip it`,
+    });
+  }
 
   const gathered = gatherRecords(input.roots);
 
