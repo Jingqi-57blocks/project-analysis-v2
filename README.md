@@ -25,6 +25,21 @@ fixtures/   demo workspaces used to develop and grade every stage
 scripts/    development tooling
 ```
 
+## Using it
+
+```bash
+pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowledge base
+pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
+pnpm run export  -- [--db kb.sqlite] [--run id]  # the knowledge base as one JSON document
+```
+
+`analyze` is the only command that touches the project, and it only reads:
+analyzed source is never written to, and the code index one of the readers
+builds is written beside the roots rather than inside any of them.
+
+Everything after that reads the knowledge base. `export` produces the same
+bytes for the same run and needs no access to the source at all.
+
 ## Development
 
 Requires Node 22+ and pnpm 10+.

@@ -272,7 +272,11 @@ export function createSqlSchemaProvider(): DataModelProvider {
 
           for (const table of parseCreateTables(content)) {
             const source = lineRef(root.name, relPath, table.line);
-            entities.set(table.name, {
+            // Keyed with the schema, so `public.users` and `audit.users` both
+            // reach the merge instead of the second silently replacing the
+            // first — which attributed one table's columns to the other.
+            const qualified = table.qualifier === null ? table.name : `${table.qualifier}.${table.name}`;
+            entities.set(qualified, {
               rootName: root.name,
               name: table.name,
               kind: "table",
@@ -281,7 +285,7 @@ export function createSqlSchemaProvider(): DataModelProvider {
             });
 
             for (const column of table.columns) {
-              fields.set(`${table.name}.${column.name}`, {
+              fields.set(`${qualified}.${column.name}`, {
                 rootName: root.name,
                 entityName: table.name,
                 name: column.name,

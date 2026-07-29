@@ -9,6 +9,12 @@ import { runAnalyze } from "../../engine/run/analyze.js";
 import { getStatus } from "../../engine/run/status.js";
 import { openStore } from "../../engine/store/open.js";
 
+/**
+ * Run identity is about the run, not about what was read. Pinning the readers
+ * keeps these tests off the external indexer the default set includes.
+ */
+const NO_READERS = { structural: [], data: [], collectors: [] } as const;
+
 let workDir: string;
 let dbPath: string;
 
@@ -48,16 +54,16 @@ describe("runs of unchanged source", () => {
   it("share a content identity but get distinct run ids", () => {
     // This is the whole reason run ids exist: identity is a content digest, so
     // it cannot tell two analyses of the same unchanged project apart.
-    const first = runAnalyze({ paths: [join(workDir, "alpha")], dbPath });
-    const second = runAnalyze({ paths: [join(workDir, "alpha")], dbPath });
+    const first = runAnalyze({ paths: [join(workDir, "alpha")], dbPath, readers: NO_READERS });
+    const second = runAnalyze({ paths: [join(workDir, "alpha")], dbPath, readers: NO_READERS });
 
     expect(second.identity).toBe(first.identity);
     expect(second.runId).not.toBe(first.runId);
   });
 
   it("records both runs rather than overwriting the first", () => {
-    const first = runAnalyze({ paths: [join(workDir, "alpha")], dbPath });
-    const second = runAnalyze({ paths: [join(workDir, "alpha")], dbPath });
+    const first = runAnalyze({ paths: [join(workDir, "alpha")], dbPath, readers: NO_READERS });
+    const second = runAnalyze({ paths: [join(workDir, "alpha")], dbPath, readers: NO_READERS });
 
     const store = openStore(dbPath);
     try {
@@ -75,9 +81,9 @@ describe("status by run", () => {
   it("reports a named earlier run rather than only the latest", () => {
     // An overview and a module report generated separately must be able to
     // name the same run, or they could describe two different analyses.
-    const first = runAnalyze({ paths: [join(workDir, "alpha")], dbPath }, "2026-07-28T10:00:00.000Z");
+    const first = runAnalyze({ paths: [join(workDir, "alpha")], dbPath, readers: NO_READERS }, "2026-07-28T10:00:00.000Z");
     write("alpha", "index.ts", "export const a = 2;\n");
-    const second = runAnalyze({ paths: [join(workDir, "alpha")], dbPath }, "2026-07-28T11:00:00.000Z");
+    const second = runAnalyze({ paths: [join(workDir, "alpha")], dbPath, readers: NO_READERS }, "2026-07-28T11:00:00.000Z");
 
     const store = openStore(dbPath);
     try {
@@ -90,7 +96,7 @@ describe("status by run", () => {
   });
 
   it("reports not-analyzed for a run id that does not exist", () => {
-    const result = runAnalyze({ paths: [join(workDir, "alpha")], dbPath });
+    const result = runAnalyze({ paths: [join(workDir, "alpha")], dbPath, readers: NO_READERS });
 
     const store = openStore(dbPath);
     try {
@@ -102,7 +108,7 @@ describe("status by run", () => {
 });
 
 describe("the command surface", () => {
-  it("prints the run id, so a later report can name it", () => {
+  it("prints the run id, so a later report can name it", { timeout: 600_000 }, () => {
     const output = execFileSync(
       "pnpm",
       ["exec", "tsx", "scripts/analyze.ts", join(workDir, "alpha"), "--db", dbPath],

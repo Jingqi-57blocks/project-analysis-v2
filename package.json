@@ -15,7 +15,7 @@
     "target:derive": "tsx scripts/derive-variant.ts",
     "analyze": "tsx scripts/analyze.ts",
     "status": "tsx scripts/status.ts",
-    "report": "tsx scripts/report.ts"
+    "export": "tsx scripts/export.ts"
   },
   "devDependencies": {
     "@ast-grep/lang-go": "^0.0.6",

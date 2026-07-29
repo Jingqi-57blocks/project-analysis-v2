@@ -13,8 +13,37 @@
  * handler body is out of its reach.
  */
 
-import type { ReportFeature } from "../report/model.js";
 import type { Severity } from "./signals.js";
+
+/**
+ * What a finding needs to know about a capability.
+ *
+ * Stated here rather than imported from a report shape: these findings are
+ * facts that belong in the knowledge base, and tying them to one document's
+ * view of a feature would mean a second document could not have them.
+ */
+export interface ReviewedFeature {
+  readonly id: string;
+  readonly name: string;
+  /** Tables its handlers were observed to touch. */
+  readonly tables: readonly string[];
+  readonly flows: readonly ReviewedFlow[];
+}
+
+export interface ReviewedFlow {
+  readonly method: string | null;
+  readonly path: string;
+  readonly steps: readonly ReviewedStep[];
+}
+
+export interface ReviewedStep {
+  readonly kind: string;
+  readonly conditions: readonly string[];
+  /** Null when the hop was established; otherwise why it was not. */
+  readonly unresolvedReason: string | null;
+  /** True when observed near the handler rather than in it. */
+  readonly indirect?: boolean;
+}
 
 export interface FeatureFinding {
   readonly featureId: string;
@@ -44,7 +73,7 @@ export interface FeatureFindingLimits {
 export const DEFAULT_FINDING_LIMITS: FeatureFindingLimits = { maxNamed: 5 };
 
 export function computeFeatureFindings(
-  features: readonly ReportFeature[],
+  features: readonly ReviewedFeature[],
   limits: FeatureFindingLimits = DEFAULT_FINDING_LIMITS,
 ): readonly FeatureFinding[] {
   const findings: FeatureFinding[] = [];

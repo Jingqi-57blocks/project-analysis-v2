@@ -277,6 +277,75 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE UNIQUE INDEX snapshots_run_id ON snapshots(run_id);
     `,
   },
+  {
+    version: 6,
+    name: "derived-facts",
+    up: `
+      -- What the analysis worked out, as opposed to what a provider read.
+      --
+      -- A route is extracted; a feature is concluded. Both are facts with
+      -- locations and both must be queryable, but they arrive by different
+      -- routes and carry different guarantees, so they live in different
+      -- tables rather than sharing one and losing the distinction.
+      --
+      -- Same shape as structural_records for the same reasons: one kind
+      -- column and a JSON payload instead of fifteen near-identical tables,
+      -- with the columns that get filtered on lifted out so a query does not
+      -- have to parse every payload to answer "what is wrong with this
+      -- feature" or "what did this file contribute".
+      --
+      -- What must never be stored here is a view. No rendered tables, no
+      -- assembled sentences, no counts that a query could compute. Diagram
+      -- sources are the one exception and they are stored deliberately: the
+      -- shape of a flow is a fact, and a template embeds that string rather
+      -- than composing it. Everything else is recomputed at render time,
+      -- which is what makes a report nobody has designed yet possible.
+      CREATE TABLE derived_records (
+        id            INTEGER PRIMARY KEY,
+        snapshot_id   INTEGER NOT NULL REFERENCES snapshots(id),
+        kind          TEXT    NOT NULL,
+        record_key    TEXT    NOT NULL,
+        payload       TEXT    NOT NULL,
+        -- The thing this is about: a feature id, a module id, an entity name.
+        -- Null where the fact is about the workspace as a whole.
+        subject_key   TEXT,
+        root_name     TEXT,
+        severity      TEXT,
+        rel_path      TEXT,
+        start_line    INTEGER,
+        UNIQUE (snapshot_id, kind, record_key)
+      );
+      CREATE INDEX derived_records_kind ON derived_records(snapshot_id, kind);
+      CREATE INDEX derived_records_subject ON derived_records(snapshot_id, kind, subject_key);
+      CREATE INDEX derived_records_severity ON derived_records(snapshot_id, severity);
+
+      -- Ownership between facts, which is many-to-many in every direction
+      -- that matters: a feature owns flows and rules, a module spans
+      -- features, a flow reaches entities several other flows also reach.
+      -- A column on the payload could hold one of those and would quietly
+      -- lose the rest.
+      --
+      -- Deliberately not foreign-keyed to either side. The far end is often
+      -- a structural record — a feature's endpoints are routes — and
+      -- requiring one table for both ends would mean copying extracted facts
+      -- into the derived table to point at them.
+      CREATE TABLE derived_links (
+        id           INTEGER PRIMARY KEY,
+        snapshot_id  INTEGER NOT NULL REFERENCES snapshots(id),
+        from_kind    TEXT    NOT NULL,
+        from_key     TEXT    NOT NULL,
+        -- What the far end is to the near end: "endpoint", "flow", "rule".
+        -- Named rather than implied, so one pair of kinds can hold more than
+        -- one relationship without the reader having to guess which.
+        role         TEXT    NOT NULL,
+        to_kind      TEXT    NOT NULL,
+        to_key       TEXT    NOT NULL,
+        UNIQUE (snapshot_id, from_kind, from_key, role, to_kind, to_key)
+      );
+      CREATE INDEX derived_links_from ON derived_links(snapshot_id, from_kind, from_key, role);
+      CREATE INDEX derived_links_to ON derived_links(snapshot_id, to_kind, to_key, role);
+    `,
+  },
 ];
 
 export const SUPPORTED_SCHEMA_VERSION: number =

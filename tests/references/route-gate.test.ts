@@ -133,7 +133,10 @@ describe.skipIf(!wcpV2.ok)("the gate against real extraction", () => {
   beforeAll(() => {
     if (!wcpV2.ok) return;
     const root = wcpV2.target.roots.find((r) => r.name === "wcp-auth")!;
-    contribution = createCodeGraphProvider().extract({
+    // The root is named so the index is built beside it. Left unnamed, the
+    // provider used to index inside wcp-auth — writing into a target this
+    // suite promises never to modify.
+    contribution = createCodeGraphProvider({ roots: [root.path] }).extract({
       name: "wcp-auth",
       path: root.path,
       analyzedFiles: [],

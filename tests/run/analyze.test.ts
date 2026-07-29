@@ -32,6 +32,16 @@ function initRepo(root: string): void {
   );
 }
 
+/**
+ * A run with nothing to read.
+ *
+ * These tests are about the run's mechanics — snapshots, inventory, drift,
+ * phase metrics — and the default reader set includes one that shells out to
+ * an external indexer. Pinning the readers keeps what is being tested here
+ * independent of whether that tool is installed.
+ */
+const NO_READERS = { structural: [], data: [], collectors: [] } as const;
+
 function fakeProvider(
   id: string,
   result: "available" | "unavailable",
@@ -71,7 +81,7 @@ function openResultStore(): Store {
 describe("runAnalyze — happy path", () => {
   it("analyzes both roots and publishes the snapshot", () => {
     const result = runAnalyze(
-      { paths: [alphaPath, betaPath], dbPath },
+      { paths: [alphaPath, betaPath], dbPath, readers: NO_READERS },
       "2020-01-01T00:00:00.000Z",
     );
 
@@ -97,7 +107,7 @@ describe("runAnalyze — happy path", () => {
   });
 
   it("records one files row per analyzed/excluded/failed entry, tied to the right root", () => {
-    const result = runAnalyze({ paths: [alphaPath, betaPath], dbPath });
+    const result = runAnalyze({ paths: [alphaPath, betaPath], dbPath, readers: NO_READERS });
 
     const store = openResultStore();
     try {
@@ -116,7 +126,7 @@ describe("runAnalyze — happy path", () => {
   });
 
   it("persists phase_metrics for every phase, reconciling with the returned counts", () => {
-    const result = runAnalyze({ paths: [alphaPath, betaPath], dbPath });
+    const result = runAnalyze({ paths: [alphaPath, betaPath], dbPath, readers: NO_READERS });
 
     const store = openResultStore();
     try {
@@ -130,6 +140,9 @@ describe("runAnalyze — happy path", () => {
         "begin-snapshot",
         "inventory",
         "preflight",
+        "extract",
+        "derive",
+        "persist",
         "publish",
       ]);
 
@@ -207,7 +220,7 @@ describe("runAnalyze — knowledge-base location", () => {
   });
 
   it("allows the workspace directory that contains the roots", () => {
-    expect(() => runAnalyze({ paths: [alphaPath, betaPath], dbPath })).not.toThrow();
+    expect(() => runAnalyze({ paths: [alphaPath, betaPath], dbPath, readers: NO_READERS })).not.toThrow();
   });
 });
 
@@ -234,7 +247,7 @@ describe("runAnalyze — missing required provider", () => {
   });
 
   it("does not disturb a previously published snapshot", () => {
-    const first = runAnalyze({ paths: [alphaPath, betaPath], dbPath }, "2020-01-01T00:00:00.000Z");
+    const first = runAnalyze({ paths: [alphaPath, betaPath], dbPath, readers: NO_READERS }, "2020-01-01T00:00:00.000Z");
 
     expect(() =>
       runAnalyze({
@@ -260,14 +273,19 @@ describe("runAnalyze — missing required provider", () => {
 
 describe("runAnalyze — drift between capture and publish", () => {
   it("refuses to publish when source moves after being captured, in the exact window a slow provider check widens", () => {
-    const first = runAnalyze({ paths: [alphaPath, betaPath], dbPath }, "2020-01-01T00:00:00.000Z");
+    const first = runAnalyze({ paths: [alphaPath, betaPath], dbPath, readers: NO_READERS }, "2020-01-01T00:00:00.000Z");
 
     const driftingProvider = fakeProvider("slow", "available", () => {
       write("alpha", "index.ts", "export const a = 999;\n");
     });
 
     expect(() =>
-      runAnalyze({ paths: [alphaPath, betaPath], dbPath, providers: [driftingProvider] }),
+      runAnalyze({
+        paths: [alphaPath, betaPath],
+        dbPath,
+        readers: NO_READERS,
+        providers: [driftingProvider],
+      }),
     ).toThrow(DriftDetectedError);
 
     const store = openResultStore();
@@ -291,14 +309,19 @@ describe("runAnalyze — drift between capture and publish", () => {
   });
 
   it("still records the failed run's phase timings, showing where its time went", () => {
-    const first = runAnalyze({ paths: [alphaPath, betaPath], dbPath }, "2020-01-01T00:00:00.000Z");
+    const first = runAnalyze({ paths: [alphaPath, betaPath], dbPath, readers: NO_READERS }, "2020-01-01T00:00:00.000Z");
 
     const driftingProvider = fakeProvider("slow", "available", () => {
       write("alpha", "index.ts", "export const a = 999;\n");
     });
 
     expect(() =>
-      runAnalyze({ paths: [alphaPath, betaPath], dbPath, providers: [driftingProvider] }),
+      runAnalyze({
+        paths: [alphaPath, betaPath],
+        dbPath,
+        readers: NO_READERS,
+        providers: [driftingProvider],
+      }),
     ).toThrow(DriftDetectedError);
 
     const store = openResultStore();
@@ -316,7 +339,16 @@ describe("runAnalyze — drift between capture and publish", () => {
 
       // Everything that completed is recorded; "publish" is absent because it
       // threw rather than finished — an honest record, not a fabricated one.
-      expect(phases).toEqual(["select", "snapshot-capture", "begin-snapshot", "inventory", "preflight"]);
+      expect(phases).toEqual([
+        "select",
+        "snapshot-capture",
+        "begin-snapshot",
+        "inventory",
+        "preflight",
+        "extract",
+        "derive",
+        "persist",
+      ]);
     } finally {
       store.close();
     }

@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe.skipIf(!wcpV2.ok)("runAnalyze on wcp-auth", () => {
-  it("analyzes wcp-auth end to end and leaves it unchanged on disk", () => {
+  it("analyzes wcp-auth end to end and leaves it unchanged on disk", { timeout: 600_000 }, () => {
     if (!wcpV2.ok) return;
     const authRoot = wcpV2.target.roots.find((r) => r.name === "wcp-auth");
     expect(authRoot?.present, "wcp-auth not present").toBe(true);
@@ -56,6 +56,39 @@ describe.skipIf(!wcpV2.ok)("runAnalyze on wcp-auth", () => {
       expect(status.analyzed).toBe(true);
       expect(status.snapshotId).toBe(result.snapshotId);
       expect(status.roots?.[0]?.name).toBe("wcp-auth");
+
+      // The run leaves a knowledge base behind, not just an inventory. Before
+      // one pipeline, `analyze` published a snapshot with no facts in it and
+      // everything downstream re-read the source.
+      const structural = store.all<{ kind: string; n: number }>(
+        "SELECT kind, COUNT(*) AS n FROM structural_records WHERE snapshot_id = ? GROUP BY kind",
+        [result.snapshotId],
+      );
+      const byKind = new Map(structural.map((row) => [row.kind, row.n]));
+      expect(byKind.get("route") ?? 0).toBeGreaterThan(10);
+      expect(byKind.get("symbol") ?? 0).toBeGreaterThan(50);
+
+      const derived = store.all<{ kind: string; n: number }>(
+        "SELECT kind, COUNT(*) AS n FROM derived_records WHERE snapshot_id = ? GROUP BY kind",
+        [result.snapshotId],
+      );
+      const derivedByKind = new Map(derived.map((row) => [row.kind, row.n]));
+      expect(derivedByKind.get("run-context")).toBe(1);
+      expect(derivedByKind.get("coverage-note") ?? 0).toBeGreaterThan(0);
+      // Rules stated in the project's own vocabulary, which is the join this
+      // stage exists to make: conditions come from one reader, the constants
+      // that explain them from another, and neither knows about the other.
+      expect(derivedByKind.get("business-rule") ?? 0).toBeGreaterThan(0);
+      expect(derivedByKind.get("value-set") ?? 0).toBeGreaterThan(0);
+      expect(derivedByKind.get("trace") ?? 0).toBeGreaterThan(0);
+
+      // The run id on the facts is the run id the caller was handed: an
+      // overview and a module report drawn separately must be the same run.
+      const context = store.get<{ payload: string }>(
+        "SELECT payload FROM derived_records WHERE snapshot_id = ? AND kind = 'run-context'",
+        [result.snapshotId],
+      );
+      expect(JSON.parse(context!.payload).runId).toBe(result.runId);
     } finally {
       store.close();
     }

@@ -1,5 +1,6 @@
 import type { Provider, PreflightReport } from "../providers/types.js";
 import type { InventoryCounts } from "../inventory/persist.js";
+import type { ReaderSet } from "../kb/build.js";
 
 export interface AnalyzeOptions {
   /** One container, one root, or an explicit list of roots — see `selectWorkspace`. */
@@ -8,6 +9,15 @@ export interface AnalyzeOptions {
   readonly exclude?: readonly string[];
   /** Where the knowledge base lives. Never inside an analyzed target. */
   readonly dbPath: string;
+  /**
+   * The readers to run. Defaults to every one this build ships.
+   *
+   * Overridden by tests and by anything measuring one reader's cost — never
+   * by a caller narrowing the analysis, since a kind nobody read has to be
+   * declared as a gap rather than silently absent.
+   */
+  readonly readers?: ReaderSet;
+  /** Preflighted providers. Defaults to the readers above. */
   readonly providers?: readonly Provider[];
   /** Overrides the generated run id. For tests and for resuming a named run. */
   readonly runId?: string;

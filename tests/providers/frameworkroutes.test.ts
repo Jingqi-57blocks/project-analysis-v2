@@ -339,8 +339,14 @@ describe("sharedIndexRoot", () => {
     expect(sharedIndexRoot(["/w", "/w/ui"])).toBeNull();
   });
 
-  it("refuses a single root, which needs no sharing", () => {
-    expect(sharedIndexRoot(["/w/api"])).toBeNull();
+  it("puts a single root's index beside it, not inside it", () => {
+    // The read-only guarantee toward analyzed source cannot hold only for
+    // workspaces that happen to have more than one part.
+    expect(sharedIndexRoot(["/w/api"])).toBe("/w");
+  });
+
+  it("refuses a root directly under the filesystem root", () => {
+    expect(sharedIndexRoot(["/api"])).toBeNull();
   });
 
   it("refuses the filesystem root, which would walk the disk", () => {
