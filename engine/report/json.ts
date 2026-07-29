@@ -16,6 +16,7 @@
 import type { DataModelRecords } from "../datamodel/types.js";
 import type { Provenance } from "../structural/provenance.js";
 import type { ReportModel } from "./model.js";
+import { composeIntroduction } from "./intro.js";
 
 export const SPEC_VERSION = "1.0";
 
@@ -34,6 +35,11 @@ export interface ReportSpec {
   readonly project: {
     readonly name: string;
     readonly description: string | null;
+    readonly introduction: {
+      readonly quoted: string | null;
+      readonly quotedFrom: string | null;
+      readonly paragraphs: readonly string[];
+    };
     readonly services: readonly {
       readonly name: string;
       readonly language: string | null;
@@ -223,6 +229,9 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
     project: {
       name: model.projectName,
       description: model.description,
+      // Composed from what the analysis established rather than written, so it
+      // cannot describe a capability nobody observed.
+      introduction: composeIntroduction(model),
       services: model.roots.map((root) => ({
         name: root.name,
         language: root.language,

@@ -14,6 +14,7 @@
 
 import type { DataModelRecords } from "../datamodel/types.js";
 import type { ReportFeature, ReportFlow, ReportModel } from "./model.js";
+import { composeIntroduction } from "./intro.js";
 
 export interface MarkdownPage {
   readonly filename: string;
@@ -132,12 +133,10 @@ export function renderFeaturePage(feature: ReportFeature): string {
 
 function dataModelSection(records: DataModelRecords): string {
   if (records.entities.length === 0) {
-    return ["## Data model", "", "No entity declarations were found in the analyzed roots.", ""].join(
-      "\n",
-    );
+    return "No entity declarations were found in the analyzed roots.\n";
   }
 
-  const lines = ["## Data model", ""];
+  const lines: string[] = [];
   for (const entity of [...records.entities].sort(
     (a, b) => a.rootName.localeCompare(b.rootName) || a.name.localeCompare(b.name),
   )) {
@@ -206,7 +205,7 @@ function dataModelSection(records: DataModelRecords): string {
   return lines.join("\n");
 }
 
-export function renderOverviewPage(model: ReportModel, records: DataModelRecords): string {
+export function renderOverviewPage(model: ReportModel): string {
   const lines = [
     `# ${model.projectName}`,
     "",
@@ -214,7 +213,17 @@ export function renderOverviewPage(model: ReportModel, records: DataModelRecords
     "",
   ];
 
-  if (model.description !== null) lines.push("## What this is", "", model.description, "");
+  const intro = composeIntroduction(model);
+  lines.push("## What this is", "");
+  if (intro.quoted !== null) {
+    lines.push(
+      ...intro.quoted.split("\n").map((line) => (line.trim() === "" ? ">" : `> ${line}`)),
+      "",
+      `— quoted from ${intro.quotedFrom ?? "the source"}, which describes that part rather than the whole.`,
+      "",
+    );
+  }
+  lines.push(...intro.paragraphs.flatMap((paragraph) => [paragraph, ""]));
 
   lines.push(
     "## Services",
@@ -285,7 +294,12 @@ export function renderOverviewPage(model: ReportModel, records: DataModelRecords
     );
   }
 
-  lines.push(dataModelSection(records));
+  lines.push(
+    "## Data model",
+    "",
+    `${model.dataEntities.length} tables are described in [data-model.md](data-model.md).`,
+    "",
+  );
 
   if (model.signals.length > 0) {
     lines.push(
@@ -317,7 +331,8 @@ export function renderMarkdownReport(
   records: DataModelRecords,
 ): readonly MarkdownPage[] {
   return [
-    { filename: "overview.md", markdown: renderOverviewPage(model, records) },
+    { filename: "overview.md", markdown: renderOverviewPage(model) },
+    { filename: "data-model.md", markdown: `# Data model\n\n${dataModelSection(records)}` },
     ...model.features.map((feature) => ({
       filename: `modules/${featureSlug(feature)}.md`,
       markdown: renderFeaturePage(feature),
