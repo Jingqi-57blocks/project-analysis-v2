@@ -205,6 +205,12 @@ export function valueSetsIn(
     : scriptValueSets(parsed.root, rootName, relPath);
 }
 
+/** The field a subject names, which is its last word: `lv.Status` → "status". */
+function fieldToken(subject: string): string | null {
+  const tokens = nameTokens(subject.split(".").pop() ?? subject);
+  return tokens[tokens.length - 1] ?? null;
+}
+
 /**
  * The value set a subject most likely refers to.
  *
@@ -219,7 +225,8 @@ export function resolveValue(
   sets: readonly ValueSet[],
 ): { set: ValueSet; member: ValueSetMember } | null {
   const subjectTokens = new Set(nameTokens(subject));
-  if (subjectTokens.size === 0) return null;
+  const field = fieldToken(subject);
+  if (subjectTokens.size === 0 || field === null) return null;
 
   let best: { set: ValueSet; member: ValueSetMember; score: number } | null = null;
 
@@ -228,8 +235,11 @@ export function resolveValue(
     if (member === undefined) continue;
 
     const setTokens = nameTokens(set.name);
+    // The set must name the field itself, not merely the thing holding it.
+    // `lv.Hours` and `LvStatusC` share "lv", which says only that both concern
+    // a leave — naming hours with a status would be a plain falsehood.
+    if (!setTokens.includes(field)) continue;
     const shared = setTokens.filter((token) => subjectTokens.has(token));
-    if (shared.length === 0) continue;
 
     // A token the set name carries and the subject does not is a different
     // concept: `LvAprvStatusC` and `LvStatusC` both agree with `lv.Status` on
@@ -252,13 +262,14 @@ export function resolveValue(
  */
 export function bestSetFor(subject: string, sets: readonly ValueSet[]): ValueSet | null {
   const subjectTokens = new Set(nameTokens(subject));
-  if (subjectTokens.size === 0) return null;
+  const field = fieldToken(subject);
+  if (subjectTokens.size === 0 || field === null) return null;
 
   let best: { set: ValueSet; score: number } | null = null;
   for (const set of sets) {
     const setTokens = nameTokens(set.name);
+    if (!setTokens.includes(field)) continue;
     const shared = setTokens.filter((token) => subjectTokens.has(token));
-    if (shared.length === 0) continue;
 
     const score = shared.length * 100 - (setTokens.length - shared.length) * 25 - set.members.length;
     if (best === null || score > best.score) best = { set, score };

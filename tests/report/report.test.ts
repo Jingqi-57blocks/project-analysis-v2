@@ -17,6 +17,7 @@ function input(overrides: Partial<AssembleReportInput> = {}): AssembleReportInpu
     mapDiagram: "flowchart LR\n  n_api[\"api\"]",
     unassignedEndpointCount: 0,
     screens: [],
+    structuralFindings: [],
     modules: [
       {
         id: "mod_abc",

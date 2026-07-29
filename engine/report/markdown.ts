@@ -128,6 +128,31 @@ export function renderFeaturePage(feature: ReportFeature): string {
     }
   }
 
+  if (feature.rules.length > 0) {
+    const why: Record<string, string> = {
+      disagreed: "applied differently elsewhere",
+      repeated: "written out in several places",
+      "unnamed-value": "compares a value the project does not name",
+    };
+    parts.push(
+      "## Business rules observed",
+      "",
+      `${feature.rules.length} of ${feature.conditionCount} conditions in this capability's files are worth noting.`,
+      "",
+      table(
+        ["Rule", "As written", "Service", "Why noted", "Source"],
+        feature.rules.map((rule) => [
+          rule.statement,
+          `\`${rule.text}\``,
+          rule.service,
+          why[rule.reason] ?? rule.reason,
+          rule.location,
+        ]),
+      ),
+      "",
+    );
+  }
+
   parts.push("## Flows", "");
   if (feature.flows.length === 0) {
     parts.push("No flow could be assembled for this feature's endpoints.", "");
@@ -279,6 +304,26 @@ export function renderOverviewPage(model: ReportModel): string {
       (rank[a.finding.severity] ?? 3) - (rank[b.finding.severity] ?? 3) ||
       a.feature.name.localeCompare(b.feature.name),
   );
+
+  if (model.structuralFindings.length > 0) {
+    lines.push(
+      "## Structural observations",
+      "",
+      "Properties of the system as a whole — none of them visible from inside any one part.",
+      "",
+    );
+    for (const finding of model.structuralFindings) {
+      lines.push(
+        `### ${finding.title} (${finding.severity})`,
+        "",
+        finding.finding,
+        "",
+        ...(finding.evidence.length > 0
+          ? [...finding.evidence.map((item) => `- ${item}`), ""]
+          : []),
+      );
+    }
+  }
 
   if (findings.length > 0) {
     const counts = findings.reduce<Record<string, number>>((totals, { finding }) => {

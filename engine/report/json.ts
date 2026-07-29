@@ -104,6 +104,14 @@ export interface ReportSpec {
     readonly entities: readonly SpecEntity[];
   };
   readonly health: {
+    /** About the architecture rather than about one capability. */
+    readonly structural: readonly {
+      readonly id: string;
+      readonly severity: string;
+      readonly title: string;
+      readonly finding: string;
+      readonly evidence: readonly string[];
+    }[];
     readonly findings: readonly {
       readonly capability: string;
       readonly capabilityId: string;
@@ -168,6 +176,14 @@ export interface SpecFeature {
   readonly flowsDetailed: number;
   readonly partialFlows: number;
   readonly overviewDiagram: string;
+  readonly conditionCount: number;
+  readonly rules: readonly {
+    readonly statement: string;
+    readonly text: string;
+    readonly service: string;
+    readonly location: string;
+    readonly reason: string;
+  }[];
   readonly findings: readonly {
     readonly id: string;
     readonly severity: string;
@@ -346,6 +362,17 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
       flowsDetailed: feature.flows.length,
       partialFlows: feature.partialFlowCount,
       overviewDiagram: feature.overviewDiagram,
+      // The rules this capability enforces, stated in the project's own names
+      // where it declares any. Notable ones only — every comparison would
+      // bury them among array bounds.
+      conditionCount: feature.conditionCount,
+      rules: feature.rules.map((rule) => ({
+        statement: rule.statement,
+        text: rule.text,
+        service: rule.service,
+        location: rule.location,
+        reason: rule.reason,
+      })),
       findings: feature.findings.map((finding) => ({
         id: finding.id,
         severity: finding.severity,
@@ -373,6 +400,13 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
       entities: nestDataModel(input.dataModel),
     },
     health: {
+      structural: model.structuralFindings.map((finding) => ({
+        id: finding.id,
+        severity: finding.severity,
+        title: finding.title,
+        finding: finding.finding,
+        evidence: finding.evidence,
+      })),
       // Findings about the product, gathered from the capabilities they
       // belong to; the signals below measure the analysis instead.
       findings: model.features.flatMap((feature) =>

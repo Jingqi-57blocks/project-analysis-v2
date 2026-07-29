@@ -8,6 +8,7 @@
 
 import type { HealthSignal } from "../health/signals.js";
 import type { FeatureFinding } from "../health/features.js";
+import type { StructuralFinding } from "../health/structure.js";
 import type { ProductModule, TechnicalComponent, DispositionCounts } from "../modules/form.js";
 
 /**
@@ -98,6 +99,16 @@ export interface ReportFeature {
   readonly partialFlowCount: number;
   /** What is worth a second look in this capability specifically. */
   readonly findings: readonly FeatureFinding[];
+  /**
+   * The rules this capability enforces, as the code states them.
+   *
+   * Only the notable ones — a rule two parts disagree about, one stated in a
+   * number the project never names, or one written out in several places.
+   * Publishing every comparison would bury these among array bounds.
+   */
+  readonly rules: readonly ReportRule[];
+  /** How many conditions were observed in total, so the scale is visible. */
+  readonly conditionCount: number;
 }
 
 export interface ReportFlowStep {
@@ -121,6 +132,17 @@ export interface ReportFlow {
   readonly steps: readonly ReportFlowStep[];
   readonly diagram: string;
   readonly partial: boolean;
+}
+
+export interface ReportRule {
+  /** The rule in words, with values named where the project names them. */
+  readonly statement: string;
+  /** The comparison as written, for a reader who wants the original. */
+  readonly text: string;
+  readonly service: string;
+  readonly location: string;
+  /** Why this rule is worth publishing. */
+  readonly reason: "disagreed" | "unnamed-value" | "repeated";
 }
 
 export interface ReportScreen {
@@ -162,6 +184,8 @@ export interface ReportModel {
   readonly integrations: readonly ReportIntegration[];
   /** The system's shape: our roots, what they call, and what is outside. */
   readonly map: readonly MapEdge[];
+  /** Findings about the architecture rather than about one capability. */
+  readonly structuralFindings: readonly StructuralFinding[];
   /** The same shape as a diagram, rendered once so every format shares it. */
   readonly mapDiagram: string;
   /** Endpoints that belong to no detected feature, with the count kept honest. */
@@ -200,6 +224,7 @@ export interface AssembleReportInput {
   readonly modules: readonly ProductModule[];
   readonly features: readonly ReportFeature[];
   readonly mapDiagram: string;
+  readonly structuralFindings: readonly StructuralFinding[];
   readonly unassignedEndpointCount: number;
   readonly screens: readonly ReportScreen[];
   readonly components: readonly TechnicalComponent[];
@@ -246,6 +271,7 @@ export function assembleReport(input: AssembleReportInput): ReportModel {
     integrations: input.integrations,
     map: input.map,
     mapDiagram: input.mapDiagram,
+    structuralFindings: input.structuralFindings,
     unassignedEndpointCount: input.unassignedEndpointCount,
     screens: input.screens,
     dataEntities: input.dataEntities,

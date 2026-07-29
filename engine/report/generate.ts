@@ -6,7 +6,7 @@
  * behaviour nobody could test on its own.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { selectWorkspace } from "../workspace/select.js";
@@ -34,6 +34,10 @@ import { createOrmMigrationProvider } from "../datamodel/orm.js";
 import { createGoModelProvider } from "../datamodel/gostructs.js";
 import { computeSignals } from "../health/signals.js";
 import { createDataUsageProvider } from "../datamodel/usage.js";
+import { createLogicProvider } from "../providers/logic/provider.js";
+import { valueSetsIn, type ValueSet } from "../semantics/enums.js";
+import { stateRule, type BusinessRule } from "../semantics/rules.js";
+import { computeStructuralFindings } from "../health/structure.js";
 import { detectFeatures } from "../modules/features.js";
 import { assembleFlows } from "../flows/assemble.js";
 import { buildReportFeatures, mapToMermaid } from "./features.js";
@@ -59,6 +63,8 @@ import type {
   ValidationRuleRecord,
   TransactionBoundaryRecord,
   ErrorHandlingRecord,
+  ConditionRecord,
+  DiscardedErrorRecord,
 } from "../structural/rules.js";
 import type { SymbolRecord, CallEdgeRecord } from "../structural/code.js";
 import type { ModuleContainmentRecord, PackageDependencyRecord } from "../structural/dependencies.js";
@@ -102,6 +108,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     createFrameworkRoutesProvider(),
     createUiCallsProvider(),
     createDataUsageProvider(),
+    createLogicProvider(),
     ...(options.extraProviders ?? [createCodeGraphProvider({ callEdges: false })]),
   ];
   const collectors = [createDocumentationCollector(), createCodeTextCollector()];
@@ -116,6 +123,9 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const transactions: TransactionBoundaryRecord[] = [];
   const errorHandling: ErrorHandlingRecord[] = [];
   const authAnnotations: AuthAnnotationRecord[] = [];
+  const conditions: ConditionRecord[] = [];
+  const discarded: DiscardedErrorRecord[] = [];
+  const valueSets: ValueSet[] = [];
   const containment: ModuleContainmentRecord[] = [];
   const dependencies: PackageDependencyRecord[] = [];
   const allFiles: string[] = [];
@@ -187,6 +197,10 @@ export function generateReport(options: GenerateOptions): GenerateResult {
         errorHandling.push(record.record as ErrorHandlingRecord);
       } else if (record.kind === "auth-annotation") {
         authAnnotations.push(record.record as AuthAnnotationRecord);
+      } else if (record.kind === "condition") {
+        conditions.push(record.record as ConditionRecord);
+      } else if (record.kind === "discarded-error") {
+        discarded.push(record.record as DiscardedErrorRecord);
       }
       else if (record.kind === "symbol") symbols.push(record.record as SymbolRecord);
       else if (record.kind === "call-edge") callEdges.push(record.record as CallEdgeRecord);
@@ -224,6 +238,19 @@ export function generateReport(options: GenerateOptions): GenerateResult {
         const forRoot = entitiesByRoot.get(root.name) ?? new Set<string>();
         forRoot.add(entity.name);
         entitiesByRoot.set(root.name, forRoot);
+      }
+    }
+
+    // The names a project gives its own values, so a rule can be stated in
+    // them rather than in bare numbers.
+    for (const relPath of analyzedFiles) {
+      try {
+        valueSets.push(
+          ...valueSetsIn(root.name, relPath, readFileSync(join(root.path, relPath), "utf8")),
+        );
+      } catch {
+        // A file that cannot be read contributes no names; the rules that
+        // would have used them stay unexplained, which is visible.
       }
     }
 
@@ -456,7 +483,31 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     validations,
     handlerGaps: new Map(handlerResolution.unresolved.map((gap) => [gap.entryKey, gap.reason])),
   });
-  const features = buildReportFeatures(detection.features, flowSet.flows);
+  // Conditions become rules once the project's own names explain their
+  // values; a rule stated in bare numbers is left as written and marked.
+  const rules: BusinessRule[] = conditions.map((condition) => stateRule(condition, valueSets));
+
+  const features = buildReportFeatures(detection.features, flowSet.flows, {
+    rules,
+    discarded,
+    filesByFeature: new Map(
+      detection.features.map((feature) => [feature.id, new Set(feature.filePaths)]),
+    ),
+  });
+
+  const entityColumns = new Map<string, Map<string, string[]>>();
+  for (const field of dataModel.fields) {
+    const byRoot = entityColumns.get(field.entityName) ?? new Map<string, string[]>();
+    byRoot.set(field.rootName, [...(byRoot.get(field.rootName) ?? []), field.name]);
+    entityColumns.set(field.entityName, byRoot);
+  }
+
+  const structuralFindings = computeStructuralFindings({
+    dataAccess,
+    routes,
+    entityColumns,
+    rootNames: roots.map((root) => root.name),
+  });
 
   if (detection.setAside.length > 0) {
     coverageNotes.push({
@@ -530,6 +581,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     integrations: rootDependencies(links),
     map,
     mapDiagram: mapToMermaid(map),
+    structuralFindings,
     screens: screens
       .map((screen) => ({
         rootName: screen.rootName,

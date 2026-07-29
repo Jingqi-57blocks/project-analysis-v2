@@ -70,6 +70,16 @@ function toFeature(feature: ReportSpec["features"][number]): ReportFeature {
     totalFlowCount: feature.flowCount ?? (feature.flows ?? []).length,
     overviewDiagram: feature.overviewDiagram,
     partialFlowCount: feature.partialFlows ?? 0,
+    conditionCount: feature.conditionCount ?? 0,
+    rules: (feature.rules ?? []).map((rule) => ({
+      statement: rule.statement,
+      text: rule.text,
+      service: rule.service,
+      location: rule.location,
+      reason: (["disagreed", "unnamed-value", "repeated"].includes(rule.reason)
+        ? rule.reason
+        : "unnamed-value") as "disagreed" | "unnamed-value" | "repeated",
+    })),
     findings: (feature.findings ?? []).map((finding) => ({
       featureId: feature.id,
       featureName: feature.name,
@@ -146,6 +156,13 @@ export function modelFromSpec(spec: ReportSpec): ReportModel {
     integrations: spec.project.integrations ?? [],
     map,
     mapDiagram: spec.project.map?.diagram ?? "",
+    structuralFindings: (spec.health?.structural ?? []).map((finding) => ({
+      id: finding.id,
+      title: finding.title,
+      finding: finding.finding,
+      severity: (SEVERITIES.has(finding.severity) ? finding.severity : "info") as Severity,
+      evidence: finding.evidence ?? [],
+    })),
     unassignedEndpointCount: spec.accounting?.unassignedEndpoints ?? 0,
     screens: (spec.screens ?? []).map((screen) => ({
       rootName: screen.service,
