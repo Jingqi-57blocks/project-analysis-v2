@@ -13,34 +13,43 @@
         "features",
         "screens",
         "map-edges",
+        "reliability",
         "evidence:readme-section"
       ],
-      "contract": {
-        "maxWords": 600,
-        "maxHeadingLevel": 3
-      }
+      "contract": { "maxWords": 750, "maxHeadingLevel": 3 }
     },
     {
       "id": "map",
       "kind": "code",
       "heading": "How it fits together",
       "fragment": "project-map",
-      "requires": [
-        "run-context",
-        "map-edges"
-      ]
+      "requires": ["run-context", "map-edges"]
     },
     {
       "id": "capabilities",
       "kind": "llm",
       "heading": "What it does",
       "prompt": "prompts/capabilities.md",
-      "requires": [
-        "capability-index"
-      ],
-      "contract": {
-        "maxHeadingLevel": 3
-      },
+      "requires": ["capability-index"],
+      "contract": { "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "access",
+      "kind": "llm",
+      "heading": "Who uses it, and how access is controlled",
+      "prompt": "prompts/access.md",
+      "requires": ["screens", "auth-annotations", "endpoints", "map-edges", "run-context"],
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "data-ownership",
+      "kind": "llm",
+      "heading": "The data it owns, and what it shares",
+      "prompt": "prompts/data-ownership.md",
+      "requires": ["data-ownership", "entities", "run-context"],
+      "contract": { "maxWords": 700, "maxHeadingLevel": 3 },
       "omitWhenEmpty": true
     },
     {
@@ -48,20 +57,17 @@
       "kind": "code",
       "heading": "What it connects to",
       "fragment": "external-systems",
-      "requires": [
-        "map-edges"
-      ],
+      "requires": ["map-edges"],
       "omitWhenEmpty": true
     },
     {
-      "id": "data",
-      "kind": "code",
-      "heading": "What it remembers",
-      "fragment": "stored-kinds",
-      "requires": [
-        "entities",
-        "coverage:entity"
-      ]
+      "id": "operational",
+      "kind": "llm",
+      "heading": "How it runs, and how it copes with failure",
+      "prompt": "prompts/operational.md",
+      "requires": ["reliability", "dependencies", "run-context"],
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
     },
     {
       "id": "issues",
@@ -71,22 +77,19 @@
       "requires": [
         "structural-findings",
         "signals",
+        "data-ownership",
+        "reliability",
+        "feature-findings",
         "run-context"
       ],
-      "contract": {
-        "maxWords": 500,
-        "maxHeadingLevel": 3
-      }
+      "contract": { "maxWords": 850, "maxHeadingLevel": 3 }
     },
     {
       "id": "limitations",
       "kind": "code",
       "heading": "What this report cannot tell you",
       "fragment": "limitations",
-      "requires": [
-        "coverage-notes",
-        "extraction-failures"
-      ]
+      "requires": ["coverage-notes", "extraction-failures"]
     }
   ]
 }

@@ -9,23 +9,33 @@
       "heading": "What this is",
       "prompt": "prompts/what-this-is.md",
       "requires": ["feature-detail:$capability", "feature-flows:$capability"],
-      "contract": { "maxWords": 500, "maxHeadingLevel": 3 }
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 }
     },
     {
       "id": "journey",
       "kind": "llm",
       "heading": "What happens when you use it",
       "prompt": "prompts/journey.md",
-      "requires": ["feature-flows:$capability", "feature-decisions:$capability"],
-      "contract": { "maxWords": 700, "maxHeadingLevel": 3 },
+      "requires": [
+        "feature-flows:$capability",
+        "feature-decisions:$capability",
+        "feature-rules:$capability"
+      ],
+      "contract": { "maxWords": 800, "maxHeadingLevel": 3 },
       "omitWhenEmpty": true
     },
     {
-      "id": "decisions",
-      "kind": "code",
-      "heading": "The choices it makes",
-      "fragment": "decision-diagrams",
-      "requires": ["feature-decisions:$capability", "value-sets"],
+      "id": "flow",
+      "kind": "llm",
+      "heading": "The logic, drawn",
+      "prompt": "prompts/flow.md",
+      "requires": [
+        "feature-decisions:$capability",
+        "feature-rules:$capability",
+        "feature-flows:$capability",
+        "value-sets"
+      ],
+      "contract": { "maxHeadingLevel": 3 },
       "omitWhenEmpty": true
     },
     {
@@ -34,7 +44,7 @@
       "heading": "The rules it enforces",
       "prompt": "prompts/rules.md",
       "requires": ["feature-rules:$capability"],
-      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
+      "contract": { "maxWords": 800, "maxHeadingLevel": 3 },
       "omitWhenEmpty": true
     },
     {
@@ -50,9 +60,8 @@
       "kind": "llm",
       "heading": "What is wrong with it",
       "prompt": "prompts/issues.md",
-      "requires": ["feature-findings-for:$capability"],
-      "contract": { "maxWords": 400, "maxHeadingLevel": 3 },
-      "omitWhenEmpty": true
+      "requires": ["feature-findings-for:$capability", "feature-rules:$capability"],
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 }
     },
     {
       "id": "limitations",

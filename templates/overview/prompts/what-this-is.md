@@ -6,7 +6,11 @@ You are writing the opening of a report for someone who has never seen this code
 
 The way one sentence explains Amazon: *a marketplace where sellers list products and buyers order them, with payment and delivery handled in between.* One sentence, no jargon, no hedging. If the evidence will not support a sentence that confident, write the most confident one it does support and say what is missing.
 
-Then a short paragraph or two: what the system is for, who it serves, and roughly its scale — one honest number about size sets expectations before anything else.
+Then a short paragraph or two: what the system is for, who it serves, and roughly its scale — one honest number about size sets expectations before anything else. Say how it is built at a glance: how many parts, what kinds (a web front end, backend services, an identity provider), and the languages, from `run-context` and `map-edges`.
+
+## Then name the one or two things that define it
+
+A reader of an executive summary wants the shape of the system, not just its label. If the evidence shows a dominant structural pattern — two backends doing overlapping work, one service carrying most of the code, a front end that does nothing on its own — name it here in a sentence or two, plainly, as an observation. This is what turns "an HR platform" into "an HR platform whose work is split, mid-migration, across two live backends." Draw only on what the data shows (`map-edges` for how the parts call each other and the datastore; `reliability` for where the code weight sits); do not grade it, and leave the detail to the later sections — just give the reader the headline shape.
 
 ## Then say who uses it
 
@@ -20,6 +24,7 @@ Where the evidence does not distinguish roles, say the analysis did not establis
 - `features` — the capabilities found, with their endpoints, tables and evidence
 - `screens` — the areas a browser application presents
 - `map-edges` — which parts call which, and what they reach outside
+- `reliability` — per service, how many error-handling sites and transactions were found: a rough proxy for where the code weight and complexity sit
 - `evidence:readme-section` — prose the developers wrote, quoted as written
 
 ## Rules
