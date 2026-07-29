@@ -10,10 +10,11 @@
  * quietly closed.
  */
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { marker } from "./prepare.js";
+import { splitDocument, withContents } from "./contents.js";
 import { validateAnswer, type AnswerProblem } from "./validate.js";
 import type { Contract } from "./template.js";
 
@@ -178,13 +179,53 @@ function splice(markdown: string, sectionId: string, body: string): string {
   return `${markdown.slice(0, start + begin.length)}\n${body}\n${markdown.slice(stop)}`;
 }
 
-export function writeAssembled(runDir: string, result: AssembleResult): string {
+export interface WriteOptions {
+  /** Also write one file per section, with the index carrying the contents. */
+  readonly split?: boolean;
+}
+
+export function writeAssembled(
+  runDir: string,
+  result: AssembleResult,
+  options: WriteOptions = {},
+): readonly string[] {
+  const manifest = readManifest(runDir);
+  const idFor = (title: string): string | undefined =>
+    (manifest.sections ?? []).find((section) => section.heading === title)?.id;
+
+  const written: string[] = [];
+  const document = withContents(result.markdown);
+
   const path = join(runDir, "report.md");
-  writeFileSync(path, `${result.markdown.trimEnd()}\n`, "utf8");
+  writeFileSync(path, `${document.trimEnd()}\n`, "utf8");
+  written.push(path);
+
+  if (options.split === true) {
+    // The limitations stay in the index. A reader who opens one section of a
+    // split document and never meets what the analysis could not establish
+    // has been handed its most confident-looking part on its own.
+    const { index, parts } = splitDocument(result.markdown, {
+      keepInIndex: ["limitations"],
+      idFor,
+    });
+
+    const sectionsDir = join(runDir, "sections");
+    mkdirSync(sectionsDir, { recursive: true });
+    for (const part of parts) {
+      const partPath = join(sectionsDir, `${part.name}.md`);
+      writeFileSync(partPath, part.markdown, "utf8");
+      written.push(partPath);
+    }
+
+    const indexPath = join(runDir, "index.md");
+    writeFileSync(indexPath, `${index.trimEnd()}\n`, "utf8");
+    written.push(indexPath);
+  }
+
   writeFileSync(
     join(runDir, "assembled.json"),
     `${JSON.stringify({ outcomes: result.outcomes }, null, 2)}\n`,
     "utf8",
   );
-  return path;
+  return written;
 }

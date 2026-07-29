@@ -9,7 +9,7 @@ import type { Store } from "../../engine/store/types.js";
 import { openKnowledgeBase, type KnowledgeBase } from "../../engine/kb/query.js";
 import { loadTemplate, parseTemplate } from "../../engine/render/template.js";
 import { prepare } from "../../engine/render/prepare.js";
-import { assemble, UnansweredSectionsError } from "../../engine/render/assemble.js";
+import { assemble, writeAssembled, UnansweredSectionsError } from "../../engine/render/assemble.js";
 import { resolveSelector, SelectorError } from "../../engine/render/selectors.js";
 import { hasFragment } from "../../engine/render/fragments.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
@@ -410,5 +410,59 @@ describe("quoting the project's own words", () => {
     // A multi-root workspace has no single README; saying whose it is keeps
     // one part's description from standing in for the whole project's.
     expect(partial).toContain("— from svc");
+  });
+});
+
+describe("finding your way around a long report", () => {
+  function prepared(name: string) {
+    const { outDir } = prepareInto(name);
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "### A sub-heading\n\nBody text.");
+    return outDir;
+  }
+
+  it("puts contents after the title, covering sections and their sub-headings", () => {
+    const outDir = prepared("toc");
+    writeAssembled(outDir, assemble(outDir));
+    const report = readFileSync(join(outDir, "report.md"), "utf8");
+
+    const lines = report.split("\n");
+    expect(lines[0]).toMatch(/^# /);
+    expect(report).toContain("## Contents");
+    expect(report).toContain("- [Parts](#parts)");
+    // A heading an answer wrote is part of the document, so it is listed too.
+    expect(report).toContain("[A sub-heading](#a-sub-heading)");
+  });
+
+  it("writes one file per section when asked, without changing what they say", () => {
+    const outDir = prepared("split");
+    const result = assemble(outDir);
+    const written = writeAssembled(outDir, result, { split: true });
+
+    expect(written.some((path) => path.endsWith("sections/parts.md"))).toBe(true);
+    const part = readFileSync(join(outDir, "sections", "parts.md"), "utf8");
+    // Moved, not rebuilt: the table is exactly the one in the whole document.
+    expect(part).toContain("| Part | Language |");
+    expect(result.markdown).toContain(part.split("\n")[2]!);
+  });
+
+  it("keeps the limitations in the index rather than as one file among many", () => {
+    // A reader who opens one section and never meets what the analysis could
+    // not establish has been handed its most confident part on its own.
+    const outDir = prepared("split-limits");
+    writeAssembled(outDir, assemble(outDir), { split: true });
+
+    const index = readFileSync(join(outDir, "index.md"), "utf8");
+    expect(index).toContain("## Limits");
+    expect(existsSync(join(outDir, "sections", "limitations.md"))).toBe(false);
+  });
+
+  it("does not list a heading that is only an example inside a code block", () => {
+    const { outDir } = prepareInto("fenced-toc");
+    writeFileSync(
+      join(outDir, "tasks", "intro", "answer.md"),
+      "Body.\n\n```md\n## Not a real section\n```\n",
+    );
+    writeAssembled(outDir, assemble(outDir));
+    expect(readFileSync(join(outDir, "report.md"), "utf8")).not.toContain("[Not a real section]");
   });
 });
