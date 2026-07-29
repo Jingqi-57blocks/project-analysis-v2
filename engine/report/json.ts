@@ -55,6 +55,8 @@ export interface ReportSpec {
       readonly calls: number;
     }[];
   };
+  /** Client-side routes: what the application shows, not what it serves. */
+  readonly screens: readonly { readonly service: string; readonly path: string }[];
   readonly features: readonly SpecFeature[];
   readonly modules: readonly SpecModule[];
   readonly dataModel: { readonly entityNames: readonly string[]; readonly entities: readonly unknown[] };
@@ -88,6 +90,7 @@ export interface SpecFlowStep {
   readonly conditions: readonly string[];
   readonly location: string | null;
   readonly unresolved: string | null;
+  readonly truncated: boolean;
 }
 
 export interface SpecFlow {
@@ -236,6 +239,7 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
         calls: integration.calls,
       })),
     },
+    screens: model.screens.map((screen) => ({ service: screen.rootName, path: screen.path })),
     features: model.features.map((feature) => ({
       id: feature.id,
       name: feature.name,
@@ -263,6 +267,9 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
           // Null when established. A consumer branching on this is branching
           // on whether the hop was observed, which is the point.
           unresolved: step.unresolvedReason,
+          // A step shortened for display, rather than one that could not be
+          // established — a consumer must not read the two as the same thing.
+          truncated: step.truncated,
         })),
       })),
       flowCount: feature.totalFlowCount,

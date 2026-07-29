@@ -103,6 +103,8 @@ export interface ReportFlowStep {
   readonly rootName: string | null;
   readonly conditions: readonly string[];
   readonly unresolvedReason: string | null;
+  /** True when the step stands in for others left out of the display. */
+  readonly truncated: boolean;
   /** `root/path:line`, so a claim can be checked against the source. */
   readonly location: string | null;
 }
@@ -152,6 +154,13 @@ export interface ReportModel {
   readonly mapDiagram: string;
   /** Endpoints that belong to no detected feature, with the count kept honest. */
   readonly unassignedEndpointCount: number;
+  /**
+   * The screens a browser application declares.
+   *
+   * Separate from endpoints because they are: an indexer reports both as
+   * routes, and listing them together turns a React component into an API.
+   */
+  readonly screens: readonly { readonly rootName: string; readonly path: string }[];
   /** Data entities recovered from schemas and migrations. */
   readonly dataEntities: readonly string[];
   readonly signals: readonly HealthSignal[];
@@ -180,6 +189,7 @@ export interface AssembleReportInput {
   readonly features: readonly ReportFeature[];
   readonly mapDiagram: string;
   readonly unassignedEndpointCount: number;
+  readonly screens: readonly { readonly rootName: string; readonly path: string }[];
   readonly components: readonly TechnicalComponent[];
   readonly integrations: readonly ReportIntegration[];
   readonly map: readonly MapEdge[];
@@ -225,6 +235,7 @@ export function assembleReport(input: AssembleReportInput): ReportModel {
     map: input.map,
     mapDiagram: input.mapDiagram,
     unassignedEndpointCount: input.unassignedEndpointCount,
+    screens: input.screens,
     dataEntities: input.dataEntities,
     signals: input.signals,
     // Minor observations are noise in a summary; a list nobody finishes

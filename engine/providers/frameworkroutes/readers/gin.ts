@@ -239,6 +239,7 @@ function scanFile(
         // served path.
         routes.push({
           rootName: root.name,
+          surface: "server",
           method,
           path: joinRoutePath("", pathLiteral),
           handlerSymbolId: null,
@@ -256,6 +257,7 @@ function scanFile(
 
       routes.push({
         rootName: root.name,
+        surface: "server",
         method,
         path: joinRoutePath(base.prefix, pathLiteral),
         handlerSymbolId: null,

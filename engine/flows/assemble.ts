@@ -223,6 +223,7 @@ function dataSteps(
       rootName: route.rootName,
       conditions: [],
       unresolvedReason: `only the first ${limits.maxTables} tables are shown`,
+      truncated: true,
       provenance: null,
     });
   }
@@ -302,7 +303,8 @@ export function assembleFlows(input: FlowInput, limits: FlowLimits = DEFAULT_FLO
       method: route.method,
       path: route.path,
       steps,
-      partial: steps.some((step) => step.unresolvedReason !== null),
+      // A flow shortened for display is not a flow with a hole in it.
+      partial: steps.some((step) => step.unresolvedReason !== null && step.truncated !== true),
     });
   }
 

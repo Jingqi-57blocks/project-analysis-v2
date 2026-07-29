@@ -30,6 +30,7 @@ function route(overrides: Partial<RouteRecord> = {}): RouteRecord {
     rootName: "svc",
     method: "POST",
     path: "/v2/leaves",
+    surface: "server",
     handlerSymbolId: symbol("Creation").id,
     handlerName: "leave.Creation",
     handlerCandidates: ["leave.Creation"],
@@ -165,6 +166,10 @@ describe("assembleFlows", () => {
     expect(data).toHaveLength(4);
     expect(data[3]!.label).toBe("12 more tables");
     expect(data[3]!.unresolvedReason).toContain("first 3");
+    // Shortened for display, not a hop that could not be established — the
+    // flow is still complete.
+    expect(data[3]!.truncated).toBe(true);
+    expect(flows[0]!.partial).toBe(false);
   });
 });
 

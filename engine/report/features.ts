@@ -24,6 +24,7 @@ function toReportStep(step: FlowStep): ReportFlowStep {
     rootName: step.rootName,
     conditions: step.conditions,
     unresolvedReason: step.unresolvedReason,
+    truncated: step.truncated === true,
     location: locationOf(step),
   };
 }

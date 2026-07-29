@@ -38,6 +38,7 @@ function routeContribution(
           rootName: "svc",
           method: "POST",
           path: "/users",
+          surface: "server",
           handlerSymbolId: handlerId,
           handlerName:
             overrides.handlerName === undefined ? "CreateUser" : overrides.handlerName,

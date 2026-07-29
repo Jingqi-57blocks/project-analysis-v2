@@ -44,6 +44,7 @@ function toFlow(flow: ReportSpec["features"][number]["flows"][number]): ReportFl
       rootName: step.service,
       conditions: step.conditions ?? [],
       unresolvedReason: step.unresolved,
+      truncated: step.truncated === true,
       location: step.location,
     })),
     diagram: flow.diagram,
@@ -134,6 +135,10 @@ export function modelFromSpec(spec: ReportSpec): ReportModel {
     map,
     mapDiagram: spec.project.map?.diagram ?? "",
     unassignedEndpointCount: spec.accounting?.unassignedEndpoints ?? 0,
+    screens: (spec.screens ?? []).map((screen) => ({
+      rootName: screen.service,
+      path: screen.path,
+    })),
     dataEntities: spec.dataModel?.entityNames ?? [],
     signals,
     attentionSignals: signals.filter((signal) => signal.severity !== "info"),

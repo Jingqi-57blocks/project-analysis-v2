@@ -24,6 +24,7 @@ function route(handlerName: string | null, rootName = "svc", candidates?: string
     rootName,
     method: "POST",
     path: "/v2/leaves",
+    surface: "server",
     handlerSymbolId: null,
     handlerName,
     handlerCandidates: candidates ?? (handlerName === null ? [] : [handlerName]),

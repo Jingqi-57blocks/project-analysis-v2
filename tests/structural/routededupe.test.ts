@@ -13,6 +13,7 @@ function routeRecord(
   const full: RouteRecord = {
     rootName: "svc",
     method: "GET",
+    surface: "server",
     handlerSymbolId: null,
     handlerName: null,
     handlerCandidates: [],

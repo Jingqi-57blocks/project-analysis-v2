@@ -18,8 +18,21 @@ import type { SymbolId } from "./identity.js";
  * Null `method` means a route matching every method — not a `"*"` sentinel
  * every consumer would have to special-case.
  */
+/**
+ * Which side of the network a route lives on.
+ *
+ * A single-page application declares its screens with the same vocabulary a
+ * server declares its endpoints, and an indexer reports both as routes. Listed
+ * together they are worse than useless: a reader — or an agent rebuilding the
+ * project — would take `/components/ReviewInfo` for an HTTP endpoint. Closed
+ * on purpose: this is our judgement about a fact, not a name a language gives.
+ */
+export type RouteSurface = "server" | "client";
+
 export interface RouteRecord {
   readonly rootName: string;
+  /** Where this route is served. Defaults to the server for anything stated with a method. */
+  readonly surface: RouteSurface;
   readonly method: string | null;
   readonly path: string;
   readonly handlerSymbolId: SymbolId | null;

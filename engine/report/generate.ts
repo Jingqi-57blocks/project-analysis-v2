@@ -97,6 +97,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   const collectors = [createDocumentationCollector(), createCodeTextCollector()];
 
   const routes: RouteRecord[] = [];
+  const screens: RouteRecord[] = [];
   const calls: OutboundCallRecord[] = [];
   const symbols: SymbolRecord[] = [];
   const callEdges: CallEdgeRecord[] = [];
@@ -143,7 +144,15 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     const model = consolidateRoutes(assemble(root.name, extractAll(structuralProviders, input)));
 
     for (const record of model.records) {
-      if (record.kind === "route") routes.push(record.record as RouteRecord);
+      if (record.kind === "route") {
+        const route = record.record as RouteRecord;
+        // A screen and an endpoint are both routes to an indexer, and listing
+        // them together would have an agent rebuilding this project create an
+        // HTTP endpoint for every React component. Kept, not discarded: the
+        // screens are what the product looks like.
+        if (route.surface === "client") screens.push(route);
+        else routes.push(route);
+      }
       else if (record.kind === "outbound-call") {
         const call = record.record as OutboundCallRecord;
         if (!generated.has(call.provenance.source.relPath)) calls.push(call);
@@ -438,6 +447,13 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     });
   }
 
+  if (screens.length > 0) {
+    coverageNotes.push({
+      subject: "screens",
+      note: `${screens.length} client-side routes were read as the application's screens and are listed separately from the API`,
+    });
+  }
+
   const projectName = roots.length === 1 ? roots[0]!.name : selection.workspacePath.split("/").pop() ?? "project";
 
   const model = assembleReport({
@@ -454,6 +470,9 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     integrations: rootDependencies(links),
     map,
     mapDiagram: mapToMermaid(map),
+    screens: screens
+      .map((screen) => ({ rootName: screen.rootName, path: screen.path }))
+      .sort((a, b) => a.rootName.localeCompare(b.rootName) || a.path.localeCompare(b.path)),
     unassignedEndpointCount: flowSet.skipped.length,
     dataEntities: [...entityNames].sort(),
     signals,

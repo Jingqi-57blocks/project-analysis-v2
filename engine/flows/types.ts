@@ -38,6 +38,14 @@ export interface FlowStep {
    * words a reader can act on.
    */
   readonly unresolvedReason: string | null;
+  /**
+   * True for a step that stands in for others left out of the display.
+   *
+   * Distinct from an unestablished hop: the tool knows what is here and chose
+   * to show less of it. Counting the two together marked flows incomplete for
+   * having more than a dozen tables, which understates what was resolved.
+   */
+  readonly truncated?: boolean;
   readonly provenance: Provenance | null;
 }
 

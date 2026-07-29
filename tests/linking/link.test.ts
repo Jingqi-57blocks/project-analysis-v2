@@ -23,6 +23,7 @@ function route(rootName: string, method: string | null, path: string): RouteReco
     rootName,
     method,
     path,
+    surface: "server",
     handlerSymbolId: null,
     handlerName: null,
     handlerCandidates: [],

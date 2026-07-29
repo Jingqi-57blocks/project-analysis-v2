@@ -166,6 +166,7 @@ function scanRouteFile(
         // the subpath is real but must not be asserted as complete.
         routes.push({
           rootName: root.name,
+          surface: "server",
           method,
           path: joinRoutePath("", subpath),
           handlerSymbolId: null,
@@ -183,6 +184,7 @@ function scanRouteFile(
 
       routes.push({
         rootName: root.name,
+        surface: "server",
         method,
         path: joinRoutePath(prefix, subpath),
         handlerSymbolId: null,

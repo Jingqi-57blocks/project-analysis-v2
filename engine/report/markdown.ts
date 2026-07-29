@@ -251,6 +251,20 @@ export function renderOverviewPage(model: ReportModel, records: DataModelRecords
     );
   }
 
+  if (model.screens.length > 0) {
+    lines.push(
+      "## Screens",
+      "",
+      "Client-side routes the application declares. These are what it shows, not what it serves.",
+      "",
+      table(
+        ["Path", "Application"],
+        model.screens.map((screen) => [screen.path, screen.rootName]),
+      ),
+      "",
+    );
+  }
+
   if (model.integrations.length > 0) {
     lines.push(
       "## Integrations",
