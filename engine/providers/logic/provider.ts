@@ -139,6 +139,14 @@ function conditionsIn(
       literal: literal.value,
       literalKind: literal.kind,
       text: node.text().replaceAll(/\s+/g, " ").slice(0, 200),
+      // The whole test this comparison is one part of.
+      //
+      // `lv.Hours > 16 && flow == L1` is not a limit of sixteen hours; it is
+      // what happens to a request over sixteen hours *at the first approval
+      // step*. Recorded alone, the comparison reads as a standalone rule, and
+      // two tiers of one ladder read as two rules that contradict each other.
+      // Measured on a real target: they were published as exactly that.
+      fullTest: fullTestOf(node),
       enclosingFunction: enclosingFunctionName(node),
       guarded: guardedOutcome(node),
       source,
@@ -194,6 +202,33 @@ function guardedOutcome(node: SgNode): "rejects" | "continues" | null {
     current = current.parent();
   }
   return null;
+}
+
+const BOOLEAN_OPERATORS = new Set(["&&", "||", "and", "or"]);
+
+/**
+ * The outermost boolean expression this comparison belongs to.
+ *
+ * Null where the comparison is the whole test — most of the time — so a
+ * consumer can tell "this is the rule" from "this is one clause of the rule"
+ * rather than having to compare two strings.
+ */
+function fullTestOf(node: SgNode): string | null {
+  let current: SgNode | null = node.parent();
+  let outermost: SgNode | null = null;
+
+  for (let depth = 0; current !== null && depth < 6; depth++) {
+    const kind = current.kind() as string;
+    if (kind.includes("binary") || kind.includes("logical")) {
+      const operator = current.field("operator")?.text() ?? "";
+      if (BOOLEAN_OPERATORS.has(operator.trim())) outermost = current;
+    } else if (kind !== "parenthesized_expression") {
+      break;
+    }
+    current = current.parent();
+  }
+
+  return outermost === null ? null : outermost.text().replaceAll(/\s+/g, " ").slice(0, 400);
 }
 
 function flip(operator: string): string {

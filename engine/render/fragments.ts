@@ -33,6 +33,21 @@ function pick<T>(input: FragmentInput, selector: string): T | undefined {
 }
 
 
+/**
+ * A value as a person would say it.
+ *
+ * `constant.PtoC` is a package, a name and a Go constant suffix; a reader
+ * wants "pto". `wcp_leave_detail` is a table prefix and underscores; they
+ * want "leave detail".
+ */
+function readableValue(text: string): string {
+  // `constant.PtoC.Uint8()` names PTO and then converts it; the conversion is
+  // not the value. Drop call segments before taking the last one.
+  const segments = text.split(".").filter((segment) => !segment.endsWith("()"));
+  const last = segments[segments.length - 1] ?? text;
+  return readableName(last.replace(/C$/, "").replace(/^[a-z]{2,4}_/i, ""));
+}
+
 /** An identifier as a person would say it: `lv.LeaveType` → "leave type". */
 function readableName(text: string): string {
   const last = text.split(".").pop() ?? text;
@@ -66,6 +81,7 @@ interface DecisionShape {
     readonly test: string;
     readonly values: readonly (string | number)[];
     readonly outcome: string;
+    readonly touches?: readonly string[];
   }[];
 }
 
@@ -230,8 +246,19 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     const decisions = pick<readonly DecisionShape[]>(input, "feature-decisions") ?? [];
     const sets = pick<readonly ValueSet[]>(input, "value-sets") ?? [];
 
+    // A decision is worth drawing when something is known about where its
+    // branches lead. One where every branch reads "not established" tells a
+    // reader the choice exists and nothing about why it matters — which is
+    // worse than a sentence, because it looks like an answer.
     const worth = decisions
-      .filter((decision) => decision.subject !== "" && decision.branches.length > 1)
+      .filter(
+        (decision) =>
+          decision.subject !== "" &&
+          decision.branches.length > 1 &&
+          decision.branches.some(
+            (branch) => (branch.touches ?? []).length > 0 || branch.outcome === "leaves",
+          ),
+      )
       .sort((a, b) => b.branches.length - a.branches.length)
       .slice(0, 6);
     if (worth.length === 0) return "";
@@ -241,14 +268,37 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         const where = decision.enclosingFunction === null ? "" : ` — while ${readableName(decision.enclosingFunction)}`;
         const lines = ["flowchart TD", `  q["${escapeLabel(readableName(decision.subject))}?"]`];
 
-        decision.branches.forEach((branch, n) => {
+        // Branches that end the same way are drawn as one. Ten arrows to ten
+        // identical boxes is a picture of the code's shape, not of what it
+        // decides — the reader wants the answers grouped by what they lead to.
+        const byOutcome = new Map<string, string[]>();
+        for (const branch of decision.branches) {
           const named = nameValues(branch.values, decision.subject, sets);
-          const label = branch.test === "otherwise" ? "anything else" : (named ?? branch.test);
-          const id = `b${n}`;
-          const outcome = branch.outcome === "leaves" ? "stops here" : "carries on";
+          const label =
+            branch.test === "otherwise" ? "anything else" : (named ?? readableValue(branch.test));
+
+          const touches = branch.touches ?? [];
+          const outcome =
+            touches.length > 0
+              ? `${branch.outcome === "leaves" ? "stops, having used" : "uses"} ${touches
+                  .slice(0, 3)
+                  .map(readableValue)
+                  .join(", ")}${touches.length > 3 ? `, +${touches.length - 3}` : ""}`
+              : branch.outcome === "leaves"
+                ? "stops here"
+                : "handled — what it does was not established";
+
+          byOutcome.set(outcome, [...(byOutcome.get(outcome) ?? []), label]);
+        }
+
+        let n = 0;
+        for (const [outcome, labels] of byOutcome) {
+          const id = `b${n++}`;
+          const shown = labels.slice(0, 6).join(", ");
+          const label = `${shown}${labels.length > 6 ? `, +${labels.length - 6} more` : ""}`;
           lines.push(`  ${id}["${escapeLabel(outcome)}"]`);
-          lines.push(`  q -->|"${escapeLabel(label.slice(0, 40))}"| ${id}`);
-        });
+          lines.push(`  q -->|"${escapeLabel(label.slice(0, 90))}"| ${id}`);
+        }
 
         return [`**${readableName(decision.subject)}**${where}`, mermaid(lines.join("\n"))].join("\n\n");
       })

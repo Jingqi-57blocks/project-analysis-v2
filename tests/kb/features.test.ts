@@ -70,6 +70,7 @@ function rule(overrides: Partial<BusinessRule> = {}): BusinessRule {
     relPath: "leave.go",
     startLine: 88,
     text: "lv.Hours > 40",
+    fullTest: null,
     guarded: "rejects",
     enclosingFunction: "Apply",
     ...overrides,

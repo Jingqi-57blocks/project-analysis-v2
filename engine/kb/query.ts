@@ -16,7 +16,7 @@ import { readDerived, readDerivedFor, readDerivedOne, readLinks, readLinksTo } f
 import { derivedKey, type DerivedKind, type DerivedRecords } from "./kinds.js";
 import { readRecords } from "../structural/persist.js";
 import type { StructuralKind } from "../structural/kinds.js";
-import type { RouteRecord } from "../structural/boundaries.js";
+import type { DataAccessRecord, RouteRecord } from "../structural/boundaries.js";
 import type {
   ConstraintRecord,
   DataRelationRecord,
@@ -287,9 +287,61 @@ export class KnowledgeBase {
     if (feature === undefined) return [];
 
     const owned = new Set(feature.filePaths);
-    return this.decisions().filter((decision) =>
-      owned.has(`${decision.rootName}/${decision.source.relPath}`),
-    );
+    return this.decisions()
+      .filter((decision) => owned.has(`${decision.rootName}/${decision.source.relPath}`))
+      .map((decision) => this.withEffects(decision));
+  }
+
+  /**
+   * What each branch of a decision was observed to do.
+   *
+   * The reader records where a branch is, not what happens inside it, so that
+   * one fact keeps one source. Joining by line is where the two meet: a data
+   * access recorded at line 88 of the same file belongs to the branch that
+   * spans lines 84 to 92.
+   *
+   * Without this a diagram shows three branches and nothing about where they
+   * lead, which invites a reader to assume the branches do not matter.
+   */
+  private withEffects(decision: DecisionRecord): DecisionRecord {
+    const file = `${decision.rootName}/${decision.source.relPath}`;
+    const accesses = this.dataAccessByFile().get(file) ?? [];
+
+    const attach = (branch: DecisionRecord["branches"][number]): DecisionRecord["branches"][number] => ({
+      ...branch,
+      touches: [
+        ...new Set(
+          accesses
+            .filter(
+              (access) =>
+                access.line >= branch.startLine &&
+                access.line <= branch.endLine &&
+                access.entity !== null,
+            )
+            .map((access) => access.entity!),
+        ),
+      ].sort(),
+      decisions: branch.decisions.map((inner) => this.withEffects(inner)),
+    });
+
+    return { ...decision, branches: decision.branches.map(attach) };
+  }
+
+  private accessCache: Map<string, { line: number; entity: string | null }[]> | null = null;
+
+  private dataAccessByFile(): ReadonlyMap<string, { line: number; entity: string | null }[]> {
+    if (this.accessCache !== null) return this.accessCache;
+
+    const byFile = new Map<string, { line: number; entity: string | null }[]>();
+    for (const record of this.structural("data-access") as readonly DataAccessRecord[]) {
+      const source = record.provenance.source;
+      const key = `${record.rootName}/${source.relPath}`;
+      const list = byFile.get(key) ?? [];
+      list.push({ line: source.startLine ?? 0, entity: record.entity });
+      byFile.set(key, list);
+    }
+    this.accessCache = byFile;
+    return byFile;
   }
 
   /** Findings about the architecture rather than about one capability. */

@@ -82,6 +82,14 @@ export interface ConditionRecord {
   readonly literalKind: "numeric" | "string";
   /** The whole comparison as written, for a reader who wants the original. */
   readonly text: string;
+  /**
+   * The whole test this comparison is one clause of, where it is one.
+   *
+   * `lv.Hours > 16 && flow == L1` is not a sixteen-hour limit — it is what
+   * happens to a longer request at the first approval step. Without this, two
+   * tiers of one ladder read as two rules that contradict each other.
+   */
+  readonly fullTest?: string | null;
   readonly enclosingFunction: string | null;
   /**
    * What the guarded branch does, where the condition guards one.
@@ -130,6 +138,13 @@ export interface DecisionBranch {
   readonly outcome: "leaves" | "continues";
   readonly startLine: number;
   readonly endLine: number;
+  /**
+   * Records this branch was observed to touch.
+   *
+   * Not read by the reader — filled in when the decision is joined to the
+   * data-access records that share its lines, so one fact keeps one source.
+   */
+  readonly touches?: readonly string[];
   /** Decisions made inside this branch. */
   readonly decisions: readonly DecisionRecord[];
 }

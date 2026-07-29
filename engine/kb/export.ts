@@ -188,6 +188,9 @@ export function buildExport(kb: KnowledgeBase): unknown {
         rules: (detail?.rules ?? []).map((rule) => ({
           statement: rule.statement,
           text: rule.text,
+          // The whole test it is a clause of, where it is one — without it a
+          // comparison reads as a standalone rule.
+          fullTest: rule.fullTest,
           service: rule.rootName,
           location: `${rule.rootName}/${rule.relPath}:${rule.startLine}`,
           // What the value means where the project names it, and the set that

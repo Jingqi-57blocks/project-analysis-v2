@@ -29,6 +29,8 @@ export interface BusinessRule {
   readonly relPath: string;
   readonly startLine: number;
   readonly text: string;
+  /** The whole test this comparison is one clause of, where it is one. */
+  readonly fullTest: string | null;
   /** What the guarded branch does, where this condition guards one. */
   readonly guarded: "rejects" | "continues" | null;
   /** The function this rule is enforced in, so a flow can find its own. */
@@ -142,6 +144,7 @@ export function stateRule(
     relPath: condition.source.relPath,
     startLine: condition.source.startLine ?? 0,
     text: condition.text,
+    fullTest: condition.fullTest ?? null,
     guarded: condition.guarded,
     enclosingFunction: condition.enclosingFunction,
   };

@@ -8,6 +8,7 @@ The rules this capability enforces, said so a person can judge them. On many pro
 
 - `statement` — the rule in words, with values named where the project names them
 - `text` — the comparison exactly as the code writes it
+- `fullTest` — the whole test this comparison is one clause of, where it is one. **Read this before saying what a rule is.** `hours > 16` inside `hours > 16 && flow == first-approval` is not a sixteen-hour limit; it is what happens to a longer request at the first approval step. Two clauses of one ladder look like two rules that contradict each other, and saying so would be wrong.
 - `guarded` — `rejects` if failing it stops the request, `continues` if the work carries on, null where it guards nothing
 - `meanings` and `valueSetName` — what the value stands for, where the project declares a name for it
 
