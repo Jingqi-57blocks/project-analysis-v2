@@ -175,8 +175,18 @@ export function derive(input: DeriveInput): Derived {
   // Falling back to entry points keeps the knowledge base useful rather than
   // faithfully empty when no trace could be walked — and a coverage note
   // already says the call graph was not followed, so nothing is overstated.
-  const modules =
-    formation.modules.length > 0 ? formation.modules : formModulesFromRoutes(routes);
+  const grouped =
+    formation.modules.length > 0
+      ? { modules: formation.modules, withoutResource: formation.withoutResource }
+      : formModulesFromRoutes(routes);
+  const modules = grouped.modules;
+
+  if (grouped.withoutResource.length > 0) {
+    notes.push({
+      subject: "modules",
+      note: `${grouped.withoutResource.length} of ${routes.length} entry points are addressed only through a version or entry-point prefix — every segment of their path says how to reach the service rather than what it holds — so they belong to no module`,
+    });
+  }
 
   const detection = detectFeatures({
     entityNames: [...gathered.entityNames],
