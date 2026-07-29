@@ -11,12 +11,15 @@ import type { KnowledgeBase, Coverage } from "../kb/query.js";
 import type { CoverageNote, FeatureFact, MapEdge, RunContext } from "../kb/facts.js";
 import { bestSetFor, type ValueSet } from "../semantics/enums.js";
 import { escapeLabel } from "../flows/mermaid.js";
+import { FRAME_EN, t, type Glossary } from "./strings.js";
 
 export interface FragmentInput {
   /** Selector name → what it resolved to, in the order the section listed. */
   readonly data: Readonly<Record<string, unknown>>;
   readonly params: Readonly<Record<string, string>>;
   readonly kb: KnowledgeBase;
+  /** The report's frame words. English when a caller supplied no language. */
+  readonly frame?: Glossary;
 }
 
 export class FragmentError extends Error {
@@ -153,13 +156,14 @@ function coverageLine(coverage: Coverage | undefined, subject: string): string {
 const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
   "project-map": (input) => {
+    const f = input.frame ?? FRAME_EN;
     const context = pick<RunContext | null>(input, "run-context");
     const edges = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
     const parts = [mermaid(context?.mapDiagram ?? "")];
     if (edges.length > 0) {
       parts.push(
         table(
-          ["From", "To", "Kind", "Detail"],
+          [t(f, "col-from"), t(f, "col-to"), t(f, "col-kind"), t(f, "col-detail")],
           edges.map((edge) => [edge.from, edge.to, edge.kind, edge.detail]),
         ),
       );
@@ -180,6 +184,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
   /** What the system talks to outside itself, minus what is not an integration. */
   "external-systems": (input) => {
+    const f = input.frame ?? FRAME_EN;
     const edges = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
     const external = edges.filter((edge) => edge.kind === "external");
     if (external.length === 0) return "";
@@ -198,21 +203,22 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
     const lines = [...real.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([host, callers]) => `- **${host}** — reached from ${[...callers].sort().join(", ")}`);
+      .map(
+        ([host, callers]) =>
+          `- **${host}** — ${t(f, "reached-from", [...callers].sort().join(", "))}`,
+      );
 
     if (dropped > 0) {
       // Named rather than silently filtered: a reader deciding on this list
       // should know it is not everything the code mentions.
-      lines.push(
-        "",
-        `_${dropped} further ${dropped === 1 ? "address was" : "addresses were"} left out: development addresses and documentation links, which are written in the code but are not systems this one talks to._`,
-      );
+      lines.push("", t(f, dropped === 1 ? "address-left-out" : "addresses-left-out", dropped));
     }
     return lines.join("\n");
   },
 
   /** The kinds of thing the system keeps, without naming a single table. */
   "stored-kinds": (input) => {
+    const f = input.frame ?? FRAME_EN;
     const entities = pick<readonly { name: string; rootName: string }[]>(input, "entities") ?? [];
     if (entities.length === 0) {
       return coverageLine(pick<Coverage>(input, "coverage:entity"), "table declarations");
@@ -232,10 +238,12 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     }
 
     const named = [...words.keys()].sort();
+    const shown = named.slice(0, 24).join(", ");
+    const names = named.length > 24 ? `${shown}, ${t(f, "and-more", named.length - 24)}` : shown;
     return [
-      `It keeps ${entities.length} kinds of record. Among them: ${named.slice(0, 24).join(", ")}${named.length > 24 ? `, and ${named.length - 24} more` : ""}.`,
+      t(f, "keeps-records", entities.length, names),
       "",
-      "_The full schema, with every column, is in the JSON export._",
+      t(f, "full-schema-note"),
     ].join("\n");
   },
 
@@ -248,6 +256,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
    * as one would invent a structure the code does not have.
    */
   "decision-diagrams": (input) => {
+    const f = input.frame ?? FRAME_EN;
     const decisions = pick<readonly DecisionShape[]>(input, "feature-decisions") ?? [];
     const sets = pick<readonly ValueSet[]>(input, "value-sets") ?? [];
 
@@ -270,7 +279,10 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
     return worth
       .map((decision) => {
-        const where = decision.enclosingFunction === null ? "" : ` — while ${readableName(decision.enclosingFunction)}`;
+        const where =
+          decision.enclosingFunction === null
+            ? ""
+            : t(f, "while", readableName(decision.enclosingFunction));
         const lines = ["flowchart TD", `  q["${escapeLabel(readableName(decision.subject))}?"]`];
 
         // Branches that end the same way are drawn as one. Ten arrows to ten
@@ -280,18 +292,18 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         for (const branch of decision.branches) {
           const named = nameValues(branch.values, decision.subject, sets);
           const label =
-            branch.test === "otherwise" ? "anything else" : (named ?? readableValue(branch.test));
+            branch.test === "otherwise" ? t(f, "anything-else") : (named ?? readableValue(branch.test));
 
           const touches = branch.touches ?? [];
-          const outcome =
-            touches.length > 0
-              ? `${branch.outcome === "leaves" ? "stops, having used" : "uses"} ${touches
-                  .slice(0, 3)
-                  .map(readableValue)
-                  .join(", ")}${touches.length > 3 ? `, +${touches.length - 3}` : ""}`
-              : branch.outcome === "leaves"
-                ? "stops here"
-                : "handled — what it does was not established";
+          let outcome: string;
+          if (touches.length > 0) {
+            const shownTouches = touches.slice(0, 3).map(readableValue).join(", ");
+            const list =
+              touches.length > 3 ? `${shownTouches}, ${t(f, "and-more", touches.length - 3)}` : shownTouches;
+            outcome = branch.outcome === "leaves" ? t(f, "stops-having-used", list) : t(f, "uses", list);
+          } else {
+            outcome = branch.outcome === "leaves" ? t(f, "stops-here") : t(f, "handled-unknown");
+          }
 
           byOutcome.set(outcome, [...(byOutcome.get(outcome) ?? []), label]);
         }
@@ -300,7 +312,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         for (const [outcome, labels] of byOutcome) {
           const id = `b${n++}`;
           const shown = labels.slice(0, 6).join(", ");
-          const label = `${shown}${labels.length > 6 ? `, +${labels.length - 6} more` : ""}`;
+          const label = `${shown}${labels.length > 6 ? `, ${t(f, "and-more", labels.length - 6)}` : ""}`;
           lines.push(`  ${id}["${escapeLabel(outcome)}"]`);
           lines.push(`  q -->|"${escapeLabel(label.slice(0, 90))}"| ${id}`);
         }
@@ -312,6 +324,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
   /** What one capability keeps, without naming a table. */
   "capability-data": (input) => {
+    const f = input.frame ?? FRAME_EN;
     const detail = pick<{ feature: FeatureFact } | null>(input, "feature-detail");
     if (!detail) return "";
 
@@ -328,19 +341,18 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
     const parts: string[] = [];
     if (tables.length > 0) {
-      parts.push(`Its own handling was observed to read or write: ${readable(tables)}.`);
+      parts.push(t(f, "own-handling", readable(tables)));
     }
     if (nearby.length > 0) {
       // Weaker evidence, and saying which is which is the difference between
       // "this capability touches forty things" and what was actually seen.
-      parts.push(
-        `A further ${nearby.length} kinds of record were touched elsewhere in the same code, so they may belong to this capability or to something beside it: ${readable(nearby)}.`,
-      );
+      parts.push(t(f, "further-nearby", nearby.length, readable(nearby)));
     }
     return parts.join("\n\n");
   },
 
   limitations: (input) => {
+    const f = input.frame ?? FRAME_EN;
     const notes = pick<readonly CoverageNote[]>(input, "coverage-notes") ?? [];
     const failures =
       pick<readonly { providerId: string; scope: string; reason: string }[]>(
@@ -352,7 +364,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     if (notes.length > 0) {
       parts.push(
         table(
-          ["About", "What this analysis could not establish"],
+          [t(f, "col-about"), t(f, "col-cannot-establish")],
           notes.map((note) => [note.subject, note.note]),
         ),
       );
@@ -389,15 +401,13 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
           const shown = group.where.slice(0, 3).join(", ");
           const where =
             group.where.length > 3
-              ? `${shown}, and ${group.where.length - 3} more`
+              ? `${shown}, ${t(f, "and-more", group.where.length - 3)}`
               : shown;
           return [group.providerId, where, group.reason];
         });
-      parts.push(table(["Reader", "Where", "What went wrong"], rows));
+      parts.push(table([t(f, "col-reader"), t(f, "col-where"), t(f, "col-went-wrong")], rows));
     }
-    return parts.length === 0
-      ? "This run recorded no limits on what it could read, which is itself worth doubting."
-      : parts.join("\n\n");
+    return parts.length === 0 ? t(f, "no-limits") : parts.join("\n\n");
   },
 };
 

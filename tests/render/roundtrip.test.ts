@@ -156,6 +156,52 @@ describe("prepare", () => {
     expect(readFileSync(join(outDir, "report.partial.md"), "utf8")).toContain("flowchart");
   });
 
+  it("emits a frame-translation task for a non-English report, and none for English", () => {
+    const en = prepare({ template: loadTemplate(templateDir), kb, outDir: join(workDir, "out", "frame-en") });
+    expect(en.tasks.map((task) => task.sectionId)).not.toContain("_frame");
+
+    const zh = prepare({
+      template: loadTemplate(templateDir),
+      kb,
+      outDir: join(workDir, "out", "frame-zh"),
+      language: "zh-CN",
+    });
+    expect(zh.tasks.map((task) => task.sectionId)).toContain("_frame");
+    // The glossary carries the template's own headings, so a new document needs
+    // no change here to be translatable.
+    const data = JSON.parse(
+      readFileSync(join(workDir, "out", "frame-zh", "tasks", "_frame", "data.json"), "utf8"),
+    ) as Record<string, string>;
+    expect(data["heading:Parts"]).toBe("Parts");
+    expect(data["col-from"]).toBe("From");
+  });
+
+  it("applies a supplied frame translation to headings and code, keeping answers", () => {
+    const outDir = join(workDir, "out", "frame-apply");
+    prepare({ template: loadTemplate(templateDir), kb, outDir, language: "zh-CN" });
+
+    // The host answers the frame task and a prose section.
+    writeFileSync(
+      join(outDir, "tasks", "_frame", "answer.md"),
+      JSON.stringify({ "heading:Parts": "部件", "col-from": "来源", contents: "目录" }),
+    );
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "写在中文里的介绍。");
+
+    // The frame-only re-render: translated frame in, answers untouched.
+    prepare({ template: loadTemplate(templateDir), kb, outDir, language: "zh-CN", preserveAnswers: true });
+
+    const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
+    expect(partial).toContain("## 部件");
+    expect(partial).toContain("| 来源 |");
+    expect(existsSync(join(outDir, "tasks", "intro", "answer.md"))).toBe(true);
+
+    const assembled = assemble(outDir);
+    const written = writeAssembled(outDir, assembled, { split: false });
+    const document = readFileSync(written[0]!, "utf8");
+    expect(document).toContain("## 目录");
+    expect(document).toContain("写在中文里的介绍。");
+  });
+
   it("refuses an unknown selector with the vocabulary, not an empty slice", () => {
     // An empty slice would read as "the project has none".
     expect(() =>

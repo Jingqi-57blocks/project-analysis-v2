@@ -17,6 +17,17 @@ import type { KnowledgeBase } from "../kb/query.js";
 import { hasFragment, renderFragment, FragmentError } from "./fragments.js";
 import { isEmptyResult, resolveSelector } from "./selectors.js";
 import { readPrompt, type Section, type Template } from "./template.js";
+import {
+  applyGlossary,
+  frameFor,
+  heading as localizeHeading,
+  needsTranslation,
+  t,
+  type Glossary,
+} from "./strings.js";
+
+/** The task that holds the frame's translation, kept out of the document. */
+export const FRAME_TASK = "_frame";
 
 /** Marks where an answer goes, so assemble can splice without re-rendering. */
 export function marker(sectionId: string, edge: "begin" | "end"): string {
@@ -38,6 +49,14 @@ export interface PrepareOptions {
    * knowledge base has moved on, wasteful when a single fragment was wrong.
    */
   readonly only?: string;
+  /**
+   * Keep answers already written, rather than clearing them.
+   *
+   * A full prepare clears answers, since a new knowledge base can make them
+   * stale. Applying a frame translation is the exception: the knowledge base
+   * has not moved, only the language it is read in, so the prose stands.
+   */
+  readonly preserveAnswers?: boolean;
 }
 
 export interface PreparedTask {
@@ -124,6 +143,14 @@ export function prepare(options: PrepareOptions): PrepareResult {
   mkdirSync(options.outDir, { recursive: true });
   const tasksDir = join(options.outDir, "tasks");
 
+  // The frame — headings, table columns, diagram labels — in the report's
+  // language. English is the source; another language is a filled-in
+  // translation task, loaded here so this run's code sections come out in it.
+  const headings = template.sections
+    .map((section) => section.heading)
+    .filter((value): value is string => value !== null);
+  const frame = withTranslation(frameFor(headings), tasksDir, options.language);
+
   const lines: string[] = [`# ${title(template, params, kb)}`, ""];
   const tasks: PreparedTask[] = [];
   const omitted: string[] = [];
@@ -153,12 +180,12 @@ export function prepare(options: PrepareOptions): PrepareResult {
       continue;
     }
 
-    if (section.heading !== null) lines.push(`## ${section.heading}`, "");
+    if (section.heading !== null) lines.push(`## ${localizeHeading(frame, section.heading)}`, "");
 
     if (section.kind === "code") {
       if (!hasFragment(section.fragment)) throw new FragmentError(section.fragment);
-      const body = renderFragment(section.fragment, { data: lookup, params, kb });
-      lines.push(body === "" ? "_Nothing to show here._" : body, "");
+      const body = renderFragment(section.fragment, { data: lookup, params, kb, frame });
+      lines.push(body === "" ? t(frame, "nothing-to-show") : body, "");
       codeSections += 1;
       continue;
     }
@@ -168,8 +195,11 @@ export function prepare(options: PrepareOptions): PrepareResult {
 
     // An answer written from an older slice would be published against a
     // newer one. Cleared for the sections being rebuilt, and only those —
-    // rebuilding one section must not discard the rest.
-    if (options.only === undefined || options.only === section.id) {
+    // rebuilding one section must not discard the rest. A frame-only re-render
+    // (preserveAnswers) keeps them all: the slice has not changed.
+    const clearing =
+      options.only === section.id || (options.only === undefined && options.preserveAnswers !== true);
+    if (clearing) {
       rmSync(join(dir, "answer.md"), { force: true });
     }
 
@@ -203,6 +233,15 @@ export function prepare(options: PrepareOptions): PrepareResult {
     });
   }
 
+  // The frame's own translation is a task like any other, but it is not a
+  // section: it produces the words the report is built from, not a part of it.
+  // Emitted only when the language is not English, and only for a full prepare
+  // — rebuilding one section must not disturb a translation already given.
+  if (needsTranslation(options.language) && options.only === undefined) {
+    const frameTask = emitFrameTask(tasksDir, frameFor(headings), options.language!);
+    if (!existsSync(join(tasksDir, FRAME_TASK, "answer.md"))) tasks.unshift(frameTask);
+  }
+
   writeFileSync(join(options.outDir, "report.partial.md"), `${lines.join("\n").trimEnd()}\n`, "utf8");
   writeFileSync(
     join(options.outDir, "manifest.json"),
@@ -214,6 +253,8 @@ export function prepare(options: PrepareOptions): PrepareResult {
         runId: kb.snapshot.runId,
         identity: kb.snapshot.identity,
         workspacePath: kb.snapshot.workspacePath,
+        ...(options.language === undefined ? {} : { language: options.language }),
+        frame,
         sections: template.sections.map((section) => ({
           id: section.id,
           kind: section.kind,
@@ -255,6 +296,75 @@ function title(
   for (const [key, value] of Object.entries(params)) known[key] = named(value);
 
   return template.title.replaceAll(/\$(\w+)/g, (whole, name: string) => known[name] ?? whole);
+}
+
+/**
+ * The frame in the report's language, when a translation has been supplied.
+ *
+ * The English frame otherwise — including on the first pass, before the host
+ * has answered the translation task, so a half-prepared directory still holds
+ * a readable (English) report rather than a broken one.
+ */
+function withTranslation(base: Glossary, tasksDir: string, language: string | undefined): Glossary {
+  if (!needsTranslation(language)) return base;
+  const answerPath = join(tasksDir, FRAME_TASK, "answer.md");
+  if (!existsSync(answerPath)) return base;
+  return applyGlossary(base, parseGlossary(readFileSync(answerPath, "utf8")));
+}
+
+/** A translated frame from the host's answer, tolerant of a JSON code fence. */
+function parseGlossary(answer: string): Glossary {
+  const body = answer.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed === null || typeof parsed !== "object") return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string") out[key] = value;
+    }
+    return out;
+  } catch {
+    // A malformed answer falls back to English rather than failing the export;
+    // the frame is chrome, and a readable English frame beats no report.
+    return {};
+  }
+}
+
+/** Writes the translation task: the English frame, and how to translate it. */
+function emitFrameTask(tasksDir: string, english: Glossary, language: string): PreparedTask {
+  const dir = join(tasksDir, FRAME_TASK);
+  mkdirSync(dir, { recursive: true });
+
+  const promptPath = join(dir, "prompt.md");
+  const dataPath = join(dir, "data.json");
+  const prompt = [
+    `# Translate the report's frame into ${language}`,
+    "",
+    "`data.json` beside this file is the report's fixed wording — its headings, table",
+    "column names and diagram labels — as keys mapped to English text.",
+    "",
+    `Return one JSON object with the **same keys**, each value translated into ${language}.`,
+    "",
+    "- Keep every `{0}`, `{1}` placeholder exactly as it is: they are filled with the",
+    "  project's own facts — numbers, names — which must not be translated or moved.",
+    "- Keep Markdown intact: leading and trailing `_` mark italics; leave them in place.",
+    "- Translate only the wording. Do not add keys, drop keys, or explain anything.",
+    "- Write the answer as the JSON object alone.",
+    "",
+    "This is the frame the report is built from. The facts inside it are never here,",
+    "so nothing you write can change what the report claims — only the language it is",
+    "read in.",
+  ].join("\n");
+
+  writeFileSync(promptPath, `${prompt}\n`, "utf8");
+  writeFileSync(dataPath, `${JSON.stringify(english, null, 2)}\n`, "utf8");
+  writeFileSync(
+    join(dir, "task.json"),
+    `${JSON.stringify({ sectionId: FRAME_TASK, kind: "frame", language }, null, 2)}\n`,
+    "utf8",
+  );
+
+  return { sectionId: FRAME_TASK, heading: null, promptPath, dataPath, optional: false };
 }
 
 /**

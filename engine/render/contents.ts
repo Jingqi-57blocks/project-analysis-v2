@@ -26,7 +26,9 @@ const FENCE = /^```/;
 export function anchorFor(title: string, taken: Set<string>): string {
   const base = title
     .toLowerCase()
-    .replaceAll(/[^\w\s-]/g, "")
+    // Letters and numbers of any script, so a Chinese or Cyrillic heading
+    // anchors to its own text rather than to an empty string and a number.
+    .replaceAll(/[^\p{L}\p{N}\s-]/gu, "")
     .trim()
     .replaceAll(/\s+/g, "-");
   let anchor = base === "" ? "section" : base;
@@ -68,6 +70,8 @@ export interface ContentsOptions {
   readonly maxLevel?: number;
   /** Where each top-level section lives, when they are separate files. */
   readonly hrefFor?: (heading: Heading) => string;
+  /** The word for "Contents" in the report's language. */
+  readonly label?: string;
 }
 
 /**
@@ -110,7 +114,7 @@ export function withContents(markdown: string, options: ContentsOptions = {}): s
   return [
     ...lines.slice(0, at),
     "",
-    "## Contents",
+    `## ${options.label ?? "Contents"}`,
     "",
     contents,
     ...lines.slice(at),
@@ -140,6 +144,8 @@ export interface SplitOptions {
   readonly keepInIndex?: readonly string[];
   /** Section id by heading title, from the manifest, for stable filenames. */
   readonly idFor?: (title: string) => string | undefined;
+  /** The word for "Contents" in the report's language. */
+  readonly label?: string;
 }
 
 /**
@@ -181,7 +187,7 @@ export function splitDocument(markdown: string, options: SplitOptions = {}): Spl
   const index = [
     ...head,
     "",
-    "## Contents",
+    `## ${options.label ?? "Contents"}`,
     "",
     contents,
     ...(kept.length === 0 ? [] : ["", ...kept]),

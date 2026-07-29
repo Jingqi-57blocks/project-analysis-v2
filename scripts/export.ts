@@ -24,7 +24,7 @@ import { openKnowledgeBase, type KnowledgeBase } from "../engine/kb/query.js";
 import { renderExport } from "../engine/kb/export.js";
 import { assertOutsideRoots } from "../engine/run/analyze.js";
 import { loadTemplate } from "../engine/render/template.js";
-import { prepare } from "../engine/render/prepare.js";
+import { prepare, FRAME_TASK } from "../engine/render/prepare.js";
 import { assemble, writeAssembled } from "../engine/render/assemble.js";
 import { exportDocument } from "../engine/render/export.js";
 
@@ -122,6 +122,16 @@ function exportDocumentType(
       console.log(`  then run this command again to assemble`);
       return 0;
     }
+  }
+
+  // Apply a supplied frame translation to the headings and code sections. The
+  // targeted --only path already loaded it while rebuilding its one section.
+  if (
+    only === undefined &&
+    language !== undefined &&
+    existsSync(join(outDir, "tasks", FRAME_TASK, "answer.md"))
+  ) {
+    prepare({ template, kb, outDir, params: given, language, preserveAnswers: true });
   }
 
   const result = assemble(outDir, argv.includes("--allow-missing"));
