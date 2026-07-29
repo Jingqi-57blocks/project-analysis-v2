@@ -48,7 +48,8 @@ const KEY_BUILDERS: {
   // Two handlers for one method+path is a conflict to surface, not two routes.
   route: (r) => joinKey([r.rootName, r.method, r.path]),
 
-  "outbound-call": (r) => joinKey([r.rootName, r.callerSymbolId, r.target, position(r.provenance)]),
+  "outbound-call": (r) =>
+    joinKey([r.rootName, r.callerSymbolId, r.method, r.target, position(r.provenance)]),
   "external-call": (r) => joinKey([r.rootName, r.callerSymbolId, r.packageName, r.memberName]),
   "data-access": (r) => joinKey([r.rootName, r.symbolId, r.entity, r.operation, position(r.provenance)]),
   // The five kinds below all carry an explicit `source`, and all of them are
@@ -58,6 +59,11 @@ const KEY_BUILDERS: {
   // into one record, and two files whose `if err != nil {` land on the same line
   // number would merge into one. Nothing downstream could detect that, because a
   // merge records an extra attribution rather than a conflict.
+  // The subject, operator and value together are the rule; two rules on one
+  // line differ by their text, and the column keeps them apart.
+  condition: (r) =>
+    joinKey([r.rootName, r.subject, r.operator, String(r.literal), location(r.source)]),
+  "discarded-error": (r) => joinKey([r.rootName, r.call, location(r.source)]),
   "auth-annotation": (r) =>
     joinKey([r.rootName, r.symbolId, r.mechanism, r.requirement, location(r.source)]),
   "test-relation": (r) => joinKey([r.rootName, r.testSymbolId, r.targetSymbolId ?? r.targetName]),

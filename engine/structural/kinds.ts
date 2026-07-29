@@ -32,6 +32,8 @@ import type {
 } from "./boundaries.js";
 import type {
   ErrorHandlingRecord,
+  ConditionRecord,
+  DiscardedErrorRecord,
   TransactionBoundaryRecord,
   ValidationRuleRecord,
 } from "./rules.js";
@@ -75,6 +77,8 @@ export const CONDITIONAL_KINDS = [
   "validation-rule",
   "transaction-boundary",
   "error-handling",
+  "condition",
+  "discarded-error",
 ] as const;
 
 export const STRUCTURAL_KINDS = [...UNIVERSAL_KINDS, ...CONDITIONAL_KINDS] as const;
@@ -110,6 +114,8 @@ export interface StructuralRecords {
   readonly "validation-rule": readonly ValidationRuleRecord[];
   readonly "transaction-boundary": readonly TransactionBoundaryRecord[];
   readonly "error-handling": readonly ErrorHandlingRecord[];
+  readonly condition: readonly ConditionRecord[];
+  readonly "discarded-error": readonly DiscardedErrorRecord[];
 }
 
 /**
@@ -146,6 +152,8 @@ export function emptyRecords(): StructuralRecords {
     "validation-rule": [],
     "transaction-boundary": [],
     "error-handling": [],
+    condition: [],
+    "discarded-error": [],
   };
 }
 

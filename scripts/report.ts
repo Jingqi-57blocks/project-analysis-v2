@@ -1,14 +1,17 @@
 /**
- * Generates a browsable HTML report for a workspace.
+ * Extracts a workspace into `report.json` — facts, not a document.
  *
- *   pnpm run report -- <path...> [--out dir] [--lang en|zh]
+ *   pnpm run report -- <path...> [--out dir]
+ *
+ * There is no format flag and no language flag. A document is produced by
+ * rendering a template against the knowledge base, where the wording lives in
+ * prompts a person can edit; this command only establishes what is true.
  */
 
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { generateReport } from "../engine/report/generate.js";
-import { supportedLanguages } from "../engine/report/strings.js";
 
 function main(argv: readonly string[]): number {
   const value = (flag: string): string | undefined => {
@@ -16,7 +19,7 @@ function main(argv: readonly string[]): number {
     return index >= 0 ? argv[index + 1] : undefined;
   };
 
-  const valueFlags = new Set(["--out", "--lang"]);
+  const valueFlags = new Set(["--out"]);
   const paths: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
@@ -29,19 +32,18 @@ function main(argv: readonly string[]): number {
   }
 
   if (paths.length === 0) {
-    throw new Error(
-      `Usage: report <path...> [--out dir] [--lang ${supportedLanguages().join("|")}]`,
-    );
+    throw new Error("Usage: report <path...> [--out dir]");
   }
 
   const result = generateReport({
     paths,
     outputDir: resolve(value("--out") ?? "./.analysis/report"),
-    ...(value("--lang") ? { language: value("--lang")! } : {}),
   });
 
   console.log(`Report written for run ${result.runId}`);
-  console.log(`  ${result.moduleCount} features, ${result.componentCount} components`);
+  console.log(
+    `  ${result.featureCount} features, ${result.moduleCount} modules, ${result.componentCount} components`,
+  );
   for (const file of result.files) console.log(`  ${file}`);
   return 0;
 }

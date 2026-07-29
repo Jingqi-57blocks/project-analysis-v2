@@ -62,3 +62,53 @@ export interface ErrorHandlingRecord {
   readonly source: SourceRef;
   readonly provenance: Provenance;
 }
+
+/**
+ * A comparison against a literal — the shape a business rule takes in code.
+ *
+ * `hours > 16`, `status IN (4, 6)`: a threshold or a state test written with
+ * the value spelled out. Recorded verbatim, because what the rule *means*
+ * depends on constants declared elsewhere and resolving it here would bake in
+ * a guess. The subject is kept as written so it can be matched against the
+ * value sets the project declares.
+ */
+export interface ConditionRecord {
+  readonly rootName: string;
+  /** The compared expression as written: `lv.Status`, `takeHours`. */
+  readonly subject: string;
+  /** `>`, `>=`, `==`, `!=`, `in`, … as the language spells it. */
+  readonly operator: string;
+  readonly literal: number | string;
+  readonly literalKind: "numeric" | "string";
+  /** The whole comparison as written, for a reader who wants the original. */
+  readonly text: string;
+  readonly enclosingFunction: string | null;
+  /**
+   * What the guarded branch does, where the condition guards one.
+   *
+   * `rejects` means the branch leaves the function — a return or a throw — so
+   * failing the test stops the work. That is the difference between a rule a
+   * reader can follow and a comparison sitting in a list.
+   */
+  readonly guarded: "rejects" | "continues" | null;
+  readonly source: SourceRef;
+  readonly provenance: Provenance;
+}
+
+/**
+ * A call whose failure nobody can observe.
+ *
+ * Distinct from an absence of error handling: here the result carrying the
+ * error was thrown away at the call site, so no handling is possible further
+ * up either.
+ */
+export interface DiscardedErrorRecord {
+  readonly rootName: string;
+  /** The call as written, `go notifier.Execute(ctx)`. */
+  readonly call: string;
+  /** How it was dispatched — a goroutine, an un-awaited promise. */
+  readonly mechanism: string;
+  readonly enclosingFunction: string | null;
+  readonly source: SourceRef;
+  readonly provenance: Provenance;
+}

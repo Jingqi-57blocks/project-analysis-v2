@@ -13,6 +13,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
+import { positionAt, scanSource, type SourceMap } from "../../text/scan.js";
 import { emptyRecords } from "../../structural/kinds.js";
 import { inferred, unresolved } from "../../structural/provenance.js";
 import {
@@ -84,96 +85,6 @@ function isEndpoint(url: string): boolean {
   return host.includes(".") || host.includes("-") || hasPort || host === "localhost";
 }
 
-/**
- * A one-pass scan classifying every offset as code, comment, or string.
- *
- * Replaces three separate heuristics that were each wrong. Looking backwards
- * for `//` misread `a * b` and a SQL `-- filter` as comment starts and dropped
- * the real URL after them. Searching backwards for an unclosed `/*` treated a
- * glob like "src/**​/*.ts" as opening a comment, which blacked out every URL in
- * the rest of the file — silently, with no failure recorded. And doing either
- * per match re-scanned the file from zero each time, which measured 45 seconds
- * on a file with 15,000 matches.
- *
- * Scanning once, forwards, with string state, fixes all three: it cannot
- * mistake a delimiter inside a string for syntax, and every later lookup is a
- * constant-time array read.
- */
-interface SourceMap {
-  /** True where the character at that offset is inside a comment. */
-  readonly comment: Uint8Array;
-  /** Offset at which each line starts, for constant-time position lookup. */
-  readonly lineStarts: readonly number[];
-}
-
-export function scanSource(content: string): SourceMap {
-  const comment = new Uint8Array(content.length);
-  const lineStarts: number[] = [0];
-
-  type State = "code" | "line-comment" | "block-comment" | "single" | "double" | "backtick";
-  let state: State = "code";
-
-  for (let i = 0; i < content.length; i++) {
-    const char = content[i]!;
-    const next = content[i + 1];
-
-    if (char === "\n") lineStarts.push(i + 1);
-
-    switch (state) {
-      case "code":
-        if (char === "/" && next === "/") state = "line-comment";
-        else if (char === "/" && next === "*") state = "block-comment";
-        else if (char === "#") state = "line-comment";
-        else if (char === "'") state = "single";
-        else if (char === '"') state = "double";
-        else if (char === "`") state = "backtick";
-        break;
-      case "line-comment":
-        if (char === "\n") state = "code";
-        break;
-      case "block-comment":
-        if (char === "*" && next === "/") {
-          comment[i] = 1;
-          comment[i + 1] = 1;
-          i += 1;
-          state = "code";
-          continue;
-        }
-        break;
-      case "single":
-      case "double":
-      case "backtick":
-        if (char === "\\") {
-          i += 1;
-          continue;
-        }
-        if (
-          (state === "single" && char === "'") ||
-          (state === "double" && char === '"') ||
-          (state === "backtick" && char === "`")
-        ) {
-          state = "code";
-        }
-        break;
-    }
-
-    if (state === "line-comment" || state === "block-comment") comment[i] = 1;
-  }
-
-  return { comment, lineStarts };
-}
-
-function positionAt(map: SourceMap, index: number): { line: number; column: number } {
-  let low = 0;
-  let high = map.lineStarts.length - 1;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    if (map.lineStarts[mid]! <= index) low = mid;
-    else high = mid - 1;
-  }
-  return { line: low + 1, column: index - map.lineStarts[low]! + 1 };
-}
-
 function kindFor(url: string): OutboundKind {
   if (url.startsWith("http")) return "http";
   return "unknown";
@@ -222,6 +133,8 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
       target: null,
       kind: "http",
       callerSymbolId: null,
+      baseIdentifier: null,
+      method: null,
       provenance: unresolved(
         refAt(root.name, relPath, map, match.index),
         `destination is built at runtime from "${match[1]}…"`,
@@ -242,6 +155,8 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
       target: url,
       kind: kindFor(url),
       callerSymbolId: null,
+      baseIdentifier: null,
+      method: null,
       provenance: inferred(refAt(root.name, relPath, map, start), "medium"),
     });
   }

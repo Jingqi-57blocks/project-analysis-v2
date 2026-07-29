@@ -18,13 +18,35 @@ import type { SymbolId } from "./identity.js";
  * Null `method` means a route matching every method — not a `"*"` sentinel
  * every consumer would have to special-case.
  */
+/**
+ * Which side of the network a route lives on.
+ *
+ * A single-page application declares its screens with the same vocabulary a
+ * server declares its endpoints, and an indexer reports both as routes. Listed
+ * together they are worse than useless: a reader — or an agent rebuilding the
+ * project — would take `/components/ReviewInfo` for an HTTP endpoint. Closed
+ * on purpose: this is our judgement about a fact, not a name a language gives.
+ */
+export type RouteSurface = "server" | "client";
+
 export interface RouteRecord {
   readonly rootName: string;
+  /** Where this route is served. Defaults to the server for anything stated with a method. */
+  readonly surface: RouteSurface;
   readonly method: string | null;
   readonly path: string;
   readonly handlerSymbolId: SymbolId | null;
   /** Kept even when the handler symbol is unresolved — an anonymous closure still has a site. */
   readonly handlerName: string | null;
+  /**
+   * Every name the registration could mean, most-likely first. A wrapped
+   * registration reads two ways — `ginSwagger.WrapHandler(swaggerFiles.Handler)`
+   * is the wrapper doing the work, `e.CatchError(leave.Creation)` is the inner
+   * function doing it — and a reader cannot tell which without knowing what
+   * the repository defines. Recording both lets the post-assembly join pick
+   * the one that resolves instead of a heuristic guessing here.
+   */
+  readonly handlerCandidates: readonly string[];
   readonly middleware: readonly string[];
   readonly provenance: Provenance;
 }
@@ -50,7 +72,24 @@ export interface OutboundCallRecord {
   readonly rootName: string;
   readonly target: string | null;
   readonly kind: OutboundKind;
+  /**
+   * The HTTP method the call uses, when the call site states one.
+   *
+   * A URL literal does not, but `httpClient.post(...)` does — and without it a
+   * call to `/v2/leaves` matches every route at that path, which reads as an
+   * ambiguity the source had already resolved.
+   */
+  readonly method: string | null;
   readonly callerSymbolId: SymbolId | null;
+  /**
+   * The identifier naming the base this call was built from — `appRunnerApi`,
+   * `authApi` — when the destination was composed rather than written out.
+   *
+   * Which service that base names is deployment configuration, not something
+   * any source file states. Recording the identifier keeps the only evidence
+   * there is, so the binding can be inferred later and shown for what it is.
+   */
+  readonly baseIdentifier: string | null;
   readonly provenance: Provenance;
 }
 

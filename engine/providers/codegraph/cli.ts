@@ -9,7 +9,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 /** The version this adapter was written and verified against. */
 export const VERIFIED_VERSION = "1.5.0";
@@ -77,6 +77,32 @@ export function codegraphVersion(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The directory that holds every root, when one does.
+ *
+ * Indexing there once is both cheaper and tidier than an index inside each
+ * root: the parent of a set of repositories is usually not a repository
+ * itself, so nothing is written into any of them and no ignore file needs
+ * changing. Returns null when the roots do not share a parent, or when the
+ * shared parent is a filesystem root — indexing from there would walk the disk.
+ */
+export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
+  if (rootPaths.length < 2) return null;
+
+  const segments = rootPaths.map((path) => resolve(path).split(sep).filter((part) => part !== ""));
+  const shortest = Math.min(...segments.map((parts) => parts.length));
+
+  let common = 0;
+  while (common < shortest && segments.every((parts) => parts[common] === segments[0]![common])) {
+    common += 1;
+  }
+
+  // Every root must sit below the parent, not be the parent.
+  if (common === 0 || segments.some((parts) => parts.length === common)) return null;
+  const parent = `${sep}${segments[0]!.slice(0, common).join(sep)}`;
+  return parent === sep ? null : parent;
 }
 
 export function isIndexed(rootPath: string): boolean {

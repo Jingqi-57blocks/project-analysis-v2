@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { createCodeGraphProvider } from "../../engine/providers/codegraph/provider.js";
+import { createGinReader } from "../../engine/providers/frameworkroutes/readers/gin.js";
+import { walkRoot } from "../../engine/inventory/walk.js";
 import { resolveTarget } from "../../engine/targets/resolve.js";
 import {
   everyRouteAccountedFor,
@@ -22,8 +24,10 @@ function route(method: string | null, path: string): RouteRecord {
     rootName: "wcp-auth",
     method,
     path,
+    surface: "server",
     handlerSymbolId: null,
     handlerName: null,
+    handlerCandidates: [],
     middleware: [],
     provenance: {
       resolutionClass: "inferred",
@@ -146,18 +150,19 @@ describe.skipIf(!wcpV2.ok)("the gate against real extraction", () => {
     expect(grade.graded).toHaveLength(reference.routes.length);
   });
 
-  it("records the measured reality: only the route outside a router group is exact", () => {
+  it("records what CodeGraph alone can see: only the route outside a router group is exact", () => {
     if (!wcpV2.ok) return;
 
     // Pinned deliberately — the coverage matrix's headline finding for routes.
     // The registrations are found, but every route inside a router group gets
-    // a path missing its prefix, so what the provider reports is wrong rather
+    // a path missing its prefix, so what this provider reports is wrong rather
     // than absent. The single exact match is the one route registered outside
     // any group.
     //
-    // If a future route-aware provider resolves prefixes, these numbers move
-    // and this assertion should be updated to the better result. It exists to
-    // make that improvement visible, not to freeze the limitation in place.
+    // This measures the CodeGraph adapter in isolation, which is why it still
+    // reads 1. The framework-routes reader now supplies the prefixes, and the
+    // gate below measures that — the improvement is visible there rather than
+    // by editing this number, because the underlying adapter did not change.
     expect(grade.extracted).toBe(1);
     expect(grade.pathMismatch).toBeGreaterThanOrEqual(12);
     expect(grade.extracted + grade.pathMismatch + grade.missing).toBe(reference.routes.length);
@@ -180,5 +185,49 @@ describe.skipIf(!wcpV2.ok)("the gate against real extraction", () => {
       expect(typeof unexpected).toBe("string");
     }
     expect(grade.unexpected.length).toBeLessThanOrEqual(contribution.records.route.length);
+  });
+});
+
+describe.skipIf(!wcpV2.ok)("the gate against framework-aware extraction", () => {
+  let reading: ReturnType<ReturnType<typeof createGinReader>["read"]>;
+  let grade: ReturnType<typeof gradeRoutes>;
+
+  beforeAll(() => {
+    if (!wcpV2.ok) return;
+    const root = wcpV2.target.roots.find((r) => r.name === "wcp-auth")!;
+    const analyzedFiles = walkRoot(root.path).analyzed.map((file) => file.relPath);
+    reading = createGinReader().read({ name: "wcp-auth", path: root.path, analyzedFiles });
+    grade = gradeRoutes(reading.routes, reference.routes, []);
+  }, 60_000);
+
+  it("extracts every hand-verified route with its full path", () => {
+    if (!wcpV2.ok) return;
+
+    // The exit criterion for the route gap: not merely accounted for, but
+    // right. Every reference route matched exactly, nothing invented, and no
+    // path left short of its group prefix.
+    expect(grade.extracted).toBe(reference.routes.length);
+    expect(grade.pathMismatch).toBe(0);
+    expect(grade.missing).toBe(0);
+    expect(grade.unexpected).toEqual([]);
+  });
+
+  it("states routes it read from a registration as resolved, not inferred", () => {
+    if (!wcpV2.ok) return;
+    for (const extracted of reading.routes) {
+      expect(extracted.provenance.resolutionClass).toBe("resolved");
+    }
+  });
+
+  it("names the handler behind each route the reference names", () => {
+    if (!wcpV2.ok) return;
+
+    const named = reference.routes.filter((r) => r.handler !== null);
+    for (const expected of named) {
+      const found = reading.routes.find(
+        (r) => r.path === expected.path && (r.method ?? "ANY") === expected.method,
+      );
+      expect(found?.handlerCandidates.join(" ")).toContain(expected.handler!);
+    }
   });
 });
