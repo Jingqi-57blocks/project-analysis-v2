@@ -36,7 +36,7 @@ pnpm run export  -- [--db kb.sqlite] [--run id]  # the knowledge base as one JSO
 
 pnpm run render -- prepare overview [--db kb.sqlite] [--lang zh]
 pnpm run render -- prepare module --param module=<id>
-pnpm run render -- assemble <runDir> [--html]
+pnpm run render -- assemble <runDir> [--html] [--split]
 ```
 
 `analyze` is the only command that touches the project, and it reads

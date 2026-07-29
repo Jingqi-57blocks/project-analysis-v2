@@ -3,7 +3,7 @@
  *
  *   pnpm run render -- prepare <template> [--db path] [--run id] [--param k=v]
  *                                        [--lang zh] [--out dir]
- *   pnpm run render -- assemble <runDir> [--html] [--allow-missing]
+ *   pnpm run render -- assemble <runDir> [--html] [--split] [--allow-missing]
  *
  * Between the two, a host agent answers each task: read `tasks/<id>/prompt.md`
  * and `data.json`, write `answer.md` beside them. Nothing else.
@@ -91,13 +91,14 @@ function runPrepare(argv: readonly string[]): number {
 function runAssemble(argv: readonly string[]): number {
   const runDir = argv[0];
   if (runDir === undefined || runDir.startsWith("--")) {
-    throw new Error("Usage: render assemble <runDir> [--html] [--allow-missing]");
+    throw new Error("Usage: render assemble <runDir> [--html] [--split] [--allow-missing]");
   }
   const dir = resolve(runDir);
   const result = assemble(dir, argv.includes("--allow-missing"));
-  const path = writeAssembled(dir, result);
+  const written = writeAssembled(dir, result, { split: argv.includes("--split") });
 
-  console.log(`Assembled ${path}`);
+  console.log(`Assembled ${written[0]!}`);
+  for (const path of written.slice(1)) console.log(`  ${path}`);
   for (const outcome of result.outcomes) {
     const problems = outcome.problems.map((problem) => problem.detail).join("; ");
     console.log(`  ${outcome.filled ? "✓" : "·"} ${outcome.sectionId}${problems === "" ? "" : ` — ${problems}`}`);
@@ -108,9 +109,18 @@ function runAssemble(argv: readonly string[]): number {
     const title = existsSync(manifestPath)
       ? (JSON.parse(readFileSync(manifestPath, "utf8")) as { title?: string }).title ?? basename(dir)
       : basename(dir);
-    const htmlPath = resolve(dir, "report.html");
-    writeFileSync(htmlPath, renderHtml(result.markdown, title), "utf8");
-    console.log(`  ${htmlPath}`);
+
+    // Rendered from the files just written, so the page and the Markdown
+    // carry the same contents rather than two renderings of one document.
+    for (const markdownPath of written.filter((path) => path.endsWith(".md"))) {
+      const htmlPath = markdownPath.replace(/\.md$/, ".html");
+      writeFileSync(
+        htmlPath,
+        renderHtml(readFileSync(markdownPath, "utf8"), title),
+        "utf8",
+      );
+      console.log(`  ${htmlPath}`);
+    }
   }
   return 0;
 }
