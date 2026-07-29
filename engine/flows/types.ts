@@ -61,7 +61,7 @@ export interface FlowStep {
 export interface FeatureFlow {
   readonly featureId: string;
   readonly featureName: string;
-  /** `POST /v2/leaves` — the flow's identity within its feature. */
+  /** `svc:POST /v2/leaves` — root-prefixed, and the key a module's entry keys are matched against. */
   readonly entryKey: string;
   readonly method: string | null;
   readonly path: string;

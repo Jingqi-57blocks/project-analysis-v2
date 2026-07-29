@@ -48,7 +48,10 @@ beforeAll(() => {
   write("go.mod", "module example.com/svc\n\nrequire github.com/gin-gonic/gin v1.9.1\n");
   write(
     "migrations/001_init.sql",
-    "CREATE TABLE leaves (id INT PRIMARY KEY, hours INT NOT NULL);\n",
+    [
+      "CREATE TABLE leaves (id INT PRIMARY KEY, hours INT NOT NULL);",
+      "CREATE TABLE leave_details (id INT PRIMARY KEY, leave_id INT NOT NULL);",
+    ].join("\n"),
   );
   write(
     "router.go",
@@ -77,6 +80,26 @@ beforeAll(() => {
       "\t\treturn",
       "\t}",
       '\tdb.Table("leaves").Create(&lv)',
+      "}",
+    ].join("\n"),
+  );
+
+  // Outside every capability's files: a decision that must not be scoped
+  // into one.
+  write(
+    "unrelated/audit.go",
+    [
+      "package audit",
+      "",
+      "func Sweep(kind int) string {",
+      "\tswitch kind {",
+      "\tcase 1:",
+      "\t\treturn \"a\"",
+      "\tcase 2:",
+      "\t\treturn \"b\"",
+      "\tdefault:",
+      "\t\treturn \"c\"",
+      "\t}",
       "}",
     ].join("\n"),
   );
@@ -242,11 +265,24 @@ describe("what belongs to a capability", () => {
     // A decision is in a file, and a capability owns files. Nothing finer is
     // available, and claiming otherwise would attribute a branch to a
     // capability that never runs it.
-    for (const feature of kb.features()) {
-      const owned = new Set(feature.filePaths);
-      for (const decision of kb.decisionsForFeature(feature.id)) {
-        expect(owned.has(`${decision.rootName}/${decision.source.relPath}`)).toBe(true);
-      }
+    const features = kb.features();
+    expect(features.length, "the fixture must produce a capability to scope").toBeGreaterThan(0);
+
+    const all = kb.decisions();
+    expect(all.length, "the fixture must produce a decision to scope").toBeGreaterThan(0);
+
+    // The unrelated file holds a decision no capability owns. Without the
+    // filter it would appear under one, so removing the filter fails here
+    // rather than passing an assertion that restates the filter itself.
+    const stray = all.filter((decision) => decision.source.relPath === "unrelated/audit.go");
+    expect(stray.length, "the fixture must hold a decision outside any capability").toBe(1);
+
+    // Compared by where it is, not by value: the decisions handed out carry
+    // their branches' effects joined in, so a deep comparison against the
+    // unjoined record never matches and the check could never fail.
+    for (const feature of features) {
+      const paths = kb.decisionsForFeature(feature.id).map((decision) => decision.source.relPath);
+      expect(paths).not.toContain("unrelated/audit.go");
     }
   });
 
