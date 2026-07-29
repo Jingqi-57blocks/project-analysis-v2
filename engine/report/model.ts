@@ -7,6 +7,7 @@
  */
 
 import type { HealthSignal } from "../health/signals.js";
+import type { FeatureFinding } from "../health/features.js";
 import type { ProductModule, TechnicalComponent, DispositionCounts } from "../modules/form.js";
 
 /**
@@ -70,6 +71,65 @@ export interface ReportComponent {
   readonly memberCount: number;
 }
 
+/**
+ * A product capability, as a reader would name it.
+ *
+ * Distinct from a module: a module is a unit of code, a feature is something
+ * the product does. Leave spans three services and one of them also serves
+ * Worklog, so the two groupings genuinely differ and collapsing them would
+ * lose whichever the reader was after.
+ */
+export interface ReportFeature {
+  readonly id: string;
+  readonly name: string;
+  readonly rootNames: readonly string[];
+  /** What made this a feature: which kinds of evidence named it, and how much. */
+  readonly signals: readonly string[];
+  readonly endpoints: readonly ModuleEntryPoint[];
+  readonly dataEntities: readonly string[];
+  /** Tables the feature's handlers were observed to touch. */
+  readonly tables: readonly string[];
+  readonly flows: readonly ReportFlow[];
+  /** Every flow the feature has, which may exceed the number detailed above. */
+  readonly totalFlowCount: number;
+  /** The feature at a glance: callers, endpoints, tables. */
+  readonly overviewDiagram: string;
+  /** How many of this feature's flows have at least one unestablished hop. */
+  readonly partialFlowCount: number;
+  /** What is worth a second look in this capability specifically. */
+  readonly findings: readonly FeatureFinding[];
+}
+
+export interface ReportFlowStep {
+  readonly kind: string;
+  readonly label: string;
+  readonly rootName: string | null;
+  readonly conditions: readonly string[];
+  readonly unresolvedReason: string | null;
+  /** True when the step stands in for others left out of the display. */
+  readonly truncated: boolean;
+  /** True when observed near the handler rather than in it. */
+  readonly indirect: boolean;
+  /** `root/path:line`, so a claim can be checked against the source. */
+  readonly location: string | null;
+}
+
+export interface ReportFlow {
+  readonly entryKey: string;
+  readonly method: string | null;
+  readonly path: string;
+  readonly steps: readonly ReportFlowStep[];
+  readonly diagram: string;
+  readonly partial: boolean;
+}
+
+export interface ReportScreen {
+  readonly rootName: string;
+  readonly path: string;
+  /** False when the screen sits under a parent declared in another file. */
+  readonly pathComplete: boolean;
+}
+
 export interface ReportIntegration {
   readonly from: string;
   readonly to: string;
@@ -97,10 +157,22 @@ export interface ReportModel {
   readonly language: OutputLanguage;
   readonly roots: readonly ReportRootSummary[];
   readonly modules: readonly ReportModule[];
+  readonly features: readonly ReportFeature[];
   readonly components: readonly ReportComponent[];
   readonly integrations: readonly ReportIntegration[];
   /** The system's shape: our roots, what they call, and what is outside. */
   readonly map: readonly MapEdge[];
+  /** The same shape as a diagram, rendered once so every format shares it. */
+  readonly mapDiagram: string;
+  /** Endpoints that belong to no detected feature, with the count kept honest. */
+  readonly unassignedEndpointCount: number;
+  /**
+   * The screens a browser application declares.
+   *
+   * Separate from endpoints because they are: an indexer reports both as
+   * routes, and listing them together turns a React component into an API.
+   */
+  readonly screens: readonly ReportScreen[];
   /** Data entities recovered from schemas and migrations. */
   readonly dataEntities: readonly string[];
   readonly signals: readonly HealthSignal[];
@@ -126,6 +198,10 @@ export interface AssembleReportInput {
   readonly language: OutputLanguage;
   readonly roots: readonly ReportRootSummary[];
   readonly modules: readonly ProductModule[];
+  readonly features: readonly ReportFeature[];
+  readonly mapDiagram: string;
+  readonly unassignedEndpointCount: number;
+  readonly screens: readonly ReportScreen[];
   readonly components: readonly TechnicalComponent[];
   readonly integrations: readonly ReportIntegration[];
   readonly map: readonly MapEdge[];
@@ -166,8 +242,12 @@ export function assembleReport(input: AssembleReportInput): ReportModel {
       signals: component.signals,
       memberCount: component.memberPaths.length,
     })),
+    features: input.features,
     integrations: input.integrations,
     map: input.map,
+    mapDiagram: input.mapDiagram,
+    unassignedEndpointCount: input.unassignedEndpointCount,
+    screens: input.screens,
     dataEntities: input.dataEntities,
     signals: input.signals,
     // Minor observations are noise in a summary; a list nobody finishes

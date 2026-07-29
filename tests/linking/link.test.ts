@@ -11,6 +11,8 @@ function call(rootName: string, target: string | null): OutboundCallRecord {
     target,
     kind: "http",
     callerSymbolId: null,
+    baseIdentifier: null,
+    method: null,
     provenance: target === null ? unresolved(source, "built at runtime") : inferred(source, "medium"),
   };
 }
@@ -21,6 +23,7 @@ function route(rootName: string, method: string | null, path: string): RouteReco
     rootName,
     method,
     path,
+    surface: "server",
     handlerSymbolId: null,
     handlerName: null,
     handlerCandidates: [],

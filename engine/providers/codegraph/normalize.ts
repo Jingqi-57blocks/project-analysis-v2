@@ -16,7 +16,7 @@ import type {
   SymbolRecord,
   CallEdgeRecord,
 } from "../../structural/code.js";
-import type { RouteRecord } from "../../structural/boundaries.js";
+import type { RouteSurface, RouteRecord } from "../../structural/boundaries.js";
 import type { CodeGraphFile, CodeGraphNode, CodeGraphRelation } from "./cli.js";
 
 /**
@@ -135,6 +135,21 @@ export function parseRouteName(name: string): { method: string | null; path: str
  * facts repeats a path that may be missing its prefix. Resolving prefixes needs
  * framework-aware traversal and belongs in a route-specific provider.
  */
+/**
+ * Component file extensions, where a route declaration is a screen.
+ *
+ * A screen and an endpoint are both "routes" to an indexer. What separates
+ * them on real code is that a screen names no HTTP method and is declared in a
+ * component file — a server route with no method, like Gin's `Any("/health")`,
+ * lives in ordinary source and stays a server route.
+ */
+const COMPONENT_EXTENSIONS = [".tsx", ".jsx", ".vue", ".svelte"];
+
+export function routeSurface(relPath: string, method: string | null): RouteSurface {
+  if (method !== null) return "server";
+  return COMPONENT_EXTENSIONS.some((extension) => relPath.endsWith(extension)) ? "client" : "server";
+}
+
 export function toRoute(rootName: string, node: CodeGraphNode): RouteRecord {
   const { method, path } = parseRouteName(node.name);
   const source =
@@ -151,6 +166,7 @@ export function toRoute(rootName: string, node: CodeGraphNode): RouteRecord {
 
   return {
     rootName,
+    surface: routeSurface(node.filePath, method),
     method,
     path,
     // Not named by CodeGraph. Guessing from proximity would attach handlers to

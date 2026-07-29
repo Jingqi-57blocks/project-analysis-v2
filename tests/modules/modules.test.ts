@@ -41,6 +41,7 @@ function route(path: string, handler: SymbolRecord | null, rootName = "svc"): Ro
     rootName,
     method: "GET",
     path,
+    surface: "server",
     handlerSymbolId: handler?.id ?? null,
     handlerName: handler?.name ?? null,
     handlerCandidates: [],

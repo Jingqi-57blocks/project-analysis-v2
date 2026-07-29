@@ -48,7 +48,8 @@ const KEY_BUILDERS: {
   // Two handlers for one method+path is a conflict to surface, not two routes.
   route: (r) => joinKey([r.rootName, r.method, r.path]),
 
-  "outbound-call": (r) => joinKey([r.rootName, r.callerSymbolId, r.target, position(r.provenance)]),
+  "outbound-call": (r) =>
+    joinKey([r.rootName, r.callerSymbolId, r.method, r.target, position(r.provenance)]),
   "external-call": (r) => joinKey([r.rootName, r.callerSymbolId, r.packageName, r.memberName]),
   "data-access": (r) => joinKey([r.rootName, r.symbolId, r.entity, r.operation, position(r.provenance)]),
   // The five kinds below all carry an explicit `source`, and all of them are

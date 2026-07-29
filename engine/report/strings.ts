@@ -56,6 +56,19 @@ export interface ReportStrings {
   readonly endpoint: string;
   readonly mapCaveat: string;
   readonly descriptionFrom: string;
+  readonly features: string;
+  readonly services: string;
+  readonly featuresIntro: string;
+  readonly featuresNone: string;
+  readonly featureShape: string;
+  readonly featureEndpoints: string;
+  readonly featureData: string;
+  readonly featureFlows: string;
+  readonly featureFlowsComplete: string;
+  readonly featureNoFlows: string;
+  readonly featuresUnassigned: (count: number) => string;
+  readonly featureFlowsShown: (shown: number, total: number) => string;
+  readonly featureFlowsPartial: (partial: number, total: number) => string;
   readonly languageFallback: string | null;
 }
 
@@ -104,6 +117,22 @@ const EN: ReportStrings = {
   mapCaveat:
     "External destinations are read from URLs written in source. A URL in configuration or documentation can appear here even where no call is made, so treat this as what the code mentions rather than a verified list of live traffic.",
   descriptionFrom: "Taken from",
+  features: "Features",
+  services: "Services",
+  featuresIntro:
+    "What the product does, grouped by the words the team already uses for it. A feature can span several services.",
+  featuresNone: "No feature could be identified from the vocabulary in this workspace.",
+  featureShape: "At a glance",
+  featureEndpoints: "Endpoints",
+  featureData: "Data it touches",
+  featureFlows: "Flows",
+  featureFlowsComplete: "End to end",
+  featureNoFlows: "No flow could be assembled for this feature's endpoints.",
+  featuresUnassigned: (count: number) =>
+    `${count} endpoints name no feature and appear only under their service.`,
+  featureFlowsShown: (shown: number, total: number) => `${shown} of ${total} flows are shown here.`,
+  featureFlowsPartial: (partial: number, total: number) =>
+    `${partial} of ${total} have at least one hop that could not be established.`,
   languageFallback: null,
 };
 
@@ -152,6 +181,20 @@ const ZH: ReportStrings = {
   mapCaveat:
     "外部依赖来自源码中出现的 URL。配置或文档中的 URL 也可能出现在此处，即使并未真正发起调用，因此应将其视为代码中提及的内容，而非已验证的实际流量。",
   descriptionFrom: "摘自",
+  features: "功能模块",
+  services: "服务",
+  featuresIntro: "产品实际提供的能力，按团队自己使用的术语归类。一个功能可能横跨多个服务。",
+  featuresNone: "未能从该工作区的词汇中识别出功能模块。",
+  featureShape: "整体概览",
+  featureEndpoints: "接口",
+  featureData: "涉及的数据",
+  featureFlows: "流程",
+  featureFlowsComplete: "完整链路",
+  featureNoFlows: "该功能的接口未能组装出完整流程。",
+  featuresUnassigned: (count: number) => `有 ${count} 个接口未归入任何功能，仅在其所属服务下列出。`,
+  featureFlowsShown: (shown: number, total: number) => `共 ${total} 条流程，此处展示 ${shown} 条。`,
+  featureFlowsPartial: (partial: number, total: number) =>
+    `其中 ${partial} 条（共 ${total} 条）存在无法确认的环节。`,
   languageFallback: null,
 };
 

@@ -23,13 +23,20 @@ import { assembleEvidence, collectAll } from "../semantic/assemble.js";
 import { assemble, extractAll } from "../structural/assemble.js";
 import { consolidateRoutes } from "../structural/routededupe.js";
 import { createFrameworkRoutesProvider } from "../providers/frameworkroutes/provider.js";
+import { createUiCallsProvider } from "../providers/uicalls/provider.js";
+import { inferBaseBindings, linkCallsScoped } from "../linking/binding.js";
 import { resolveHandlers } from "../linking/handlers.js";
 import { linkCalls, rootDependencies } from "../linking/link.js";
 import { buildTraces } from "../modules/trace.js";
 import { formModel, formModulesFromRoutes, qualifiedFile } from "../modules/form.js";
 import { createSqlSchemaProvider } from "../datamodel/sql.js";
 import { createOrmMigrationProvider } from "../datamodel/orm.js";
+import { createGoModelProvider } from "../datamodel/gostructs.js";
 import { computeSignals } from "../health/signals.js";
+import { createDataUsageProvider } from "../datamodel/usage.js";
+import { detectFeatures } from "../modules/features.js";
+import { assembleFlows } from "../flows/assemble.js";
+import { buildReportFeatures, mapToMermaid } from "./features.js";
 import {
   assembleReport,
   DEFAULT_LANGUAGE,
@@ -38,9 +45,12 @@ import {
   type ModuleEntryPoint,
   type OutputLanguage,
 } from "./model.js";
-import { renderHtmlReport } from "./html.js";
+import { buildJsonReport } from "./json.js";
+import { writeRenderings } from "./render.js";
+import type { DataModelRecords } from "../datamodel/types.js";
 import type { StructuralProvider } from "../structural/provider.js";
-import type { RouteRecord, OutboundCallRecord } from "../structural/boundaries.js";
+import type { RouteRecord, OutboundCallRecord, DataAccessRecord } from "../structural/boundaries.js";
+import type { ValidationRuleRecord } from "../structural/rules.js";
 import type { SymbolRecord, CallEdgeRecord } from "../structural/code.js";
 import type { ModuleContainmentRecord, PackageDependencyRecord } from "../structural/dependencies.js";
 
@@ -59,6 +69,7 @@ export interface GenerateResult {
   readonly outputDir: string;
   readonly files: readonly string[];
   readonly moduleCount: number;
+  readonly featureCount: number;
   readonly componentCount: number;
 }
 
@@ -80,21 +91,40 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     createOutboundProvider(),
     createConventionsProvider(),
     createFrameworkRoutesProvider(),
+    createUiCallsProvider(),
+    createDataUsageProvider(),
     ...(options.extraProviders ?? [createCodeGraphProvider({ callEdges: false })]),
   ];
   const collectors = [createDocumentationCollector(), createCodeTextCollector()];
 
   const routes: RouteRecord[] = [];
+  const screens: RouteRecord[] = [];
   const calls: OutboundCallRecord[] = [];
   const symbols: SymbolRecord[] = [];
   const callEdges: CallEdgeRecord[] = [];
+  const dataAccess: DataAccessRecord[] = [];
+  const validations: ValidationRuleRecord[] = [];
   const containment: ModuleContainmentRecord[] = [];
   const dependencies: PackageDependencyRecord[] = [];
   const allFiles: string[] = [];
+  // Kept unqualified alongside the qualified list: the qualified form is a
+  // collision-proof key with its own escaping, and splitting it back apart
+  // turns "wcp-ui" into "wcp-ui|src".
+  const filesByRoot: { rootName: string; relPath: string }[] = [];
   const coverageNotes: CoverageNote[] = [];
   const evidenceByRoot = new Map<string, string[]>();
-  const dataProviders = [createSqlSchemaProvider(), createOrmMigrationProvider()];
+  const dataProviders = [
+    createSqlSchemaProvider(),
+    createOrmMigrationProvider(),
+    createGoModelProvider(),
+  ];
   const entityNames = new Set<string>();
+  const dataModel: {
+    entities: DataModelRecords["entities"][number][];
+    fields: DataModelRecords["fields"][number][];
+    relations: DataModelRecords["relations"][number][];
+    constraints: DataModelRecords["constraints"][number][];
+  } = { entities: [], fields: [], relations: [], constraints: [] };
   const entitiesByRoot = new Map<string, Set<string>>();
   let projectDescription: string | null = null;
   const gapRoots = new Map<string, Set<string>>();
@@ -104,6 +134,7 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     const analyzedFiles = walk.analyzed.map((file) => file.relPath);
     // Qualified by root: two roots sharing a relative path must stay two files.
     allFiles.push(...analyzedFiles.map((relPath) => qualifiedFile(root.name, relPath)));
+    filesByRoot.push(...analyzedFiles.map((relPath) => ({ rootName: root.name, relPath })));
 
     // Generated files hold example payloads and mock URLs that are not calls
     // the system makes. Inventory already classified them, so the provider
@@ -118,10 +149,22 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     const model = consolidateRoutes(assemble(root.name, extractAll(structuralProviders, input)));
 
     for (const record of model.records) {
-      if (record.kind === "route") routes.push(record.record as RouteRecord);
+      if (record.kind === "route") {
+        const route = record.record as RouteRecord;
+        // A screen and an endpoint are both routes to an indexer, and listing
+        // them together would have an agent rebuilding this project create an
+        // HTTP endpoint for every React component. Kept, not discarded: the
+        // screens are what the product looks like.
+        if (route.surface === "client") screens.push(route);
+        else routes.push(route);
+      }
       else if (record.kind === "outbound-call") {
         const call = record.record as OutboundCallRecord;
         if (!generated.has(call.provenance.source.relPath)) calls.push(call);
+      }
+      else if (record.kind === "data-access") dataAccess.push(record.record as DataAccessRecord);
+      else if (record.kind === "validation-rule") {
+        validations.push(record.record as ValidationRuleRecord);
       }
       else if (record.kind === "symbol") symbols.push(record.record as SymbolRecord);
       else if (record.kind === "call-edge") callEdges.push(record.record as CallEdgeRecord);
@@ -147,6 +190,13 @@ export function generateReport(options: GenerateOptions): GenerateResult {
 
     for (const provider of dataProviders) {
       const contribution = provider.extract(input);
+      // Kept whole rather than reduced to names: a rebuild spec needs the
+      // fields, their nullability and the relations between them, and the
+      // pages that only show names can take what they need from here.
+      dataModel.entities.push(...contribution.records.entities);
+      dataModel.fields.push(...contribution.records.fields);
+      dataModel.relations.push(...contribution.records.relations);
+      dataModel.constraints.push(...contribution.records.constraints);
       for (const entity of contribution.records.entities) {
         entityNames.add(entity.name);
         const forRoot = entitiesByRoot.get(root.name) ?? new Set<string>();
@@ -252,20 +302,36 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   routes.length = 0;
   routes.push(...linkedRoutes);
   if (handlerResolution.unresolved.length > 0) {
+    // Counted against the routes that named a handler at all. Routes
+    // registered with an inline function were never candidates for
+    // resolution, and including them would report a failure rate for work
+    // that was never attempted.
+    const named = routes.filter((route) => route.handlerCandidates.length > 0).length;
     coverageNotes.push({
       subject: "route-handlers",
-      note: `${handlerResolution.unresolved.length} of ${routes.length} route handlers could not be resolved to a unique symbol; their traces stop at the route`,
+      note: `${handlerResolution.unresolved.length} of ${named} routes naming a handler could not be resolved to a unique symbol; their flows stop at the route`,
     });
   }
 
-  const links = linkCalls(calls, routes);
+  // Which service a configured API base names is deployment configuration, so
+  // it is inferred from how well each base's paths fit, and a bound call is
+  // then matched only against the service it names — which is what separates
+  // one backend's /v2/worklogs from another's.
+  const bindings = inferBaseBindings(calls, routes);
+  const links = linkCallsScoped(calls, routes, bindings, linkCalls);
+  for (const binding of bindings) {
+    if (binding.boundRoot !== null) continue;
+    coverageNotes.push({
+      subject: "api-base-binding",
+      note: `${binding.reason}, so its calls were matched against every service`,
+    });
+  }
   const traceResult = buildTraces({ routes, symbols, callEdges });
   const formation = formModel(traceResult.traces, { containment, dependencies, symbols }, allFiles);
 
-  // Traces need routes linked to handler symbols, which no provider supplies
-  // yet. Falling back to entry points keeps the report useful instead of
-  // faithfully empty — and the coverage notes already say the call graph was
-  // not followed, so nothing here is overstated.
+  // Falling back to entry points keeps the report useful instead of
+  // faithfully empty when no trace could be walked — and the coverage notes
+  // already say the call graph was not followed, so nothing is overstated.
   const modules =
     formation.modules.length > 0 ? formation.modules : formModulesFromRoutes(routes);
 
@@ -335,8 +401,6 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     links,
     traces: traceResult.traces,
     untracedEntryPoints: traceResult.untraced.length,
-    // No provider populates a route's handler symbol yet, so this is false in
-    // practice — and saying so keeps the signal from crying wolf every run.
     handlerLinkingAvailable: routes.some((route) => route.handlerSymbolId !== null),
     modules,
     components: formation.components,
@@ -352,6 +416,77 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     ]),
   );
 
+  // Features are the product's capabilities, which is what a reader came for;
+  // modules stay alongside them because a unit of code and a capability are
+  // different groupings and each answers questions the other cannot.
+  const detection = detectFeatures({
+    entityNames: [...entityNames],
+    routes,
+    files: filesByRoot,
+  });
+  const flowSet = assembleFlows({
+    features: detection.features,
+    routes,
+    symbols,
+    links: links.links,
+    calls,
+    dataAccess,
+    validations,
+    handlerGaps: new Map(handlerResolution.unresolved.map((gap) => [gap.entryKey, gap.reason])),
+  });
+  const features = buildReportFeatures(detection.features, flowSet.flows);
+
+  if (detection.setAside.length > 0) {
+    coverageNotes.push({
+      subject: "features",
+      note: `${detection.setAside.length} further terms named something in two places but too little of it to head a feature: ${detection.setAside
+        .slice(0, 12)
+        .map((term) => term.term)
+        .join(", ")}`,
+    });
+  }
+  if (flowSet.skipped.length > 0) {
+    coverageNotes.push({
+      subject: "features",
+      note: `${flowSet.skipped.length} of ${routes.length} endpoints name no detected feature and are listed only under their service`,
+    });
+  }
+
+  // A schema the report shows fields for, against the tables it says are
+  // touched. Silence here reads as "these 45 tables are the data model",
+  // when two thirds of what the code uses has no entity at all — the schema
+  // providers read SQL and ORM migrations, and a service that declares its
+  // tables in Go contributes none.
+  const describedEntities = new Set(entityNames);
+  const touchedTables = new Set<string>();
+  for (const access of dataAccess) {
+    if (access.entity !== null) touchedTables.add(access.entity);
+  }
+  // A project with no schema at all is far more likely to be one whose schema
+  // this run could not read than one that stores nothing. Silence here reads
+  // as the second, which is the failure this tool exists to avoid.
+  if (describedEntities.size === 0) {
+    coverageNotes.push({
+      subject: "data-model",
+      note: "no table or column declarations were found by the schema readers available in this run, so no data model is described here; that is a limit of what was read, not evidence the project stores nothing",
+    });
+  }
+
+  const undescribed = [...touchedTables].filter((table) => !describedEntities.has(table));
+  if (undescribed.length > 0) {
+    coverageNotes.push({
+      subject: "data-model",
+      note: `fields and constraints are described for ${describedEntities.size} entities, but ${undescribed.length} further tables are used by code without a schema declaration this run could read; their columns are not in this report`,
+    });
+  }
+
+  if (screens.length > 0) {
+    coverageNotes.push({
+      subject: "screens",
+      note: `${screens.length} client-side routes were read as the application's screens and are listed separately from the API`,
+    });
+  }
+
   const projectName = roots.length === 1 ? roots[0]!.name : selection.workspacePath.split("/").pop() ?? "project";
 
   const model = assembleReport({
@@ -363,9 +498,22 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     language,
     roots: rootSummaries,
     modules,
+    features,
     components: formation.components,
     integrations: rootDependencies(links),
     map,
+    mapDiagram: mapToMermaid(map),
+    screens: screens
+      .map((screen) => ({
+        rootName: screen.rootName,
+        path: screen.path,
+        // A screen declared inside a subtree whose parent is mounted from
+        // another file has a real path fragment, not the address a user
+        // visits — saying which is which keeps a list of "/add" honest.
+        pathComplete: screen.provenance.resolutionClass !== "inferred",
+      }))
+      .sort((a, b) => a.rootName.localeCompare(b.rootName) || a.path.localeCompare(b.path)),
+    unassignedEndpointCount: flowSet.skipped.length,
     dataEntities: [...entityNames].sort(),
     signals,
     dispositions: formation.counts,
@@ -377,17 +525,23 @@ export function generateReport(options: GenerateOptions): GenerateResult {
   });
 
   mkdirSync(options.outputDir, { recursive: true });
-  const files = renderHtmlReport(model).map((page) => {
-    const path = join(options.outputDir, page.filename);
-    writeFileSync(path, page.html, "utf8");
-    return path;
-  });
+
+  // The specification is the artifact; every format is rendered from it. That
+  // is what lets a wording change, a restyle, or a new exporter run without
+  // touching the project again — and it keeps the formats agreeing, since a
+  // page can only show what the spec contains.
+  const spec = buildJsonReport({ model, dataModel, limitations: [] });
+  const jsonPath = join(options.outputDir, "report.json");
+  writeFileSync(jsonPath, `${JSON.stringify(spec, null, 2)}\n`, "utf8");
+
+  const files = [jsonPath, ...writeRenderings(spec, options.outputDir)];
 
   return {
     runId,
     outputDir: options.outputDir,
     files,
     moduleCount: modules.length,
+    featureCount: features.length,
     componentCount: formation.components.length,
   };
 }

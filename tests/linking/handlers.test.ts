@@ -24,6 +24,7 @@ function route(handlerName: string | null, rootName = "svc", candidates?: string
     rootName,
     method: "POST",
     path: "/v2/leaves",
+    surface: "server",
     handlerSymbolId: null,
     handlerName,
     handlerCandidates: candidates ?? (handlerName === null ? [] : [handlerName]),
@@ -103,6 +104,43 @@ describe("resolveHandlers", () => {
     );
     expect(result.unresolved[0]!.reason).toContain("One");
     expect(result.unresolved[0]!.reason).toContain("Two");
+  });
+
+  it("does not fall through to the wrapper when the inner name is merely ambiguous", () => {
+    // The outer candidate is usually a shared error wrapper: resolving to it
+    // would answer confidently, with the wrong function, for every route in
+    // the service.
+    const a = sym("Deletion", "internal/handlers/leave/router.go");
+    const b = sym("Deletion", "internal/handlers/leave/legacy.go");
+    const wrapper = sym("CatchError", "internal/pkg/error/error_handler.go", "e.CatchError");
+
+    const result = resolveHandlers(
+      [route("leave.Deletion", "svc", ["leave.Deletion", "e.CatchError"])],
+      [a, b, wrapper],
+    );
+
+    expect(result.routes[0]!.handlerSymbolId).toBeNull();
+    expect(result.unresolved[0]!.reason).toContain("refusing to pick one");
+  });
+
+  it("separates same-named functions by the package the registration named", () => {
+    // Twelve functions named Deletion exist in one real service; only the one
+    // in the named package is the handler.
+    const leave = sym("Deletion", "internal/handlers/leave/router.go");
+    const others = ["employee", "project", "worklog"].map((pkg) =>
+      sym("Deletion", `internal/handlers/${pkg}/router.go`),
+    );
+
+    const result = resolveHandlers([route("leave.Deletion")], [leave, ...others]);
+    expect(result.routes[0]!.handlerSymbolId).toBe(leave.id);
+  });
+
+  it("prefers a package-level function over a method of the same name", () => {
+    const plain = sym("Pagination", "internal/handlers/leave/router.go");
+    const method = sym("Pagination", "internal/handlers/leave/service.go", "LeaveService::Pagination");
+
+    const result = resolveHandlers([route("leave.Pagination")], [plain, method]);
+    expect(result.routes[0]!.handlerSymbolId).toBe(plain.id);
   });
 
   it("resolves an Express service-call identity against the service file's symbols", () => {

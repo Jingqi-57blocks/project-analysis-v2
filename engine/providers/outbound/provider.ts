@@ -133,6 +133,8 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
       target: null,
       kind: "http",
       callerSymbolId: null,
+      baseIdentifier: null,
+      method: null,
       provenance: unresolved(
         refAt(root.name, relPath, map, match.index),
         `destination is built at runtime from "${match[1]}…"`,
@@ -153,6 +155,8 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
       target: url,
       kind: kindFor(url),
       callerSymbolId: null,
+      baseIdentifier: null,
+      method: null,
       provenance: inferred(refAt(root.name, relPath, map, start), "medium"),
     });
   }

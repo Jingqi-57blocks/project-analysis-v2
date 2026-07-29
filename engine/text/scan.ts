@@ -203,10 +203,30 @@ function extractArguments(
   return null;
 }
 
-/** The unquoted text of a string-literal argument, or null if it is not one. */
+/**
+ * The unquoted text of a string-literal argument, or null if it is not one.
+ *
+ * An expression that merely begins and ends with a quote is not a literal:
+ * `"/api" + version + "/users"` would otherwise yield the garbage between its
+ * outer quotes, which a route reader would publish as a served path. Anything
+ * with an unescaped quote inside is refused, so it becomes a recorded failure
+ * instead of a confident wrong answer.
+ */
 export function stringLiteral(arg: string): string | null {
-  const match = /^(['"`])([^]*)\1$/.exec(arg.trim());
-  return match ? match[2]! : null;
+  const trimmed = arg.trim();
+  const quote = trimmed[0];
+  if (quote === undefined || !["'", '"', "`"].includes(quote)) return null;
+  if (trimmed.length < 2 || trimmed[trimmed.length - 1] !== quote) return null;
+
+  const body = trimmed.slice(1, -1);
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === "\\") {
+      i += 1;
+      continue;
+    }
+    if (body[i] === quote) return null;
+  }
+  return body;
 }
 
 /** The leading dotted identifier of an expression — `auth.Authentication()` → `auth.Authentication`. */

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createGinReader, handlerNamesOf } from "../../engine/providers/frameworkroutes/readers/gin.js";
+import { createGinReader } from "../../engine/providers/frameworkroutes/readers/gin.js";
 import { createExpressReader } from "../../engine/providers/frameworkroutes/readers/express.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { joinRoutePath } from "../../engine/providers/frameworkroutes/readers/types.js";
@@ -151,18 +151,30 @@ func Reg(grp *gin.RouterGroup) {
   it("keeps both readings of a wrapped registration", () => {
     // ginSwagger.WrapHandler(swaggerFiles.Handler) is the wrapper doing the
     // work; e.CatchError(leave.Creation) is the inner function doing it. The
-    // registration line cannot tell them apart, so both names survive to the
+    // registration cannot tell them apart, so both names survive to the
     // symbol join.
-    expect(handlerNamesOf("e.CatchError(leave.Creation)")).toEqual([
-      "leave.Creation",
-      "e.CatchError",
-    ]);
-    expect(handlerNamesOf("ginSwagger.WrapHandler(swaggerFiles.Handler)")).toEqual([
-      "swaggerFiles.Handler",
-      "ginSwagger.WrapHandler",
-    ]);
-    expect(handlerNamesOf("oauth.AuthorizeEntry")).toEqual(["oauth.AuthorizeEntry"]);
-    expect(handlerNamesOf("func(ctx *gin.Context) {}")).toEqual([]);
+    write("go.mod", GO_MOD);
+    write(
+      "r.go",
+      `package r
+func Reg(e *gin.Engine) {
+	e.GET("/a", e.CatchError(leave.Creation))
+	e.GET("/b", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	e.GET("/c", oauth.AuthorizeEntry)
+	e.GET("/d", func(ctx *gin.Context) {})
+}
+`,
+    );
+
+    const reading = createGinReader().read(root(["go.mod", "r.go"]));
+    const candidates = Object.fromEntries(
+      reading.routes.map((route) => [route.path, route.handlerCandidates]),
+    );
+
+    expect(candidates["/a"]).toEqual(["leave.Creation", "e.CatchError"]);
+    expect(candidates["/b"]).toEqual(["swaggerFiles.Handler", "ginSwagger.WrapHandler"]);
+    expect(candidates["/c"]).toEqual(["oauth.AuthorizeEntry"]);
+    expect(candidates["/d"]).toEqual([]);
   });
 
   it("does not detect a Go project without gin", () => {
@@ -241,6 +253,32 @@ router.get('/leave/types', wrapAsync(async (req, res) => {
     const reading = createExpressReader().read(root(["package.json", "app.js", "routes/leave.js"]));
     expect(reading.routes[0]!.path).toBe("/leaves/leave/types");
     expect(reading.routes[0]!.handlerName).toBe("leaveService.getTypes");
+  });
+
+  it("mounts a route file by whole-word identifier, not a substring of another", () => {
+    // Unanchored, "logRouter" matches inside "catalogRouter = require(...)"
+    // and mounts the wrong file — publishing endpoints that do not exist.
+    write("package.json", PACKAGE_JSON);
+    write(
+      "app.js",
+      `const catalogRouter = require('./routes/catalog');
+const logRouter = require('./routes/log');
+app.use('/catalog', catalogRouter);
+app.use('/logs', logRouter);
+`,
+    );
+    write("routes/catalog.js", "const router = express.Router();\nrouter.get('/items', h);\n");
+    write("routes/log.js", "const router = express.Router();\nrouter.get('/recent', h);\n");
+
+    const reading = createExpressReader().read(
+      root(["package.json", "app.js", "routes/catalog.js", "routes/log.js"]),
+    );
+
+    expect(reading.routes.map((r) => `${r.method} ${r.path}`).sort()).toEqual([
+      "GET /catalog/items",
+      "GET /logs/recent",
+    ]);
+    expect(reading.failures).toEqual([]);
   });
 
   it("does not detect a node project without express", () => {

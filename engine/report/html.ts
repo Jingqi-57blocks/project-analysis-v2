@@ -13,6 +13,8 @@
  */
 
 import { stringsFor } from "./strings.js";
+import { MERMAID_FILENAME } from "./assets.js";
+import { renderFeatureIndex, renderFeaturePage } from "./htmlfeatures.js";
 import type { ReportModel, ReportModule } from "./model.js";
 import type { Severity } from "../health/signals.js";
 
@@ -58,6 +60,22 @@ h2 { font-size:19px; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px s
 h3 { font-size:16px; margin:22px 0 6px; }
 .meta { color:var(--muted); font-size:13px; margin-bottom:20px; }
 .toc { background:#fafbfc; border:1px solid var(--line); border-radius:6px; padding:12px 16px; margin:18px 0; }
+table.steps { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+table.steps th { text-align:left; font-size:12px; text-transform:uppercase;
+                 letter-spacing:.05em; color:var(--muted); padding:6px 8px;
+                 border-bottom:1px solid var(--line); }
+table.steps td { padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+table.steps td.kind { color:var(--muted); white-space:nowrap; width:1%; font-size:13px; }
+table.steps td.where { color:var(--muted); white-space:nowrap; width:1%; }
+ul.conditions { margin:4px 0 0; padding-left:18px; color:var(--muted); font-size:13px; }
+.gap { margin-top:4px; color:var(--notice); font-size:13px; }
+.badge { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+         padding:2px 7px; border-radius:10px; vertical-align:middle; }
+.badge.complete { background:#eaf4ea; color:var(--info); }
+.badge.partial { background:#fbf3de; color:var(--notice); }
+section.flow { margin:26px 0; padding-top:6px; border-top:1px solid var(--line); }
+pre.mermaid { background:#fafbfc; border:1px solid var(--line); border-radius:6px;
+              padding:12px; font-size:13px; overflow-x:auto; }
 .toc h2 { border:none; margin:0 0 6px; font-size:13px; text-transform:uppercase;
           letter-spacing:.06em; color:var(--muted); }
 .toc ul { margin:0; padding-left:18px; }
@@ -83,6 +101,12 @@ const SCRIPT = `
 document.querySelectorAll('nav.side a').forEach(function (a) {
   if (a.getAttribute('href') === location.pathname.split('/').pop()) a.classList.add('active');
 });
+// The renderer is copied beside the report rather than fetched, so a report
+// read offline still draws its diagrams. When it is absent the source stays
+// visible as text — worse to look at, but not a lie.
+if (window.mermaid) {
+  window.mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', theme: 'neutral' });
+}
 `;
 
 function page(model: ReportModel, title: string, body: string, pages: readonly string[][]): string {
@@ -108,6 +132,7 @@ function page(model: ReportModel, title: string, body: string, pages: readonly s
 ${body}
   </main>
 </div>
+<script src="${escapeHtml(MERMAID_FILENAME)}"></script>
 <script>${SCRIPT}</script>
 </body>
 </html>
@@ -404,11 +429,33 @@ function componentsPage(model: ReportModel, pages: readonly string[][]): Rendere
 
 export function renderHtmlReport(model: ReportModel): readonly RenderedPage[] {
   const s = stringsFor(model.language);
+  // Features first: a reader opens this to find out what the product does,
+  // and the technical groupings are what they turn to afterwards.
   const pages: string[][] = [
     ["index.html", s.overview],
+    ["capabilities.html", s.features],
     ["features.html", s.modules],
     ["components.html", s.components],
   ];
 
-  return [overviewPage(model, pages), modulesPage(model, pages), componentsPage(model, pages)];
+  const featurePages = model.features.map((feature) => {
+    const rendered = renderFeaturePage(model, feature);
+    return {
+      filename: rendered.filename,
+      title: rendered.title,
+      html: page(model, rendered.title, rendered.body, pages),
+    };
+  });
+
+  return [
+    overviewPage(model, pages),
+    {
+      filename: "capabilities.html",
+      title: s.features,
+      html: page(model, s.features, renderFeatureIndex(model), pages),
+    },
+    modulesPage(model, pages),
+    componentsPage(model, pages),
+    ...featurePages,
+  ];
 }

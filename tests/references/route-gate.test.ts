@@ -24,6 +24,7 @@ function route(method: string | null, path: string): RouteRecord {
     rootName: "wcp-auth",
     method,
     path,
+    surface: "server",
     handlerSymbolId: null,
     handlerName: null,
     handlerCandidates: [],

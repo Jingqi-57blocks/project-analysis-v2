@@ -84,6 +84,20 @@ function specificity(pattern: string): number {
   return score;
 }
 
+/**
+ * Whether a call's method can reach a route's.
+ *
+ * A route with no method answers any of them, and a call that states none
+ * could be any — in both cases the method adds no constraint and the path
+ * decides. When both are stated, they must agree: without this, a GET matches
+ * the POST at the same path just as well, and the pair is reported as an
+ * ambiguity that the source had already settled.
+ */
+export function methodMatches(callMethod: string | null, routeMethod: string | null): boolean {
+  if (callMethod === null || routeMethod === null) return true;
+  return callMethod.toUpperCase() === routeMethod.toUpperCase();
+}
+
 function linkProvenance(call: OutboundCallRecord, route: RouteRecord): Provenance {
   // A link is always an inference: it joins a URL literal to a route pattern,
   // and neither side states the other exists. The confidence reflects how much
@@ -140,7 +154,10 @@ export function linkCalls(
     }
 
     const matches = routes.filter(
-      (route) => route.rootName !== call.rootName && routeMatches(route.path, path),
+      (route) =>
+        route.rootName !== call.rootName &&
+        routeMatches(route.path, path) &&
+        methodMatches(call.method, route.method),
     );
 
     if (matches.length === 0) {

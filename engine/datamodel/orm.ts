@@ -15,6 +15,7 @@ import { readFileSync, statSync } from "node:fs";
 import { basename, extname, join, sep } from "node:path";
 
 import { declared, inferred, lineRef } from "../structural/provenance.js";
+import { findCalls, literalText, parseSource } from "../text/ast.js";
 import {
   emptyDataModel,
   type ConstraintRecord,
@@ -118,6 +119,25 @@ interface ParsedOrmTable {
 }
 
 export function parseCreateTableCalls(content: string): readonly ParsedOrmTable[] {
+  const parsed = parseSource("javascript", content);
+  if (parsed.root !== null) {
+    const tables: ParsedOrmTable[] = [];
+    for (const call of findCalls(parsed.root)) {
+      if (call.method !== "createTable") continue;
+      const name = literalText(call.args[0]);
+      const body = call.args[1];
+      if (name === null || body === undefined) continue;
+
+      const text = body.text();
+      tables.push({
+        name,
+        columns: parseOrmColumns(text.startsWith("{") ? text.slice(1, -1) : text),
+        line: call.line,
+      });
+    }
+    return tables;
+  }
+
   const tables: ParsedOrmTable[] = [];
   const pattern = /createTable\s*\(\s*['"`]([^'"`]+)['"`]\s*,\s*\{/g;
 
@@ -141,10 +161,46 @@ export interface OrmChange {
   readonly column: string;
 }
 
-export function addedColumns(content: string): readonly (OrmChange & { line: number })[] {
-  return [...content.matchAll(/addColumn\s*\(\s*['"`]([^'"`]+)['"`]\s*,\s*['"`]([^'"`]+)['"`]/g)].map(
-    (match) => ({ table: match[1]!, column: match[2]!, line: lineAt(content, match.index) }),
-  );
+/**
+ * Columns a migration adds, with the definition it adds them under.
+ *
+ * Parsed rather than matched, for two reasons the source made plain: a
+ * commented-out `createTable('users', ...)` example is not a declaration, and
+ * an `addColumn` wrapped in `.transaction(tx => { ... })` is an ordinary one.
+ * A comment is not a call node, and nesting is just depth.
+ */
+export function addedColumns(
+  content: string,
+): readonly (OrmChange & { line: number; definition: ParsedOrmColumn | null })[] {
+  const parsed = parseSource("javascript", content);
+  if (parsed.root === null) {
+    // Falling back keeps a file the grammar rejects from vanishing silently.
+    return [...content.matchAll(/addColumn\s*\(\s*['"`]([^'"`]+)['"`]\s*,\s*['"`]([^'"`]+)['"`]/g)].map(
+      (match) => ({
+        table: match[1]!,
+        column: match[2]!,
+        line: lineAt(content, match.index),
+        definition: null,
+      }),
+    );
+  }
+
+  const added: (OrmChange & { line: number; definition: ParsedOrmColumn | null })[] = [];
+  for (const call of findCalls(parsed.root)) {
+    if (call.method !== "addColumn") continue;
+    const table = literalText(call.args[0]);
+    const column = literalText(call.args[1]);
+    if (table === null || column === null) continue;
+
+    const definitionNode = call.args[2];
+    const definition =
+      definitionNode === undefined
+        ? null
+        : (parseOrmColumns(`${column}: ${definitionNode.text()}`)[0] ?? null);
+
+    added.push({ table, column, line: call.line, definition });
+  }
+  return added;
 }
 
 export function removedColumns(content: string): readonly OrmChange[] {
@@ -289,10 +345,10 @@ export function createOrmMigrationProvider(): DataModelProvider {
               rootName: root.name,
               entityName: added.table,
               name: added.column,
-              declaredType: null,
-              nullable: null,
+              declaredType: added.definition?.declaredType ?? null,
+              nullable: added.definition?.nullable ?? null,
               defaultValue: null,
-              isPrimaryKey: false,
+              isPrimaryKey: added.definition?.isPrimaryKey ?? false,
               provenance: declared(lineRef(root.name, relPath, added.line)),
             });
           }

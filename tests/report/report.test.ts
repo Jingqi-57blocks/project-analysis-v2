@@ -13,6 +13,10 @@ function input(overrides: Partial<AssembleReportInput> = {}): AssembleReportInpu
     description: "Handles ordering and billing.",
     language: "en",
     roots: [{ name: "api", language: "go", fileCount: 10, analyzed: 9, excluded: 1 }],
+    features: [],
+    mapDiagram: "flowchart LR\n  n_api[\"api\"]",
+    unassignedEndpointCount: 0,
+    screens: [],
     modules: [
       {
         id: "mod_abc",
@@ -78,10 +82,16 @@ describe("the report model", () => {
 describe("rendering", () => {
   it("produces separate pages with working navigation between them", () => {
     const pages = renderHtmlReport(assembleReport(input()));
-    expect(pages.map((p) => p.filename)).toEqual(["index.html", "features.html", "components.html"]);
+    expect(pages.map((p) => p.filename)).toEqual([
+      "index.html",
+      "capabilities.html",
+      "features.html",
+      "components.html",
+    ]);
 
     for (const page of pages) {
       expect(page.html).toContain('href="index.html"');
+      expect(page.html).toContain('href="capabilities.html"');
       expect(page.html).toContain('href="features.html"');
       expect(page.html).toContain('href="components.html"');
     }
@@ -94,11 +104,9 @@ describe("rendering", () => {
     expect(html).not.toContain("cdn");
   });
 
-  it("shows every run id, so a reader knows which analysis they are reading", () => {
+  it("shows the run id on every page, however a reader arrived at it", () => {
     for (const page of renderHtmlReport(assembleReport(input()))) {
-      if (page.filename === "components.html" || page.filename !== "components.html") {
-        expect(page.html).toContain("run-20260728T120000Z-abc123");
-      }
+      expect(page.html).toContain("run-20260728T120000Z-abc123");
     }
   });
 
@@ -127,7 +135,9 @@ describe("rendering", () => {
   });
 
   it("shows the project map, a module list, and what each feature exposes", () => {
-    const [overview, features] = renderHtmlReport(assembleReport(input()));
+    const pages = renderHtmlReport(assembleReport(input()));
+    const overview = pages.find((page) => page.filename === "index.html");
+    const features = pages.find((page) => page.filename === "features.html");
     expect(overview!.html).toContain("How the system fits together");
     expect(overview!.html).toContain("orders");
     expect(features!.html).toContain("GET /orders");
@@ -157,12 +167,14 @@ describe("rendering", () => {
     // visible holes.
     const html = renderHtmlReport(
       assembleReport(input({ description: null, evidenceByModule: new Map() })),
-    )[1]!.html;
+    ).find((page) => page.filename === "features.html")!.html;
     expect(html).toContain("The code carries no description");
   });
 
   it("says so plainly when no features were formed", () => {
-    const html = renderHtmlReport(assembleReport(input({ modules: [] })))[1]!.html;
+    const html = renderHtmlReport(assembleReport(input({ modules: [] }))).find(
+      (page) => page.filename === "features.html",
+    )!.html;
     expect(html).toContain("No features could be formed");
   });
 });
@@ -179,9 +191,11 @@ describe("output language", () => {
     // Translating a name would break the link between a report and the code it
     // describes, which is what makes a report checkable.
     const zh = renderHtmlReport(assembleReport(input({ language: "zh" })));
-    expect(zh[0]!.html).toContain("run-20260728T120000Z-abc123");
-    expect(zh[1]!.html).toContain("Places an order for a customer.");
-    expect(zh[2]!.html).toContain("auth");
+    const find = (filename: string): string =>
+      zh.find((page) => page.filename === filename)!.html;
+    expect(find("index.html")).toContain("run-20260728T120000Z-abc123");
+    expect(find("features.html")).toContain("Places an order for a customer.");
+    expect(find("components.html")).toContain("auth");
   });
 
   it("reports the same facts regardless of language", () => {

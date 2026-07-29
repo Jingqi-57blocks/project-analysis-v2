@@ -13,6 +13,7 @@ function routeRecord(
   const full: RouteRecord = {
     rootName: "svc",
     method: "GET",
+    surface: "server",
     handlerSymbolId: null,
     handlerName: null,
     handlerCandidates: [],
@@ -158,6 +159,41 @@ describe("consolidateRoutes", () => {
     );
 
     expect(consolidated.records.filter((r) => r.kind === "route")).toHaveLength(2);
+  });
+
+  it("never absorbs a reader's deliberate incomplete reading", () => {
+    // The framework reader emits an inferred record when it saw a real
+    // registration but not its prefix, precisely so the endpoint stays
+    // visible. Its subpath tail-matching another route is a coincidence.
+    const consolidated = consolidateRoutes(
+      model([
+        routeRecord("framework-routes", { path: "/api/users" }, 10),
+        {
+          ...routeRecord("framework-routes", { path: "/users" }, 40),
+          record: {
+            ...(routeRecord("framework-routes", { path: "/users" }, 40).record as RouteRecord),
+            provenance: inferred(lineRef("svc", "handler.go", 40), "low"),
+          },
+        },
+      ]),
+    );
+
+    expect(consolidated.records.filter((r) => r.kind === "route")).toHaveLength(2);
+  });
+
+  it("keeps a mount whose routes were never expanded", () => {
+    // The mount record carries the only observed prefix; dropping it would
+    // lose the endpoint entirely and claim an expansion that never happened.
+    const consolidated = consolidateRoutes(
+      model([
+        routeRecord("framework-routes", { path: "/worklogs/me", method: "GET" }),
+        routeRecord("codegraph", { path: "/billing", method: "USE" }, 94),
+      ]),
+    );
+
+    const routes = consolidated.records.filter((r) => r.kind === "route");
+    expect(routes).toHaveLength(2);
+    expect(consolidated.failures).toEqual([]);
   });
 
   it("never folds two directly-observed routes into each other", () => {
