@@ -22,6 +22,7 @@ import {
 import type { PreflightResult } from "../types.js";
 import { createGinReader } from "./readers/gin.js";
 import { createExpressReader } from "./readers/express.js";
+import { createReactRouterReader } from "./readers/reactrouter.js";
 import type { FrameworkRouteReader } from "./readers/types.js";
 
 export const PROVIDER_ID = "framework-routes";
@@ -41,7 +42,11 @@ export function frameworkCapabilities(
 }
 
 export function createFrameworkRoutesProvider(
-  readers: readonly FrameworkRouteReader[] = [createGinReader(), createExpressReader()],
+  readers: readonly FrameworkRouteReader[] = [
+    createGinReader(),
+    createExpressReader(),
+    createReactRouterReader(),
+  ],
 ): StructuralProvider {
   const capabilities = frameworkCapabilities(readers);
 

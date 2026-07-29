@@ -258,8 +258,12 @@ export function renderOverviewPage(model: ReportModel, records: DataModelRecords
       "Client-side routes the application declares. These are what it shows, not what it serves.",
       "",
       table(
-        ["Path", "Application"],
-        model.screens.map((screen) => [screen.path, screen.rootName]),
+        ["Path", "Application", "Full path known"],
+        model.screens.map((screen) => [
+          screen.path,
+          screen.rootName,
+          screen.pathComplete ? "yes" : "no — mounted under a parent declared elsewhere",
+        ]),
       ),
       "",
     );

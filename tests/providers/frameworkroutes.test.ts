@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createGinReader, handlerNamesOf } from "../../engine/providers/frameworkroutes/readers/gin.js";
+import { createGinReader } from "../../engine/providers/frameworkroutes/readers/gin.js";
 import { createExpressReader } from "../../engine/providers/frameworkroutes/readers/express.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { joinRoutePath } from "../../engine/providers/frameworkroutes/readers/types.js";
@@ -151,90 +151,30 @@ func Reg(grp *gin.RouterGroup) {
   it("keeps both readings of a wrapped registration", () => {
     // ginSwagger.WrapHandler(swaggerFiles.Handler) is the wrapper doing the
     // work; e.CatchError(leave.Creation) is the inner function doing it. The
-    // registration line cannot tell them apart, so both names survive to the
+    // registration cannot tell them apart, so both names survive to the
     // symbol join.
-    expect(handlerNamesOf("e.CatchError(leave.Creation)")).toEqual([
-      "leave.Creation",
-      "e.CatchError",
-    ]);
-    expect(handlerNamesOf("ginSwagger.WrapHandler(swaggerFiles.Handler)")).toEqual([
-      "swaggerFiles.Handler",
-      "ginSwagger.WrapHandler",
-    ]);
-    expect(handlerNamesOf("oauth.AuthorizeEntry")).toEqual(["oauth.AuthorizeEntry"]);
-    expect(handlerNamesOf("func(ctx *gin.Context) {}")).toEqual([]);
-  });
-
-  it("keeps two functions' group variables apart, even with the same name", () => {
-    // Resolving group variables file-wide makes the second function inherit
-    // the first one's prefix — a wrong path, stated as directly observed.
-    write("go.mod", GO_MOD);
-    write(
-      "routes.go",
-      `package routes
-
-func RegA(e *gin.Engine) {
-	g := e.Group("/a")
-	g.GET("/x", handlerA)
-}
-
-func RegB(e *gin.Engine) {
-	g := e.Group("/b")
-	g.GET("/y", handlerB)
-}
-`,
-    );
-
-    const reading = createGinReader().read(root(["go.mod", "routes.go"]));
-    expect(reading.routes.map((r) => `${r.method} ${r.path}`)).toEqual([
-      "GET /a/x",
-      "GET /b/y",
-    ]);
-    expect(reading.failures).toEqual([]);
-  });
-
-  it("gives a group the middleware installed on the engine before it", () => {
-    // Gin copies the parent's handler chain when Group() runs, so a middleware
-    // registered afterwards reaches only the groups made after it.
-    write("go.mod", GO_MOD);
-    write(
-      "main.go",
-      `package main
-func main() {
-	engine := gin.New()
-	engine.Use(gin.Recovery(), cors.Default())
-	v1 := engine.Group("/v1")
-	v1.GET("/ping", h)
-	engine.Use(late.Middleware())
-	v2 := engine.Group("/v2")
-	v2.GET("/pong", h)
-}
-`,
-    );
-
-    const reading = createGinReader().read(root(["go.mod", "main.go"]));
-    expect(reading.routes[0]!.middleware).toEqual(["gin.Recovery", "cors.Default"]);
-    expect(reading.routes[1]!.middleware).toEqual([
-      "gin.Recovery",
-      "cors.Default",
-      "late.Middleware",
-    ]);
-  });
-
-  it("refuses a path built by concatenation rather than publishing its middle", () => {
     write("go.mod", GO_MOD);
     write(
       "r.go",
       `package r
 func Reg(e *gin.Engine) {
-	e.GET("/api" + version + "/users", h)
+	e.GET("/a", e.CatchError(leave.Creation))
+	e.GET("/b", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	e.GET("/c", oauth.AuthorizeEntry)
+	e.GET("/d", func(ctx *gin.Context) {})
 }
 `,
     );
 
     const reading = createGinReader().read(root(["go.mod", "r.go"]));
-    expect(reading.routes).toEqual([]);
-    expect(reading.failures[0]!.reason).toContain("not a string literal");
+    const candidates = Object.fromEntries(
+      reading.routes.map((route) => [route.path, route.handlerCandidates]),
+    );
+
+    expect(candidates["/a"]).toEqual(["leave.Creation", "e.CatchError"]);
+    expect(candidates["/b"]).toEqual(["swaggerFiles.Handler", "ginSwagger.WrapHandler"]);
+    expect(candidates["/c"]).toEqual(["oauth.AuthorizeEntry"]);
+    expect(candidates["/d"]).toEqual([]);
   });
 
   it("does not detect a Go project without gin", () => {

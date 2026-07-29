@@ -118,6 +118,13 @@ export interface ReportFlow {
   readonly partial: boolean;
 }
 
+export interface ReportScreen {
+  readonly rootName: string;
+  readonly path: string;
+  /** False when the screen sits under a parent declared in another file. */
+  readonly pathComplete: boolean;
+}
+
 export interface ReportIntegration {
   readonly from: string;
   readonly to: string;
@@ -160,7 +167,7 @@ export interface ReportModel {
    * Separate from endpoints because they are: an indexer reports both as
    * routes, and listing them together turns a React component into an API.
    */
-  readonly screens: readonly { readonly rootName: string; readonly path: string }[];
+  readonly screens: readonly ReportScreen[];
   /** Data entities recovered from schemas and migrations. */
   readonly dataEntities: readonly string[];
   readonly signals: readonly HealthSignal[];
@@ -189,7 +196,7 @@ export interface AssembleReportInput {
   readonly features: readonly ReportFeature[];
   readonly mapDiagram: string;
   readonly unassignedEndpointCount: number;
-  readonly screens: readonly { readonly rootName: string; readonly path: string }[];
+  readonly screens: readonly ReportScreen[];
   readonly components: readonly TechnicalComponent[];
   readonly integrations: readonly ReportIntegration[];
   readonly map: readonly MapEdge[];

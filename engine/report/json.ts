@@ -56,7 +56,11 @@ export interface ReportSpec {
     }[];
   };
   /** Client-side routes: what the application shows, not what it serves. */
-  readonly screens: readonly { readonly service: string; readonly path: string }[];
+  readonly screens: readonly {
+    readonly service: string;
+    readonly path: string;
+    readonly pathComplete: boolean;
+  }[];
   readonly features: readonly SpecFeature[];
   readonly modules: readonly SpecModule[];
   readonly dataModel: { readonly entityNames: readonly string[]; readonly entities: readonly unknown[] };
@@ -239,7 +243,11 @@ export function buildJsonReport(input: JsonReportInput): ReportSpec {
         calls: integration.calls,
       })),
     },
-    screens: model.screens.map((screen) => ({ service: screen.rootName, path: screen.path })),
+    screens: model.screens.map((screen) => ({
+      service: screen.rootName,
+      path: screen.path,
+      pathComplete: screen.pathComplete,
+    })),
     features: model.features.map((feature) => ({
       id: feature.id,
       name: feature.name,

@@ -471,7 +471,14 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     map,
     mapDiagram: mapToMermaid(map),
     screens: screens
-      .map((screen) => ({ rootName: screen.rootName, path: screen.path }))
+      .map((screen) => ({
+        rootName: screen.rootName,
+        path: screen.path,
+        // A screen declared inside a subtree whose parent is mounted from
+        // another file has a real path fragment, not the address a user
+        // visits — saying which is which keeps a list of "/add" honest.
+        pathComplete: screen.provenance.resolutionClass !== "inferred",
+      }))
       .sort((a, b) => a.rootName.localeCompare(b.rootName) || a.path.localeCompare(b.path)),
     unassignedEndpointCount: flowSet.skipped.length,
     dataEntities: [...entityNames].sort(),

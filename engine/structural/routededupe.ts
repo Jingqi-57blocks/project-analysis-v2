@@ -206,12 +206,41 @@ export function consolidateRoutes(model: AssembledModel): AssembledModel {
     return false;
   };
 
+  // A root whose screens a reader actually read. An indexer synthesizes a
+  // route node per component file, so `src/pages/admin/Employees.tsx` becomes
+  // "/admin/Employees" — a module's location dressed as a URL. Where the
+  // declarations themselves were read, those synthesized paths are not a
+  // second opinion about the same screens; they are a different thing
+  // entirely, and publishing them would list directories as addresses.
+  const readScreens = new Set(
+    routes
+      .filter(
+        (record) =>
+          routeOf(record).surface === "client" &&
+          record.attributions.some((a) => a.providerId === FRAMEWORK_ROUTES),
+      )
+      .map((record) => routeOf(record).rootName),
+  );
+
   const mountFailures: AttributedFailure[] = [];
   const survivors: AssembledRecord[] = [];
 
   for (const record of routes) {
     if (absorbed.has(record)) continue;
     const route = routeOf(record);
+
+    if (
+      route.surface === "client" &&
+      readScreens.has(route.rootName) &&
+      !record.attributions.some((a) => a.providerId === FRAMEWORK_ROUTES)
+    ) {
+      mountFailures.push({
+        providerId: record.attributions[0]?.providerId ?? "unknown",
+        scope: `${route.provenance.source.relPath}:${route.provenance.source.startLine}`,
+        reason: `"${route.path}" mirrors a component's file path rather than an address; this application's screens were read from its route declarations instead`,
+      });
+      continue;
+    }
 
     if (
       route.method === "USE" &&

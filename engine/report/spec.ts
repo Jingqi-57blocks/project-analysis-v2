@@ -138,6 +138,7 @@ export function modelFromSpec(spec: ReportSpec): ReportModel {
     screens: (spec.screens ?? []).map((screen) => ({
       rootName: screen.service,
       path: screen.path,
+      pathComplete: screen.pathComplete !== false,
     })),
     dataEntities: spec.dataModel?.entityNames ?? [],
     signals,
