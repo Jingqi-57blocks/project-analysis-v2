@@ -6,6 +6,8 @@
  * capability gap rather than discovered later by noticing a thin report.
  */
 
+import { relative } from "node:path";
+
 import { emptyRecords, type StructuralRecords } from "../../structural/kinds.js";
 import {
   ANY_LANGUAGE,
@@ -28,6 +30,8 @@ import {
   ensureIndexed,
   listFiles,
   queryNodes,
+  sharedIndexRoot,
+  type CodeGraphFile,
   type CodeGraphNode,
   type CodeGraphRelation,
 } from "./cli.js";
@@ -44,6 +48,14 @@ import {
 export const PROVIDER_ID = "codegraph";
 
 export interface CodeGraphOptions {
+  /**
+   * Every root this run will analyze, so one index can cover them all.
+   *
+   * Given without it, the provider indexes inside each root as before — which
+   * is still correct, just written into the repositories.
+   */
+  readonly roots?: readonly string[];
+
   /**
    * Whether to query callees per symbol.
    *
@@ -183,13 +195,56 @@ interface Extraction {
   readonly failures: readonly ExtractionFailure[];
 }
 
-function extractFrom(root: StructuralRootInput, options: CodeGraphOptions): Extraction {
+/**
+ * One index covering every root, when they share a parent.
+ *
+ * The alternative is an index inside each root, which is what this did before:
+ * five directories written into five repositories. Indexing the parent instead
+ * writes nothing into any of them.
+ *
+ * Scoping is ours to do. A query against the parent returns the whole
+ * workspace whatever path is passed — measured: asking for one root came back
+ * with nine of two thousand nodes from it — so records are partitioned here by
+ * the prefix each root contributes, and the prefix is stripped so every path
+ * stays relative to its own root exactly as before.
+ */
+interface SharedIndex {
+  readonly parent: string;
+  readonly nodes: readonly CodeGraphNode[];
+  readonly files: readonly CodeGraphFile[];
+}
+
+function scopeNodes(nodes: readonly CodeGraphNode[], prefix: string): readonly CodeGraphNode[] {
+  return nodes
+    .filter((node) => node.filePath.startsWith(prefix))
+    .map((node) => ({ ...node, filePath: node.filePath.slice(prefix.length) }));
+}
+
+function scopeFiles(files: readonly CodeGraphFile[], prefix: string): readonly CodeGraphFile[] {
+  return files
+    .filter((file) => file.path.startsWith(prefix))
+    .map((file) => ({ ...file, path: file.path.slice(prefix.length) }));
+}
+
+function extractFrom(
+  root: StructuralRootInput,
+  options: CodeGraphOptions,
+  shared: SharedIndex | null,
+): Extraction {
   const failures: ExtractionFailure[] = [];
 
-  ensureIndexed(root.path);
+  let nodes: readonly CodeGraphNode[];
+  let files: readonly CodeGraphFile[];
 
-  const nodes = queryNodes(root.path);
-  const files = listFiles(root.path);
+  if (shared !== null) {
+    const prefix = `${relative(shared.parent, root.path)}/`;
+    nodes = scopeNodes(shared.nodes, prefix);
+    files = scopeFiles(shared.files, prefix);
+  } else {
+    ensureIndexed(root.path);
+    nodes = queryNodes(root.path);
+    files = listFiles(root.path);
+  }
 
   // Inventory already decided what counts as project content. Honouring that
   // here keeps the provider from describing vendored code the project does
@@ -270,6 +325,23 @@ function extractFrom(root: StructuralRootInput, options: CodeGraphOptions): Extr
 export function createCodeGraphProvider(options: CodeGraphOptions = {}): StructuralProvider {
   const capabilities = codegraphCapabilities(options);
 
+  // Built once on the first root that needs it, then reused: the index covers
+  // every root, so building it per root would repeat the same work N times.
+  let resolved: SharedIndex | null | undefined;
+  const sharedIndex = (): SharedIndex | null => {
+    if (resolved !== undefined) return resolved;
+
+    const parent = sharedIndexRoot(options.roots ?? []);
+    if (parent === null) {
+      resolved = null;
+      return resolved;
+    }
+
+    ensureIndexed(parent);
+    resolved = { parent, nodes: queryNodes(parent), files: listFiles(parent) };
+    return resolved;
+  };
+
   return {
     id: PROVIDER_ID,
     version: VERIFIED_VERSION,
@@ -305,7 +377,7 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
           : [];
 
       try {
-        const extraction = extractFrom(root, options);
+        const extraction = extractFrom(root, options, sharedIndex());
         return {
           providerId: PROVIDER_ID,
           providerVersion: installed ?? VERIFIED_VERSION,

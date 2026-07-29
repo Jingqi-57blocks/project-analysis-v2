@@ -65,6 +65,7 @@ const STOPWORDS = new Set([
   "details", "info", "data", "item", "items", "id", "ids", "all", "any", "one",
   "page", "pages", "view", "views", "component", "components", "handler", "handlers",
   "service", "services", "controller", "controllers", "model", "models", "route",
+  "project", "projects", "module", "modules", "system", "platform", "feature",
   "routes", "router", "store", "stores", "type", "types", "const", "constant",
   "error", "errors", "log", "logs", "debug", "response", "request", "req", "res",
   "table", "tables", "column", "record", "records", "entry", "entries", "well",

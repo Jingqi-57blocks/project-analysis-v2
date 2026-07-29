@@ -111,7 +111,11 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     createUiCallsProvider(),
     createDataUsageProvider(),
     createLogicProvider(),
-    ...(options.extraProviders ?? [createCodeGraphProvider({ callEdges: false })]),
+    ...(options.extraProviders ?? [
+      // One index for the whole workspace, so nothing is written inside the
+      // analyzed repositories.
+      createCodeGraphProvider({ callEdges: false, roots: roots.map((root) => root.path) }),
+    ]),
   ];
   const collectors = [createDocumentationCollector(), createCodeTextCollector()];
 
@@ -605,21 +609,25 @@ export function generateReport(options: GenerateOptions): GenerateResult {
     coverageNotes,
   });
 
-  mkdirSync(options.outputDir, { recursive: true });
+  // Each run gets its own directory. Two runs of a changing codebase are two
+  // different answers, and overwriting the first loses the comparison that
+  // makes a second run worth doing.
+  const outputDir = join(options.outputDir, runId);
+  mkdirSync(outputDir, { recursive: true });
 
   // The specification is the artifact; every format is rendered from it. That
   // is what lets a wording change, a restyle, or a new exporter run without
   // touching the project again — and it keeps the formats agreeing, since a
   // page can only show what the spec contains.
   const spec = buildJsonReport({ model, dataModel, limitations: [] });
-  const jsonPath = join(options.outputDir, "report.json");
+  const jsonPath = join(outputDir, "report.json");
   writeFileSync(jsonPath, `${JSON.stringify(spec, null, 2)}\n`, "utf8");
 
-  const files = [jsonPath, ...writeRenderings(spec, options.outputDir, options.formats)];
+  const files = [jsonPath, ...writeRenderings(spec, outputDir, options.formats)];
 
   return {
     runId,
-    outputDir: options.outputDir,
+    outputDir,
     files,
     moduleCount: modules.length,
     featureCount: features.length,
