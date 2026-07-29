@@ -68,6 +68,20 @@ const NON_ENDPOINT_HOSTS: readonly string[] = [
   "https://spdx.org/licenses/",
 ];
 
+/**
+ * Attributes whose value is a place to go, not a call the code makes.
+ *
+ * A `<a href="https://stackoverflow.com/...">` in a template is a link a user
+ * may click. Recorded as an outbound call it becomes "this system calls Stack
+ * Overflow" in the project map — which the framework scaffolding in a fresh
+ * Vue app is enough to produce, and which is simply not true.
+ */
+const LINK_ATTRIBUTE = /(?:href|src|srcset|action|formaction|cite|poster|xmlns|content|integrity)\s*=\s*$/i;
+
+function isLinkTarget(content: string, quoteIndex: number): boolean {
+  return LINK_ATTRIBUTE.test(content.slice(Math.max(0, quoteIndex - 24), quoteIndex));
+}
+
 function isEndpoint(url: string): boolean {
   if (NON_ENDPOINT_HOSTS.some((prefix) => url.startsWith(prefix))) return false;
 
@@ -149,6 +163,7 @@ function scan(root: StructuralRootInput, relPath: string, content: string): Outb
 
     const url = match[1]!;
     if (!isEndpoint(url)) continue;
+    if (isLinkTarget(content, start)) continue;
 
     found.push({
       rootName: root.name,

@@ -30,6 +30,7 @@ function feature(overrides: Partial<FeatureFact> = {}): FeatureFact {
     endpoints: [{ method: "POST", path: "/v2/leaves", rootName: "svc" }],
     dataEntities: ["leaves"],
     tables: ["leaves"],
+    tablesNearby: [],
     filePaths: ["svc/leave.go"],
     flowCount: 4,
     partialFlowCount: 1,

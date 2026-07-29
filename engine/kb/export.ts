@@ -152,6 +152,9 @@ export function buildExport(kb: KnowledgeBase): unknown {
         })),
         dataEntities: feature.dataEntities,
         tables: feature.tables,
+        // Observed in a handler's package rather than in the handler: the
+        // weaker evidence, kept where a consumer can weigh it as such.
+        tablesNearby: feature.tablesNearby,
         flows: (detail?.flows ?? []).map((flow) => ({
           entry: flow.entryKey,
           method: flow.method,

@@ -47,8 +47,16 @@ export interface FeatureFact {
   readonly signals: readonly string[];
   readonly endpoints: readonly EndpointRef[];
   readonly dataEntities: readonly string[];
-  /** Tables its handlers were observed to touch. */
+  /** Tables observed in its handlers themselves. */
   readonly tables: readonly string[];
+  /**
+   * Tables observed in a handler's package rather than in the handler.
+   *
+   * The weaker evidence, kept apart from the stronger. Listed together, a
+   * capability whose package touches forty tables appears to touch forty
+   * tables itself.
+   */
+  readonly tablesNearby: readonly string[];
   /** Files it owns, qualified as `root/relPath`. */
   readonly filePaths: readonly string[];
   readonly flowCount: number;
