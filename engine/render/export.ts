@@ -251,7 +251,7 @@ export function writeRunIndex(
   language?: string,
   kindLabels: Readonly<Record<string, string>> = {},
 ): string | null {
-  let entries: { href: string; title: string; folder: string }[] = [];
+  let entries: { href: string; title: string; folder: string; kind: string | undefined }[] = []; 
   try {
     entries = readdirSync(runRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -271,12 +271,16 @@ export function writeRunIndex(
               // project — and "a capability report" tells them apart in a way a
               // folder name does not.
               folder: (kind === undefined ? undefined : kindLabels[kind]) ?? entry.name,
+              kind,
             },
           ];
         }
         return [];
       })
-      .sort((a, b) => a.title.localeCompare(b.title));
+      // The overview first, whatever it is called — a reader opens it before any
+      // capability. Alphabetical order put it fourth of five, because it is
+      // named after the project.
+      .sort((a, b) => rankOf(a.kind) - rankOf(b.kind) || a.title.localeCompare(b.title));
   } catch {
     return null;
   }
@@ -291,10 +295,13 @@ export function writeRunIndex(
     )
     .join("\n");
   const page = `# ${heading}\n\n${label}\n`;
-  const html = renderHtml(page, heading, language === undefined ? {} : { language }).replace(
-    "</main>",
-    `<ul class="reports">\n${list}\n</ul>\n</main>`,
-  );
+  // Inside the content div, not after it: `renderHtml` wraps a page's body in
+  // `#doc`, and every rule that styles this list is scoped to it. Injected
+  // after `</main>` the list rendered as a bare bulleted list of blue links.
+  const rendered = renderHtml(page, heading, language === undefined ? {} : { language });
+  const html = rendered.includes("</div>\n</main>")
+    ? rendered.replace("</div>\n</main>", `<ul class="reports">\n${list}\n</ul>\n</div>\n</main>`)
+    : rendered.replace("</main>", `<ul class="reports">\n${list}\n</ul>\n</main>`);
   const path = join(runRoot, "index.html");
   writeFileSync(path, html, "utf8");
   linkDocumentNames(runRoot, entries);
@@ -347,6 +354,21 @@ function linkDocumentNames(
       if (changed) writeFileSync(page, html, "utf8");
     }
   }
+}
+
+
+/**
+ * Reading order: the overview, then the capabilities, then how far to trust it.
+ *
+ * The overview first because a reader opens it before any capability;
+ * alphabetical order put it fourth of five, since it is named after the
+ * project. Coverage last because it is a report about the analysis rather than
+ * about the system.
+ */
+function rankOf(kind: string | undefined): number {
+  if (kind === "overview") return 0;
+  if (kind === "coverage") return 2;
+  return 1;
 }
 
 function sectionPages(directory: string): string[] {
