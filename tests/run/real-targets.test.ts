@@ -256,19 +256,30 @@ describe.skipIf(!wcpV2.ok)("runAnalyze on wcp-auth", () => {
       const features = kb.features();
       expect(features.length, "no capability formed, so the scoped query is untested").toBeGreaterThan(0);
 
-      let scopedTotal = 0;
+      let silentTotal = 0;
+      let unreadTotal = 0;
       for (const feature of features) {
         const owned = new Set(feature.filePaths);
         for (const file of kb.silentFilesForFeature(feature.id)) {
           expect(owned.has(`${file.rootName}/${file.relPath}`)).toBe(true);
-          scopedTotal += 1;
+          silentTotal += 1;
+        }
+        // Both groups, because both are scoped and only one was covered. Gutting
+        // `unreadFilesForFeature` to `return []` passed the whole suite — and it
+        // is the group holding the model files, so a capability owning one would
+        // have printed "every file yielded something about behaviour" instead.
+        for (const file of kb.unreadFilesForFeature(feature.id)) {
+          expect(owned.has(`${file.rootName}/${file.relPath}`)).toBe(true);
+          unreadTotal += 1;
         }
       }
-      // At least one capability owns at least one silent file, or every assertion
-      // above is vacuous.
-      expect(scopedTotal, "no capability owns a silent file").toBeGreaterThan(0);
+      // Each premise asserted separately: one capability owning a silent file
+      // says nothing about whether the unread path ran at all.
+      expect(silentTotal, "no capability owns a silent file").toBeGreaterThan(0);
+      expect(unreadTotal, "no capability owns an unread file").toBeGreaterThan(0);
 
       expect(kb.silentFilesForFeature("feat_nonexistent")).toEqual([]);
+      expect(kb.unreadFilesForFeature("feat_nonexistent")).toEqual([]);
     } finally {
       store.close();
     }
