@@ -9,6 +9,7 @@ import type { Store } from "../../engine/store/types.js";
 import { runAnalyze, UnsafeDatabaseLocationError } from "../../engine/run/analyze.js";
 import { DriftDetectedError } from "../../engine/snapshot/persist.js";
 import { ProviderUnavailableError, type Provider } from "../../engine/providers/types.js";
+import { codeIndexPresent } from "../../engine/kb/build.js";
 
 let workDir: string;
 let alphaPath: string;
@@ -368,6 +369,31 @@ describe("runAnalyze — drift between capture and publish", () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe("codeIndexPresent", () => {
+  it("does not count an empty index directory as an index", () => {
+    // The indexer creates .codegraph/ before deciding whether it will index, so
+    // a refused or crashed run leaves a shell holding only telemetry — and
+    // ~/.codegraph is where the tool installs itself, so a home directory always
+    // looked indexed. Testing for the directory answered yes to both, and the
+    // note then announced an index that was not there.
+    mkdirSync(join(workDir, ".codegraph"), { recursive: true });
+    writeFileSync(join(workDir, ".codegraph", "telemetry-queue.jsonl"), "");
+
+    expect(codeIndexPresent(workDir, true)).toBe(false);
+  });
+
+  it("counts one the reader filled without failing", () => {
+    mkdirSync(join(workDir, ".codegraph"), { recursive: true });
+    expect(codeIndexPresent(workDir, false)).toBe(true);
+  });
+
+  it("counts nothing where the directory is absent, however the run went", () => {
+    expect(codeIndexPresent(workDir, false)).toBe(false);
+    expect(codeIndexPresent(null, false)).toBe(false);
+    expect(codeIndexPresent(undefined, false)).toBe(false);
   });
 });
 

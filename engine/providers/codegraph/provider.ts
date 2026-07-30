@@ -260,6 +260,7 @@ function extractFrom(
   root: StructuralRootInput,
   options: CodeGraphOptions,
   shared: SharedIndex | null,
+  refusal: string | null,
 ): Extraction {
   const failures: ExtractionFailure[] = [];
 
@@ -269,9 +270,16 @@ function extractFrom(
     // Indexing inside the root would be the only alternative, and analyzed
     // source is never written to. Failing here degrades one provider and says
     // why; writing the index would break a guarantee the whole tool rests on.
+    //
+    // The reason travels from whoever refused it. This text is persisted as the
+    // gap for every kind this provider claims, so a generic message sends a
+    // reader looking for a problem they do not have — it once told users to
+    // analyze from a directory containing the root when that is exactly what
+    // they had done.
     throw new Error(
-      `No directory outside "${root.name}" can hold the index, so no index was built for it. ` +
-        "Analyze from a directory that contains the root rather than from a filesystem root.",
+      refusal === null
+        ? `No index was built covering "${root.name}", and no reason was recorded.`
+        : `No index was built covering "${root.name}": ${refusal}.`,
     );
   }
 
@@ -373,14 +381,18 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
   // Built once on the first root that needs it, then reused: the index covers
   // every root, so building it per root would repeat the same work N times.
   let resolved: SharedIndex | null | undefined;
+  /** Why no index was built, in the terms the choice itself gave. */
+  let refusedBecause: string | null = null;
   const sharedIndex = (): SharedIndex | null => {
     if (resolved !== undefined) return resolved;
 
-    const parent = sharedIndexRoot(options.roots ?? []);
-    if (parent === null) {
+    const choice = sharedIndexRoot(options.roots ?? []);
+    if (choice.path === undefined) {
+      refusedBecause = choice.refusal;
       resolved = null;
       return resolved;
     }
+    const parent = choice.path;
 
     // Indexing and reading happen under one lock. Reading between another
     // run's rebuild and its completion returns nothing, which would be
@@ -432,7 +444,9 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
           : [];
 
       try {
-        const extraction = extractFrom(root, options, sharedIndex());
+        // Resolved first, so a refusal is recorded before it is read.
+        const shared = sharedIndex();
+        const extraction = extractFrom(root, options, shared, refusedBecause);
         return {
           providerId: PROVIDER_ID,
           providerVersion: installed ?? VERIFIED_VERSION,

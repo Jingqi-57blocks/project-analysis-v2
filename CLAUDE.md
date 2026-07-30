@@ -20,8 +20,10 @@ apology in the docs, and it is not an exception to be engineered away.
 
 Two properties keep it honest, and those are worth defending:
 
-- **It never lands inside an analyzed root** — always the directory above, so a
-  repository being analyzed gains nothing, not even an ignore-file entry.
+- **It never lands inside an analyzed root** — always the directory above, so no
+  repository being analyzed gains a directory. When that directory above is
+  itself a repository, as in a monorepo whose packages are the roots,
+  `.codegraph/` does show in its `git status` and can be ignored there.
 - **Every run says where it is**, on the terminal and in the knowledge base, and
   says so from the filesystem rather than from its own intention.
 

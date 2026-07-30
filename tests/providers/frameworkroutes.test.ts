@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -327,29 +327,69 @@ describe("joinRoutePath", () => {
 
 describe("sharedIndexRoot", () => {
   it("finds the directory holding every root", () => {
-    expect(sharedIndexRoot(["/w/api", "/w/ui", "/w/worker"])).toBe("/w");
-  });
-
-  it("refuses when the roots do not share one", () => {
-    expect(sharedIndexRoot(["/a/api", "/b/ui"])).toBeNull();
-  });
-
-  it("refuses when a root is itself the shared parent", () => {
-    // Indexing there would index the sibling roots twice, once nested.
-    expect(sharedIndexRoot(["/w", "/w/ui"])).toBeNull();
+    expect(sharedIndexRoot(["/w/api", "/w/ui", "/w/worker"]).path).toBe("/w");
   });
 
   it("puts a single root's index beside it, not inside it", () => {
     // The read-only guarantee toward analyzed source cannot hold only for
     // workspaces that happen to have more than one part.
-    expect(sharedIndexRoot(["/w/api"])).toBe("/w");
+    expect(sharedIndexRoot(["/w/api"]).path).toBe("/w");
   });
 
-  it("refuses a root directly under the filesystem root", () => {
-    expect(sharedIndexRoot(["/api"])).toBeNull();
+  it("says why, rather than only that it refused", () => {
+    // The reason is persisted as the gap for every kind the provider would have
+    // supplied, so a generic one sends a reader after a problem they do not
+    // have. It once told users to analyze from a directory containing the root
+    // when that is exactly what they had done.
+    // Roots on different top-level directories share only the filesystem root,
+    // so that is the honest reason rather than "they share none".
+    expect(sharedIndexRoot(["/a/api", "/b/ui"]).refusal).toContain("filesystem root");
+    expect(sharedIndexRoot([]).refusal).toContain("no roots were named");
+    expect(sharedIndexRoot(["/w", "/w/ui"]).refusal).toContain("inside analyzed source");
+    expect(sharedIndexRoot(["/api", "/ui"]).refusal).toContain("filesystem root");
+    expect(sharedIndexRoot(["/api"]).refusal).toContain("filesystem root");
   });
 
-  it("refuses the filesystem root, which would walk the disk", () => {
-    expect(sharedIndexRoot(["/api", "/ui"])).toBeNull();
+  describe("directories too broad to index", () => {
+    const realHome = process.env.HOME;
+    afterEach(() => {
+      if (realHome === undefined) delete process.env.HOME;
+      else process.env.HOME = realHome;
+    });
+
+    it("refuses a home directory, which a repository sitting in it would choose", () => {
+      process.env.HOME = workDir;
+      const choice = sharedIndexRoot([join(workDir, "proj")]);
+      expect(choice.path).toBeUndefined();
+      expect(choice.refusal).toContain("home directory");
+    });
+
+    it("refuses a directory above a home directory, which is worse still", () => {
+      // `~` itself as the only root puts the parent at /Users, holding every
+      // account on the machine. The guard that only compared against home let
+      // this through.
+      process.env.HOME = join(workDir, "me");
+      const choice = sharedIndexRoot([join(workDir, "me")]);
+      expect(choice.path).toBeUndefined();
+      expect(choice.refusal).toContain("above it");
+    });
+
+    it("sees through a symlinked home directory", () => {
+      // resolve() is not realpath(), and a symlinked HOME is ordinary. The same
+      // lexical-versus-canonical split sank an earlier attempt at this.
+      const real = join(workDir, "real");
+      mkdirSync(join(real, "me"), { recursive: true });
+      symlinkSync(join(real, "me"), join(workDir, "link"));
+      process.env.HOME = join(workDir, "link");
+
+      const choice = sharedIndexRoot([join(real, "me", "proj")]);
+      expect(choice.path).toBeUndefined();
+      expect(choice.refusal).toContain("home directory");
+    });
+
+    it("allows a directory two levels below home, which is an ordinary workspace", () => {
+      process.env.HOME = workDir;
+      expect(sharedIndexRoot([join(workDir, "dev", "proj")]).path).toBe(join(workDir, "dev"));
+    });
   });
 });
