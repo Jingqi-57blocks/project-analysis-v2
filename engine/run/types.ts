@@ -17,7 +17,7 @@ export interface AnalyzeOptions {
    * declared as a gap rather than silently absent.
    */
   readonly readers?: ReaderSet;
-  /** Where the code index may be written, or that it may not be written at all. */
+  /** Skip the code index, accepting the symbols it would have supplied as a gap. */
   readonly noCodeIndex?: boolean;
   /** Preflighted providers. Defaults to the readers above. */
   readonly providers?: readonly Provider[];
@@ -44,14 +44,16 @@ export interface AnalysisResult {
   readonly workspacePath: string;
   readonly roots: readonly AnalyzedRootResult[];
   readonly providerReport: PreflightReport;
-  /** Where this run wrote a code index, or null if it wrote none. */
+  /** Where this run would build a code index, or null when it was told not to. */
   readonly codeIndexPath: string | null;
   /**
-   * Whether an index is actually there, so a caller reporting it need not guess.
+   * Whether a usable index is actually there, so a caller need not guess.
    *
-   * `codeIndexPath` is where a run intends to build one; this is what the
-   * filesystem says afterwards. Printing the first as though it were the second
-   * is how the terminal came to announce writes that never happened.
+   * `codeIndexPath` is where a run intends to build one; this is what came of
+   * it. Printing the first as though it were the second is how the terminal came
+   * to announce writes that never happened — and the directory existing is not
+   * enough on its own, since the indexer creates it before deciding whether to
+   * index.
    */
   readonly codeIndexPresent: boolean;
 }

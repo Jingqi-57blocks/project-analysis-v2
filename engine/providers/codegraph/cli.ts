@@ -8,9 +8,9 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 /** The version this adapter was written and verified against. */
 export const VERIFIED_VERSION = "1.5.0";
@@ -96,15 +96,26 @@ export function codegraphVersion(): string | null {
  * that the index covers the root's siblings as well; every query is scoped by
  * path prefix afterwards, so what a run reports is unaffected.
  *
- * Returns null only when the answer would be a filesystem root, since indexing
- * from there would walk the whole disk.
+ * Refuses with a reason rather than a bare null, because the reason is
+ * persisted as the gap for every kind this provider would have supplied — and a
+ * gap that misdescribes itself sends a reader looking in the wrong place.
  */
-export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
-  if (rootPaths.length === 0) return null;
+export type IndexRootChoice =
+  | { readonly path: string; readonly refusal?: undefined }
+  | { readonly path?: undefined; readonly refusal: string };
+
+export function sharedIndexRoot(rootPaths: readonly string[]): IndexRootChoice {
+  if (rootPaths.length === 0) {
+    return { refusal: "no roots were named, so there is no directory to index" };
+  }
+
   if (rootPaths.length === 1) {
-    const parent = dirname(resolve(rootPaths[0]!));
-    if (parent === sep || parent === resolve(rootPaths[0]!)) return null;
-    return tooBroad(parent) ? null : parent;
+    const only = resolve(rootPaths[0]!);
+    const parent = dirname(only);
+    if (parent === only) {
+      return { refusal: `"${only}" has no parent directory, so nothing outside it can hold an index` };
+    }
+    return admit(parent);
   }
 
   const segments = rootPaths.map((path) => resolve(path).split(sep).filter((part) => part !== ""));
@@ -115,28 +126,87 @@ export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
     common += 1;
   }
 
-  // Every root must sit below the parent, not be the parent.
-  if (common === 0 || segments.some((parts) => parts.length === common)) return null;
-  const parent = `${sep}${segments[0]!.slice(0, common).join(sep)}`;
-  if (parent === sep) return null;
-  return tooBroad(parent) ? null : parent;
+  // Roots on different top-level directories do share one: the filesystem root.
+  // Saying they share none would be false, and `admit` already has the right
+  // words for why that particular directory cannot be indexed.
+  if (common === 0) return admit(sep);
+  // A root that *is* the shared parent would be indexed from inside itself.
+  if (segments.some((parts) => parts.length === common)) {
+    return {
+      refusal:
+        "one of the roots is the directory holding the others, so an index there would be written inside analyzed source",
+    };
+  }
+
+  return admit(`${sep}${segments[0]!.slice(0, common).join(sep)}`);
 }
 
 /**
- * Directories no run may index, however the arithmetic arrives at them.
+ * Accepts a candidate parent, or says why it is too broad to index.
  *
- * A filesystem root walks the whole disk, and a home directory is not much
- * better: analyzing one repository that happens to sit directly in `~` puts its
- * nearest parent at `~`, and indexing there reads every unrelated project,
- * download and cache the user owns. CodeGraph itself refuses both without
- * `--force`, so a run that asked would fail anyway — declaring the gap instead
- * says why, and leaves the project's own code unindexed rather than the disk
- * indexed.
+ * A filesystem root walks the whole disk. A home directory, or anything above
+ * one, is worse in kind rather than degree: it reads every unrelated project,
+ * download and cache the user owns, and on a shared machine every other
+ * account's too. Both arise from ordinary inputs — a repository sitting directly
+ * in `~` puts its nearest parent at `~`, and `~` itself as the only root puts it
+ * at `/Users`.
+ *
+ * Compared on canonical paths, because a symlinked `HOME` is common and a
+ * lexical comparison would wave it straight through. CodeGraph refuses these
+ * itself without `--force`, so the run would fail anyway; refusing here turns a
+ * subprocess error into a declared gap that says what happened.
  */
-function tooBroad(directory: string): boolean {
-  if (directory === sep) return true;
-  const home = homedir();
-  return home !== "" && resolve(directory) === resolve(home);
+function admit(parent: string): IndexRootChoice {
+  if (parent === sep) {
+    return { refusal: "the only directory holding every root is the filesystem root, and indexing from there would walk the whole disk" };
+  }
+
+  const home = canonical(homedir());
+  const candidate = canonical(parent);
+  if (home !== "" && (candidate === home || isAncestor(candidate, home))) {
+    return {
+      refusal: `the only directory holding every root is ${parent === candidate ? parent : `${parent} (${candidate})`}, which is your home directory or above it — indexing there would read every unrelated project on the machine`,
+    };
+  }
+
+  return { path: parent };
+}
+
+/** Whether `directory` contains `descendant`, by path rather than by prefix. */
+function isAncestor(directory: string, descendant: string): boolean {
+  const base = directory.endsWith(sep) ? directory : `${directory}${sep}`;
+  return descendant.startsWith(base);
+}
+
+/**
+ * A path as the filesystem spells it.
+ *
+ * Canonicalized as far as it exists, then the missing tail put back. Resolving
+ * only paths that exist compares one canonical path against one lexical path,
+ * and on a machine where `/tmp` is a symlink to `/private/tmp` those never
+ * match — the mistake that made an earlier version of this guard useless, and
+ * that reappears the moment `HOME` names a directory nobody has created.
+ */
+function canonical(path: string): string {
+  if (path === "") return "";
+  const resolved = resolve(path);
+
+  let existing = resolved;
+  const missing: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) return resolved;
+    // `basename`, not a slice: the filesystem root already ends in a separator,
+    // so subtracting its length drops a character and turns "/w" into "/".
+    missing.unshift(basename(existing));
+    existing = parent;
+  }
+
+  try {
+    return join(realpathSync.native(existing), ...missing);
+  } catch {
+    return resolved;
+  }
 }
 
 export function isIndexed(rootPath: string): boolean {

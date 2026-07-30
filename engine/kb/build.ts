@@ -28,6 +28,15 @@ import type { StructuralProvider } from "../structural/provider.js";
 import type { DataModelProvider } from "../datamodel/types.js";
 import type { SemanticCollector } from "../semantic/types.js";
 
+/**
+ * The reader that fills the code index, named here rather than at every caller.
+ *
+ * Keeps the vendor's name inside the one module that already knows it — a run
+ * asking "did the indexer fail" should not have to know which tool the indexer
+ * is.
+ */
+export { PROVIDER_ID as CODE_INDEX_PROVIDER_ID } from "../providers/codegraph/provider.js";
+
 export interface ReaderSet {
   readonly structural: readonly StructuralProvider[];
   readonly data: readonly DataModelProvider[];
@@ -95,23 +104,33 @@ export function codeIndexLocation(
   options: ReaderOptions = {},
 ): string | null {
   if (options.noCodeIndex === true) return null;
-  return sharedIndexRoot(rootPaths);
+  return sharedIndexRoot(rootPaths).path ?? null;
 }
 
 /**
- * Whether an index is actually at the place a run meant to put one.
+ * Whether a usable index is at the place a run meant to put one.
  *
  * `codeIndexLocation` states an intention, computed before anything runs, and it
  * cannot know whether the indexer was installed, or crashed, or timed out.
- * Reporting that intention as an accomplished write puts a false claim about the
+ * Reporting that intention as an accomplished write put a false claim about the
  * filesystem into the knowledge base and onto the terminal — measured with the
  * indexer absent, both said an index had been written to a directory that held
  * nothing.
  *
- * Presence, deliberately, not authorship: a run that reuses an index built
- * earlier is telling the truth when it says one is there, and the extraction
- * failures record whether this run managed to refresh it.
+ * **The directory existing is not the answer**, which is the part that caught us
+ * out. CodeGraph creates `.codegraph/` before it decides whether it will index,
+ * so a refused, crashed or killed run leaves a shell holding only telemetry —
+ * and `~/.codegraph` is where the tool installs itself, so a home directory
+ * always looks indexed. Either way `ensureIndexed` then takes its `index -q`
+ * branch forever, because the directory is there.
+ *
+ * So the reader's own outcome decides: a directory, and no failure from the
+ * provider that would have filled it. A run reusing an index built earlier still
+ * answers true, which is honest — one is there, and it supplied the symbols.
  */
-export function codeIndexPresent(path: string | null | undefined): boolean {
-  return path !== null && path !== undefined && isIndexed(path);
+export function codeIndexPresent(
+  path: string | null | undefined,
+  indexerFailed: boolean,
+): boolean {
+  return path !== null && path !== undefined && !indexerFailed && isIndexed(path);
 }

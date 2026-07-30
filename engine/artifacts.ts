@@ -1,9 +1,11 @@
 /**
  * Directories this tool's own providers write into an analyzed root.
  *
- * Analyzed source is read-only with exactly one accepted exception: CodeGraph
- * creates `.codegraph/` inside whatever it indexes and offers no flag to
- * relocate it.
+ * A project's own files are never changed. A code index is not one of its files:
+ * CodeGraph creates `.codegraph/` inside whatever it indexes, its own data
+ * alongside the code, and offers no flag to relocate it. Callers point it at the
+ * directory above the analyzed roots so no root gains one — but a run reaching
+ * here has to account for the directory either way.
  *
  * Declared once, here, because two independent stages must agree about it and
  * for opposite reasons — content digests must ignore these (or indexing would
