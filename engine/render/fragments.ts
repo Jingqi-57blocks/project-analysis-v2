@@ -170,6 +170,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       profile.endpointCount === 0
         ? null
         : share(f, profile.tracedEndpointCount, profile.endpointCount),
+      profile.endpointsWithoutCaller === 0 ? null : profile.endpointsWithoutCaller,
       profile.screenCount === 0 ? null : profile.screenCount,
       profile.testCount === 0 ? null : profile.testCount,
     ]);
@@ -182,6 +183,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
           t(f, "col-languages"),
           t(f, "col-files-read"),
           t(f, "col-endpoints-traced"),
+          t(f, "col-no-caller"),
           t(f, "col-screens"),
           t(f, "col-tests"),
         ],
@@ -232,19 +234,11 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       );
     if (migrations.length > 0) parts.push(migrations.join("\n\n"));
 
-    // The fact the traced count used to swallow: a handler followed to its end,
-    // with nothing in the workspace seen to call it.
-    const uncalled = profiles
-      .filter((profile) => profile.endpointsWithoutCaller > 0)
-      .map((profile) =>
-        t(
-          f,
-          "endpoints-without-caller",
-          profile.rootName,
-          share(f, profile.endpointsWithoutCaller, profile.endpointCount),
-        ),
-      );
-    if (uncalled.length > 0) parts.push(uncalled.join("\n\n"));
+    // A column, not a paragraph per repository: five of those recreated the
+    // wall of text this section was rewritten to avoid.
+    if (profiles.some((profile) => profile.endpointsWithoutCaller > 0)) {
+      parts.push(t(f, "no-caller-note"));
+    }
 
     const anyRange = profiles.some((profile) =>
       [...profile.platforms, ...profile.stack].some(

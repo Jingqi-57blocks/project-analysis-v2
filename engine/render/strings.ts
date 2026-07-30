@@ -51,8 +51,9 @@ export const FRAME_EN: Glossary = {
     "_A version marked ✱ is what the manifest declares as acceptable — a range, or a minimum. No lockfile in this run settled which version is actually installed._",
   /** What separates items joined into one cell or sentence. */
   join: "; ",
-  "endpoints-without-caller":
-    "_Of **{0}**'s endpoints, {1} are called by nothing this analysis found in the workspace. Their own code was followed; who asks for them was not established, which is ordinary for a report, an export, or anything a system outside this workspace calls._",
+  "col-no-caller": "No caller found",
+  "no-caller-note":
+    "_\"No caller found\" means the endpoint's own code was followed but nothing in the workspace was seen to ask for it — ordinary for a report, an export, or anything a system outside this workspace calls._",
   "migrations-read":
     "_Beside its code, **{0}** holds schema-migration scripts: {1} of them yielded a fact. They declare a schema rather than behaviour, so they are counted apart._",
   "not-looked-for": "**Not looked for in this run.** Nothing below says whether the project has any:",
