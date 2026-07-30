@@ -694,7 +694,7 @@ describe("the recovered specification's tables", () => {
     name: string,
     endpoints: number,
     tables: readonly string[] = [],
-    options: { nearby?: readonly string[]; roots?: readonly string[] } = {},
+    options: { nearby?: readonly string[]; roots?: readonly string[]; truncated?: boolean } = {},
   ) {
     return {
       id: `feat_${name}`,
@@ -704,6 +704,7 @@ describe("the recovered specification's tables", () => {
       filePaths: [],
       tables: [...tables],
       tablesNearby: [...(options.nearby ?? [])],
+      tablesTruncated: options.truncated ?? false,
       endpoints: Array.from({ length: endpoints }, (_, n) => ({
         method: "GET",
         path: `/${name.toLowerCase()}/${n}`,
@@ -737,6 +738,16 @@ describe("the recovered specification's tables", () => {
     ]);
   });
 
+  it("does not tell a reader a dash means nothing was attributed at either scope", () => {
+    // The lead said exactly that while 24 of 38 dashes had 1 to 45 tables in the
+    // facts, and the flows section drew them three pages later.
+    const rendered = render("prd-features", {
+      features: [feature("Billing", 1, [], { nearby: ["wcp_billing"] })],
+      endpoints: [],
+    });
+    expect(rendered).not.toContain("nothing could be attributed at all");
+  });
+
   it("names the tables its package touches where its own files touch none", () => {
     // 24 of 38 dashes stood for 1 to 45 attributed tables, and the flows section
     // drew Billing's seven tables three pages after Billing's row said none.
@@ -746,6 +757,40 @@ describe("the recovered specification's tables", () => {
     });
     expect(rendered).toContain("wcp_billing");
     expect(rendered).toContain(FRAME_EN["tables-in-package"]!.replace("{0}", "").trim().split(":")[0]!);
+  });
+
+  it("says the lists are short where a trace stopped counting tables", () => {
+    // Two caps compound: this section's, and the assembler's per-flow cap whose
+    // remainder is unknowable. Eleven capabilities printed twelve tables and said
+    // nothing, while their own diagrams read "16 more tables".
+    const rendered = render("prd-features", {
+      features: [feature("Openai", 1, [], { nearby: ["a_table"], truncated: true })],
+      endpoints: [],
+    });
+    expect(rendered).toContain("uncounted");
+  });
+
+  it("accounts for the tables it does not name at either scope", () => {
+    const own = Array.from({ length: 20 }, (_, n) => `own_${String(n).padStart(2, "0")}`);
+    const near = Array.from({ length: 30 }, (_, n) => `near_${String(n).padStart(2, "0")}`);
+    const rendered = render("prd-features", {
+      features: [feature("Wide", 1, own, { nearby: near })],
+      endpoints: [],
+    });
+    const shownOwn = [...rendered.matchAll(/own_\d\d/g)].length;
+    const shownNear = [...rendered.matchAll(/near_\d\d/g)].length;
+    const counted = [...rendered.matchAll(/and (\d+) more/g)].map((m) => Number(m[1]));
+    expect(shownOwn + shownNear + counted.reduce((a, b) => a + b, 0)).toBe(50);
+    expect(shownOwn).toBeGreaterThan(4);
+    expect(shownNear).toBeGreaterThan(4);
+  });
+
+  it("does not repeat a table in both scopes", () => {
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1, ["wcp_leave"], { nearby: ["wcp_leave", "wcp_user"] })],
+      endpoints: [],
+    });
+    expect([...rendered.matchAll(/wcp_leave/g)]).toHaveLength(1);
   });
 
   it("keeps the two scopes apart rather than merging them into one list", () => {
@@ -977,6 +1022,16 @@ describe("the recovered specification's tables", () => {
     expect(rendered).toContain("svc:POST /leaves");
   });
 
+  it("does not claim the drawn flows rest on the handler alone", () => {
+    // 14 of the 16 drawn against WCP carry a step observed only in the handler's
+    // package, and every such edge says so three lines above this sentence.
+    const rendered = render("prd-flows", {
+      flows: [flow("feat_Leave", "svc:GET /a", { vague: 2, steps: 3 })],
+      features: [feature("Leave", 1)],
+    });
+    expect(rendered).not.toContain("established in the handler itself");
+  });
+
   it("draws a complete trace before one with a gap", () => {
     const rendered = render("prd-flows", {
       flows: [
@@ -1023,6 +1078,8 @@ describe("the recovered specification's tables", () => {
     const said = Number(/(\d+) of the 20 capabilities with a traced flow/.exec(rendered)?.[1] ?? 0);
     expect(drawnCaps + said).toBe(20);
     expect(said).toBeGreaterThan(0);
+    // Enough of them to be a section: the accounting holds for a bound of one too.
+    expect(drawnCaps).toBeGreaterThan(4);
   });
 
   it("draws flows for some capabilities, not for forty-eight", () => {

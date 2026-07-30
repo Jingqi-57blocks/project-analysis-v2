@@ -39,6 +39,7 @@ export const FRAME_EN: Glossary = {
   // its handler shares a file with the rest of the user service.
   "col-tables-touched": "Tables its files touch",
   "tables-in-package": "elsewhere in its package: {0}",
+  "tables-not-counted": "and more, uncounted",
   "col-when": "When",
   // Not "First seen": the cell lists every file in this repository that states the
   // rule, and a first is walk order rather than a fact about the code.
@@ -55,9 +56,10 @@ export const FRAME_EN: Glossary = {
   "message-kind-error-code": "a named error constant",
   "prd-flows-lead":
     "Up to two traced flows for each of the capabilities with the most of them, " +
-    "chosen as the clearest: a trace whose " +
-    "every step was established before one with a gap, and one observed in the " +
-    "handler itself before one observed only somewhere in its package. " +
+    "chosen as the clearest of each: a trace with no gap in it before one with a " +
+    "gap, and the one resting least on evidence from the handler's package rather " +
+    "than the handler itself. Most flows here have at least one such step, and " +
+    "every edge drawn from one says so. " +
     "A step it could not resolve is drawn as a gap rather than left out, so a " +
     "diagram never implies a hop that was not found.",
   "prd-flow-whole": "{0} flow(s), every step established",
@@ -66,9 +68,12 @@ export const FRAME_EN: Glossary = {
   // Says which flows were drawn rather than claiming anything about the rest: an
   // earlier line said every undrawn flow was reachable from an endpoint listed
   // above, and 261 of them start at an endpoint this document never prints.
+  // Not "the ones whose steps were established in the handler itself": 14 of the
+  // 16 drawn carry a step observed only in the handler's package, and the diagrams
+  // three lines above say so on every one of those edges.
   "prd-flows-left-out":
     "{0} of {1} traced flow(s) are not drawn: at most {2} per capability appear here, " +
-    "the ones whose steps were established in the handler itself.",
+    "whichever of its flows rest least on evidence from outside the handler.",
   "prd-flows-capabilities-left-out":
     "{0} of the {1} capabilities with a traced flow have no diagram here: the ones " +
     "with the most flows are drawn. The rest are traced in the knowledge base and " +
@@ -82,7 +87,7 @@ export const FRAME_EN: Glossary = {
     "No flow was traced end to end, so this section is empty rather than guessed. " +
     "Entry points and the tables they reach are listed in their own sections.",
   "prd-features-lead":
-    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, and a second list gives the tables touched elsewhere in that file's package. Read either as where to look rather than as what this capability stores; a dash means no table was attributed at either scope.",
+    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, and a second list gives the tables touched elsewhere in that file's package. Read either as where to look rather than as what this capability stores; a dash means no table was attributed at either scope. A row ending \"and more, uncounted\" means a trace of this capability reached more tables than it records, so that row's lists are short by an amount nothing here can state.",
   "prd-orphan-endpoints":
     "{0} of {1} endpoints belong to no capability above: the system's vocabulary gave " +
     "no term to file them under. They are part of the surface a rebuild has to " +

@@ -275,21 +275,26 @@ const TESTS_PER_RULE = 2;
  * this capability than one read somewhere else in its package, and printing them
  * alike would widen a cell that is already wider than the capability.
  */
-function tableCell(f: Glossary, own: readonly string[], nearby: readonly string[]): string | null {
+function tableCell(
+  f: Glossary,
+  own: readonly string[],
+  nearby: readonly string[],
+  truncated: boolean,
+): string | null {
+  const listed = (names: readonly string[]): string => {
+    const shown = names.slice(0, TABLES_PER_FEATURE);
+    const rest = names.length - shown.length;
+    return shown.join(", ") + (rest > 0 ? `, ${t(f, "and-more", rest)}` : "");
+  };
+
   const parts: string[] = [];
-  if (own.length > 0) parts.push(own.slice(0, TABLES_PER_FEATURE).join(", "));
-  if (own.length > TABLES_PER_FEATURE) parts.push(t(f, "and-more", own.length - TABLES_PER_FEATURE));
-  if (nearby.length > 0) {
-    const shown = nearby.slice(0, TABLES_PER_FEATURE);
-    parts.push(
-      t(
-        f,
-        "tables-in-package",
-        shown.join(", ") +
-          (nearby.length > shown.length ? `, ${t(f, "and-more", nearby.length - shown.length)}` : ""),
-      ),
-    );
-  }
+  if (own.length > 0) parts.push(listed(own));
+  if (nearby.length > 0) parts.push(t(f, "tables-in-package", listed(nearby)));
+  // Two caps compound here: this one, and the assembler's per-flow cap, whose
+  // remainder no number can honestly state — the same unnamed table may sit behind
+  // several endpoints. Eleven capabilities printed twelve tables and said nothing,
+  // while their own diagrams three pages later read "16 more tables".
+  if (truncated && parts.length > 0) parts.push(t(f, "tables-not-counted"));
   return parts.length === 0 ? null : parts.join("<br>");
 }
 
@@ -906,7 +911,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         feature.endpoints.length === 0 ? null : feature.endpoints.length,
         shown.join("<br>") +
           (paths.length > shown.length ? `<br>${t(f, "and-more", paths.length - shown.length)}` : ""),
-        tableCell(f, tables, nearby),
+        tableCell(f, tables, nearby, feature.tablesTruncated),
       ];
     });
 

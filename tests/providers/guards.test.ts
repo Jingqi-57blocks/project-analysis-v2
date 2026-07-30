@@ -293,6 +293,15 @@ describe("what the reader says it cannot do", () => {
     const limits = ruleLimits().join("\n");
     expect(limits).toContain("template");
     expect(limits).toContain("160");
+    // And declares it in the shape the reader actually has: the first run of text
+    // that reads like a sentence, which may begin *after* an interpolation —
+    // `entries[${i}].date must be YYYY-MM-DD` arrives as `].date must be…`.
+    expect(limits).not.toContain("only as far as its first interpolation");
+    const found = guards(
+      'function f(i, d) {\n  if (!d) {\n    throw new Error(`entries[${i}].date must be YYYY-MM-DD`);\n  }\n}',
+      "mcp.js",
+    );
+    expect(found[0]?.message).toBe("].date must be YYYY-MM-DD");
   });
 
   it("declares that a prop stating a label is read as a rejection", () => {
