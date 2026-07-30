@@ -28,8 +28,22 @@ function versionOf(files: readonly string[], name: string): string | null {
   return dependency?.resolvedVersion ?? null;
 }
 
+/**
+ * What a reader saw, as a map for the assertions that want one.
+ *
+ * A reader reports every version it finds, so a name with two of them appears
+ * twice; `versionsOf` is how a test asks about that deliberately.
+ */
 function read(filename: string, content: string): ReadonlyMap<string, string> {
-  return lockfileReaderFor(filename)!.read(content);
+  return new Map(lockfileReaderFor(filename)!.read(content));
+}
+
+/** Every version a reader reported for one package, in order. */
+function versionsOf(filename: string, content: string, name: string): string[] {
+  return lockfileReaderFor(filename)!
+    .read(content)
+    .filter(([found]) => found === name)
+    .map(([, version]) => version);
 }
 
 beforeEach(() => {
@@ -39,7 +53,7 @@ beforeEach(() => {
 afterEach(() => rmSync(workDir, { recursive: true, force: true }));
 
 describe("reading an exact version out of a lockfile", () => {
-  it("reads npm's install tree, taking the name after the last node_modules", () => {
+  it("reads npm's install tree at the top level, where the project's own copy is", () => {
     const versions = read(
       "package-lock.json",
       JSON.stringify({
@@ -54,19 +68,71 @@ describe("reading an exact version out of a lockfile", () => {
     );
     expect(versions.get("typescript")).toBe("5.4.5");
     expect(versions.get("@scope/pkg")).toBe("2.1.0");
-    expect(versions.get("b")).toBe("0.3.0");
+    // A copy installed *for* another package is not what the project gets.
+    expect(versions.has("b")).toBe(false);
   });
 
-  it("reads a version-1 npm lockfile, which has no packages section", () => {
+  it("is not fooled by a nested copy of a package the project depends on", () => {
+    // Measured on wcp-ui: iteration order let `node_modules/x/node_modules/redux`
+    // answer for redux, reporting 4.2.1 where 5.0.1 is installed.
+    const versions = read(
+      "package-lock.json",
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          "node_modules/legacy/node_modules/redux": { version: "4.2.1" },
+          "node_modules/redux": { version: "5.0.1" },
+        },
+      }),
+    );
+    expect(versions.get("redux")).toBe("5.0.1");
+  });
+
+  it("reads a version-1 npm lockfile at its top level only", () => {
     const versions = read(
       "package-lock.json",
       JSON.stringify({
         lockfileVersion: 1,
-        dependencies: { express: { version: "4.16.4", dependencies: { debug: { version: "2.6.9" } } } },
+        dependencies: {
+          express: { version: "4.16.4", dependencies: { debug: { version: "4.3.2" } } },
+          debug: { version: "2.6.9" },
+        },
       }),
     );
     expect(versions.get("express")).toBe("4.16.4");
+    // wcp-service depends on debug directly at 2.6.9; the copy nested under
+    // express is 4.3.2, and walking the tree reported that one.
     expect(versions.get("debug")).toBe("2.6.9");
+  });
+
+  it("reports both versions when a lockfile holds two, rather than choosing", () => {
+    // yarn writes a block per range. Which block a given constraint gets is a
+    // question this reader cannot answer, so it hands back both and the caller
+    // states no version.
+    const versions = versionsOf(
+      "yarn.lock",
+      [
+        'redux@^4.0.0:',
+        '  version "4.2.1"',
+        "",
+        'redux@^5.0.1:',
+        '  version "5.0.1"',
+      ].join("\n"),
+      "redux",
+    );
+    expect(versions).toEqual(["4.2.1", "5.0.1"]);
+  });
+
+  it("reports every version go.sum hashed, so file order cannot pick one", () => {
+    const versions = versionsOf(
+      "go.sum",
+      [
+        "golang.org/x/sys v0.1.0 h1:aaa=",
+        "golang.org/x/sys v0.15.0 h1:bbb=",
+      ].join("\n"),
+      "golang.org/x/sys",
+    );
+    expect(versions).toEqual(["v0.1.0", "v0.15.0"]);
   });
 
   it("reads yarn's blocks, keeping the scope in a scoped name", () => {
@@ -243,6 +309,53 @@ describe("what the provider does with those versions", () => {
     expect(versionOf(files, "express")).toBeNull();
     // Where they agree there is no disagreement to report.
     expect(versionOf(files, "cors")).toBe("2.8.5");
+  });
+
+  it("states no version where the lockfile holds two for one package", () => {
+    write("package.json", JSON.stringify({ dependencies: { redux: "^5.0.1" } }));
+    write(
+      "yarn.lock",
+      ['redux@^4.0.0:', '  version "4.2.1"', "", 'redux@^5.0.1:', '  version "5.0.1"'].join("\n"),
+    );
+
+    expect(versionOf(["package.json", "yarn.lock"], "redux")).toBeNull();
+  });
+
+  it("refuses a version its own manifest rules out", () => {
+    // The last check against publishing a false fact: whatever produced this
+    // pairing was wrong, and ^5.0.1 cannot be satisfied by 4.2.1.
+    write("package.json", JSON.stringify({ dependencies: { redux: "^5.0.1" } }));
+    write("yarn.lock", ['redux@^4.0.0:', '  version "4.2.1"'].join("\n"));
+
+    expect(versionOf(["package.json", "yarn.lock"], "redux")).toBeNull();
+  });
+
+  it("keeps a version a loose constraint admits", () => {
+    write("package.json", JSON.stringify({ dependencies: { a: ">=4.0.0", b: "*", c: "^2.1.0" } }));
+    write(
+      "yarn.lock",
+      [
+        'a@>=4.0.0:', '  version "5.1.0"', "",
+        'b@*:', '  version "9.9.9"', "",
+        'c@^2.1.0:', '  version "2.7.0"',
+      ].join("\n"),
+    );
+
+    const files = ["package.json", "yarn.lock"];
+    // `>=4` admits a later major; `*` says nothing; `^2.1.0` fixes the major.
+    expect(versionOf(files, "a")).toBe("5.1.0");
+    expect(versionOf(files, "b")).toBe("9.9.9");
+    expect(versionOf(files, "c")).toBe("2.7.0");
+  });
+
+  it("falls back to the manifest's own pin when go.sum is ambiguous", () => {
+    write("go.mod", "module m\n\nrequire golang.org/x/sys v0.15.0\n");
+    write(
+      "go.sum",
+      ["golang.org/x/sys v0.1.0 h1:a=", "golang.org/x/sys v0.15.0 h1:b="].join("\n"),
+    );
+
+    expect(versionOf(["go.mod", "go.sum"], "golang.org/x/sys")).toBe("v0.15.0");
   });
 
   it("keeps a Go module's version, which the manifest states exactly", () => {

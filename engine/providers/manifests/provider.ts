@@ -38,6 +38,7 @@ import {
   readerFor,
 } from "./formats.js";
 import {
+  agreesWithConstraint,
   LOCKFILE_READERS,
   lockfileNames,
   lockfileReaderFor,
@@ -230,9 +231,17 @@ function collect(root: StructuralRootInput): Collected {
         // A constraint is not a version. The exact version comes from a
         // lockfile, or from a manifest that pins outright as Go's does; where
         // neither states one it stays honestly null.
+        const stated = versionFor(locks, dirname(relPath), dependency.name);
+        // A version the manifest visibly rules out is not this dependency's,
+        // whatever the lockfile says — a lockfile holding several versions of
+        // one package is the usual cause, and the constraint is the tie-break
+        // the reader cannot see.
+        const fromLock =
+          stated !== null && agreesWithConstraint(dependency.versionConstraint, stated)
+            ? stated
+            : null;
         const resolvedVersion =
-          versionFor(locks, dirname(relPath), dependency.name) ??
-          pinnedByManifest(reader.ecosystem, dependency.versionConstraint);
+          fromLock ?? pinnedByManifest(reader.ecosystem, dependency.versionConstraint);
         const counter = resolvedVersion === null ? unresolved : resolvedCounts;
         counter.set(reader.ecosystem, (counter.get(reader.ecosystem) ?? 0) + 1);
 
