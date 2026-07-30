@@ -96,3 +96,63 @@ func F(id int) error {
     expect(found[0]!.message).toBe("Please upload a doctor's note for sick leave over a day");
   });
 });
+
+describe("a rejection that names an error instead of stating a message", () => {
+  it("records the constant's name, marked as a name rather than a sentence", () => {
+    // WCP's older service throws `BusinessError(ErrorCodes.WKL_Forbidden)` 150
+    // times, over the gates that are its real business rules. Reading only
+    // string literals described that service as having almost no rules.
+    const source = `function update(req, res) {
+  if (worklog.userId !== req.user.id) {
+    throw new BusinessError(ErrorCodes.WKL_Forbidden);
+  }
+  save(worklog);
+}
+`;
+    const guard = guards(source, "worklogs.js")[0]!;
+    expect(guard.message).toBe("WKL_Forbidden");
+    expect(guard.messageKind).toBe("error-code");
+    expect(guard.test).toBe("worklog.userId !== req.user.id");
+  });
+
+  it("prefers a stated message where the code states one", () => {
+    const source = `function apply(req) {
+  if (req.hours > 8) {
+    throw new BusinessError(ErrorCodes.WKL_Forbidden, "Sick leave over one day needs a note");
+  }
+}
+`;
+    const guard = guards(source, "a.js")[0]!;
+    expect(guard.message).toBe("Sick leave over one day needs a note");
+    expect(guard.messageKind).toBe("stated");
+  });
+
+  it("still leaves error propagation out, however the error is named", () => {
+    // `if err != nil { return ErrSomething_Bad }` is plumbing whichever
+    // constant it returns.
+    const source = `package svc
+func F() error {
+	if err != nil {
+		return Err_Not_Found
+	}
+	return nil
+}
+`;
+    expect(guards(source, "a.go")).toEqual([]);
+  });
+
+  it("does not mistake an ordinary local or a short name for an error constant", () => {
+    const source = `function f(order) {
+  if (order.total < 0) {
+    throw new Error(total);
+  }
+  if (order.items.length === 0) {
+    throw new Error(E_x);
+  }
+}
+`;
+    // `total` is lower-case with no word boundary; `E_x` is too short to be a
+    // rule anyone could act on.
+    expect(guards(source, "b.js")).toEqual([]);
+  });
+});

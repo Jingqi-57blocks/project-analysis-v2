@@ -44,7 +44,8 @@ export const FRAME_EN: Glossary = {
   "of-total-percent": "{0} of {1} ({2}%)",
   "stack-line": "**{0}** — {1}",
   "stack-and-more": "{0} direct dependencies in all, {1} of them pinned to an exact version",
-  "range-marked": "_A version marked ✱ is the range the manifest declares: no lockfile in this run settled which version is installed._",
+  "range-marked":
+    "_A version marked ✱ is what the manifest declares as acceptable — a range, or a minimum. No lockfile in this run settled which version is actually installed._",
   "not-looked-for": "**Not looked for in this run.** Nothing below says whether the project has any:",
   "looked-found-none": "**Looked for and not found:**",
   "dimensions-note":

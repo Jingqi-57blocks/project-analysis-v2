@@ -189,12 +189,49 @@ function firstMessage(node: SgNode): string | null {
 }
 
 /**
+ * The name of the error a rejection raises, where it raises a named one.
+ *
+ * Not every codebase writes its rejections as sentences. WCP's older service
+ * throws `new BusinessError(ErrorCodes.WKL_Forbidden)` — 150 times, over
+ * gates that are the real business rules of the capability — and looking only
+ * for string literals meant a report of that service described almost no
+ * rules at all while saying nothing about why.
+ *
+ * The constant's name is not the message a user sees; the text lives in a
+ * catalogue this reader does not open. But `WKL_Forbidden` beside the test that
+ * raises it is a rule a reader can act on, which is the bar for recording it.
+ * Only names that carry a word boundary and an upper-case letter qualify, so a
+ * bare `err` or a lower-case local is not mistaken for one.
+ */
+function errorCodeName(node: SgNode): string | null {
+  const stack: SgNode[] = [node];
+  while (stack.length > 0) {
+    const current = stack.shift()!;
+    const kind = current.kind() as string;
+    if (kind.includes("identifier") || kind === "selector_expression" || kind === "member_expression") {
+      // The last segment is the name; the qualifier is the catalogue it is in.
+      const name = current.text().trim().split(".").pop() ?? "";
+      if (/^[A-Za-z]\w*[_A-Z]\w*$/.test(name) && /[_]/.test(name) && name.length >= 6) {
+        return name.slice(0, 160);
+      }
+    }
+    for (const child of current.children()) stack.push(child);
+  }
+  return null;
+}
+
+/**
  * The gates a capability enforces that are not literal comparisons.
  *
  * An `if` whose branch rejects with a message: the message is the rule in the
- * code's own words. Plumbing guards (error propagation) are filtered by shape,
- * and a rejection with no message is left out — without one there is nothing a
- * reader could act on that `condition` and `decision` do not already carry.
+ * code's own words. Where the rejection names an error constant instead, that
+ * name is recorded and marked as one, so a reader is never shown a symbol as
+ * though it were a sentence someone wrote for them.
+ *
+ * Plumbing guards (error propagation) are filtered by shape, and a rejection
+ * carrying neither a message nor a named error is left out — without one there
+ * is nothing a reader could act on that `condition` and `decision` do not
+ * already carry.
  */
 export function guardsIn(root: SgNode, rootName: string, relPath: string): GuardRecord[] {
   const records: GuardRecord[] = [];
@@ -221,7 +258,8 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
     // Only a branch that leaves the function with a message is a stated rule.
     const exit = statementsOf(consequence).find((child) => EXIT_KINDS.has(child.kind() as string));
     if (exit === undefined) continue;
-    const message = firstMessage(exit);
+    const stated = firstMessage(exit);
+    const message = stated ?? errorCodeName(exit);
     if (message === null) continue;
 
     const range = node.range();
@@ -241,6 +279,7 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
       rootName,
       test,
       message,
+      messageKind: stated === null ? "error-code" : "stated",
       enclosingFunction: enclosingFunctionName(node),
       source,
       provenance: resolved(source, "high"),
@@ -462,7 +501,7 @@ export function logicCapabilities(): ProviderCapabilities {
         language: ANY_LANGUAGE,
         support: "partial",
         limits: [
-          "an `if` that rejects with a message is read as a rule; a gate that rejects with an error constant rather than a literal message is missed",
+          "an `if` that rejects is read as a rule, by the message it states or by the name of the error constant it raises; the text behind such a constant lives in a message catalogue this run does not read, so the rule is named rather than quoted",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
           "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
           "languages without a grammar in this run are not read at all",
