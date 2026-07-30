@@ -16,7 +16,7 @@ import type {
 } from "../kb/profiles.js";
 import { mapToMermaid } from "../flows/mermaid.js";
 import { isRealIntegration } from "../kb/hosts.js";
-import { FRAME_EN, t, type Glossary } from "./strings.js";
+import { FRAME_EN, stopReason, t, type Glossary } from "./strings.js";
 
 export interface FragmentInput {
   /** Selector name → what it resolved to, in the order the section listed. */
@@ -290,7 +290,9 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         shown.map((flow) => [
           `${flow.method ?? ""} ${flow.path}`.trim(),
           share(f, flow.resolvedSteps, flow.steps),
-          flow.unresolvedReasons.length === 0 ? null : flow.unresolvedReasons.join("; "),
+          flow.unresolvedReasons.length === 0
+            ? null
+            : flow.unresolvedReasons.map((reason) => stopReason(f, reason)).join("；"),
         ]),
       ),
     ];

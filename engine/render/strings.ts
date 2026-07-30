@@ -52,6 +52,17 @@ export const FRAME_EN: Glossary = {
     "_Counts are distinct records. A fact two readers agree on is one record, not two._",
   "no-flows-traced": "_No flow of this capability was followed end to end; the table says where each stops._",
 
+  "stop-no-caller":
+    "nothing in the analyzed code was seen to call this endpoint; it may be called from outside the workspace",
+  "stop-inline-handler":
+    "the endpoint is registered with an inline function, which has no name to follow",
+  "stop-unresolved-handler":
+    "the code behind the endpoint could not be identified, so what it touches was not followed",
+  "stop-ambiguous-handler":
+    "the endpoint names a handler that matches more than one function, so none was chosen",
+  "stop-no-data-access":
+    "no data access was observed in the handler's own code; access from elsewhere is not followed",
+
   "col-from": "From",
   "col-to": "To",
   "col-kind": "Kind",
@@ -84,6 +95,32 @@ export const FRAME_EN: Glossary = {
   "further-nearby":
     "A further {0} kinds of record were touched elsewhere in the same code, so they may belong to this capability or to something beside it: {1}.",
 };
+
+/**
+ * Why a trace stopped, in the report's language.
+ *
+ * These sentences are the engine's own words, written when a flow was
+ * assembled and stored with it as facts. Stored English text rendered into a
+ * Chinese report left the one column a reader consults about trust in a
+ * language they may not read, so each is matched to a frame key here by a
+ * stable fragment of itself.
+ *
+ * A reason nothing matches is shown as stored. That is the honest fallback: an
+ * untranslated sentence a reader can still act on beats a blank cell.
+ */
+const STOP_REASONS: readonly (readonly [string, string])[] = [
+  ["no call in the analyzed roots resolves", "stop-no-caller"],
+  ["inline function", "stop-inline-handler"],
+  ["handler was not resolved", "stop-unresolved-handler"],
+  ["no data access was observed", "stop-no-data-access"],
+  ["could not be resolved to a unique symbol", "stop-ambiguous-handler"],
+];
+
+/** One stored reason in the report's language, or as stored if it is unknown. */
+export function stopReason(frame: Glossary, stored: string): string {
+  const matched = STOP_REASONS.find(([marker]) => stored.includes(marker));
+  return matched === undefined ? stored : t(frame, matched[1]);
+}
 
 /** A heading a template declares becomes a frame key, so it translates too. */
 export function headingKey(heading: string): string {

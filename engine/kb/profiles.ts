@@ -297,7 +297,14 @@ export function flowCoverage(flows: readonly FeatureFlowFact[]): readonly Featur
   return [...byFeature.values()]
     .map((featureFlows) => {
       const covered = featureFlows.map((flow) => {
-        const unresolved = flow.steps.filter((step) => step.unresolvedReason !== null);
+        // A truncated step carries a reason too — "only the first 12 tables are
+        // shown" — and it is not a stop: the tool knew what was there and
+        // showed less of it. Counted as unresolved, a complete trace that
+        // displayed fewer tables read as 94% followed, and the reason column
+        // told a reader the trace stopped where it had not.
+        const unresolved = flow.steps.filter(
+          (step) => step.unresolvedReason !== null && step.truncated !== true,
+        );
         return {
           entryKey: flow.entryKey,
           method: flow.method,

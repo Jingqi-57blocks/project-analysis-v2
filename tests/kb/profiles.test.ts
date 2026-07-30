@@ -293,12 +293,22 @@ describe("how much of a flow was followed", () => {
     expect(coverage.flows[0]!.unresolvedReasons).toEqual(["no handler could be resolved"]);
   });
 
-  it("does not count a truncated step as unresolved", () => {
+  it("does not count a truncated step as unresolved, reason or no reason", () => {
     // The tool knew what was there and showed less of it, which is not the
-    // same as not having established it.
-    const coverage = flowCoverage([flow({ steps: [step(null), step(null, true)] })])[0]!;
-    expect([coverage.resolvedSteps, coverage.steps]).toEqual([2, 2]);
-    expect(coverage.fullyTracedFlows).toBe(1);
+    // same as not having established it. A truncated step carries a reason of
+    // its own — "only the first 12 tables are shown" — so testing only the
+    // reason-free case let a complete trace read as 94% followed, with a
+    // reason column claiming it stopped where it had not.
+    const silent = flowCoverage([flow({ steps: [step(null), step(null, true)] })])[0]!;
+    expect([silent.resolvedSteps, silent.steps]).toEqual([2, 2]);
+
+    const withReason = flowCoverage([
+      flow({ steps: [step(null), step("only the first 12 tables are shown", true)] }),
+    ])[0]!;
+    expect([withReason.resolvedSteps, withReason.steps]).toEqual([2, 2]);
+    expect(withReason.fullyTracedFlows).toBe(1);
+    // And it is not offered to a reader as a place the trace stopped.
+    expect(withReason.flows[0]!.unresolvedReasons).toEqual([]);
   });
 
   it("states each reason once, however many steps stopped for it", () => {
