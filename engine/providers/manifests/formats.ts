@@ -25,9 +25,22 @@ export interface RawTarget {
   readonly kind: string;
 }
 
+/**
+ * The runtime a manifest says it needs — Node, Go, Python.
+ *
+ * Kept apart from dependencies because it answers a different question. "Which
+ * Node does this run on" is the first thing a reader asks about a stack, and it
+ * would be lost among two hundred packages.
+ */
+export interface RawPlatform {
+  readonly name: string;
+  readonly versionConstraint: string | null;
+}
+
 export interface ManifestReading {
   readonly dependencies: readonly RawDependency[];
   readonly targets: readonly RawTarget[];
+  readonly platforms?: readonly RawPlatform[];
 }
 
 export interface ManifestReader {
@@ -59,7 +72,7 @@ function depsFromRecord(record: Record<string, unknown>, scope: string): RawDepe
 const npmReader: ManifestReader = {
   ecosystem: "npm",
   filenames: ["package.json"],
-  limits: ["resolved versions require a lockfile, which is not read"],
+  limits: ["a dependency is resolved to an exact version only where a lockfile beside the manifest states one"],
   read(content) {
     const parsed = jsonObject(JSON.parse(content));
 
@@ -78,7 +91,12 @@ const npmReader: ManifestReader = {
         ? [{ name: String(parsed["name"] ?? "bin"), kind: "binary" }]
         : Object.keys(jsonObject(bin)).map((name) => ({ name, kind: "binary" }));
 
-    return { dependencies, targets };
+    const platforms = Object.entries(jsonObject(parsed["engines"])).map(([name, constraint]) => ({
+      name,
+      versionConstraint: typeof constraint === "string" ? constraint : null,
+    }));
+
+    return { dependencies, targets, platforms };
   },
 };
 
@@ -111,11 +129,20 @@ const goReader: ManifestReader = {
   limits: ["replace and exclude directives are not applied"],
   read(content) {
     const dependencies: RawDependency[] = [];
+    const platforms: RawPlatform[] = [];
     let inRequireBlock = false;
 
     for (const rawLine of content.split("\n")) {
       const line = rawLine.trim();
       if (line === "" || line.startsWith("//")) continue;
+
+      // `go 1.21` — the toolchain the module declares, which is the platform
+      // version rather than a dependency on a module called "go".
+      const toolchain = /^go\s+(\d[\w.-]*)$/.exec(line);
+      if (toolchain) {
+        platforms.push({ name: "go", versionConstraint: toolchain[1]! });
+        continue;
+      }
 
       if (line.startsWith("require (")) {
         inRequireBlock = true;
@@ -139,7 +166,7 @@ const goReader: ManifestReader = {
       });
     }
 
-    return { dependencies, targets: [] };
+    return { dependencies, targets: [], platforms };
   },
 };
 
@@ -262,6 +289,7 @@ const pyprojectReader: ManifestReader = {
   filenames: ["pyproject.toml"],
   limits: ["only PEP 621 and Poetry dependency tables are understood"],
   read(content) {
+    const requiresPython = /^\s*requires-python\s*=\s*"([^"]+)"/m.exec(content)?.[1] ?? null;
     return {
       dependencies: readTomlDependencies(content, {
         "tool.poetry.dependencies": "runtime",
@@ -269,6 +297,7 @@ const pyprojectReader: ManifestReader = {
         "tool.poetry.group.dev.dependencies": "development",
       }),
       targets: [],
+      platforms: requiresPython === null ? [] : [{ name: "python", versionConstraint: requiresPython }],
     };
   },
 };
