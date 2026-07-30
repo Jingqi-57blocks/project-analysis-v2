@@ -12,6 +12,15 @@
       "contract": { "maxWords": 600, "maxHeadingLevel": 3 }
     },
     {
+      "id": "where-to-find",
+      "kind": "llm",
+      "heading": "Where to find it",
+      "prompt": "prompts/where-to-find.md",
+      "requires": ["feature-screens:$capability", "run-context"],
+      "contract": { "maxWords": 400, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
       "id": "journey",
       "kind": "llm",
       "heading": "What happens when you use it",
@@ -19,7 +28,8 @@
       "requires": [
         "feature-flows:$capability",
         "feature-decisions:$capability",
-        "feature-rules:$capability"
+        "feature-rules:$capability",
+        "feature-screens:$capability"
       ],
       "contract": { "maxWords": 800, "maxHeadingLevel": 3 },
       "omitWhenEmpty": true
@@ -34,6 +44,7 @@
         "feature-rules:$capability",
         "feature-guards:$capability",
         "feature-flows:$capability",
+        "feature-screens:$capability",
         "value-sets"
       ],
       "contract": { "maxHeadingLevel": 3 },
@@ -46,6 +57,19 @@
       "prompt": "prompts/rules.md",
       "requires": ["feature-rules:$capability", "feature-guards:$capability"],
       "contract": { "maxWords": 800, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "lifecycle",
+      "kind": "llm",
+      "heading": "The states it moves through",
+      "prompt": "prompts/lifecycle.md",
+      "requires": [
+        "feature-status-sets:$capability",
+        "feature-guards:$capability",
+        "feature-decisions:$capability"
+      ],
+      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
       "omitWhenEmpty": true
     },
     {

@@ -37,6 +37,7 @@ import type {
 import type { BusinessRule } from "../semantics/rules.js";
 import type { DecisionRecord, GuardRecord } from "../structural/rules.js";
 import { bestSetFor, type ValueSet } from "../semantics/enums.js";
+import { singular, words } from "../modules/features.js";
 import type {
   CoverageNote,
   FeatureFact,
@@ -334,6 +335,33 @@ export class KnowledgeBase {
   }
 
   /**
+   * The status sets a capability's records move through.
+   *
+   * A value set counts when its name says it is one — status, state, flow,
+   * stage — and it is named for this capability: the capability's term in the
+   * set's own name (`LeaveRequestStatus`) or in the file that declares it
+   * (`constant/leave.go`). Matching on shared member names was tried and
+   * over-matched badly — `Approved` and `Rejected` belong to every approval
+   * set in the project — so a status set named for something else that this
+   * capability nonetheless uses is missed, and that limit is stated to the
+   * section that reads this rather than papered over with a looser match.
+   */
+  statusSetsForFeature(featureId: string): readonly ValueSet[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const term = singular(feature.term.toLowerCase());
+
+    const LOOKS_LIKE_STATUS = /status|state|flow|stage|phase/i;
+    return this.valueSets().filter(
+      (set) =>
+        LOOKS_LIKE_STATUS.test(set.name) &&
+        set.members.length > 1 &&
+        (words(set.name).map(singular).includes(term) ||
+          words(set.relPath).map(singular).includes(term)),
+    );
+  }
+
+  /**
    * Each of a capability's endpoints, with the access checks declared on it.
    *
    * The declared authorisation only — the middleware named on the route. A
@@ -502,6 +530,27 @@ export class KnowledgeBase {
   screens(): readonly RouteRecord[] {
     return (this.structural("route") as readonly RouteRecord[]).filter(
       (route) => route.surface === "client",
+    );
+  }
+
+  /**
+   * The screens where a person meets this capability.
+   *
+   * Matched by the capability's own term appearing as a word of the screen's
+   * path — `/my/leave/create` names leave the same way the feature detector
+   * found it. That is how the applications here name their screens; a screen
+   * reached only through state or a modal carries no such path, so this is
+   * where the capability *can be found*, never a census of every surface that
+   * touches it.
+   */
+  screensForFeature(featureId: string): readonly RouteRecord[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const term = singular(feature.term.toLowerCase());
+    return this.screens().filter((screen) =>
+      screen.path
+        .split("/")
+        .some((segment) => words(segment).map(singular).includes(term)),
     );
   }
 

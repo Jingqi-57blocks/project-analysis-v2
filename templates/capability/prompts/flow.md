@@ -8,6 +8,7 @@ A reader has just read what this capability is and what happens when it is used.
 - `feature-decisions:$capability` — the `if`/`switch` trees: the subject each tests, its branches, and whether each stops or carries on. Good for the *branching* shape (which type goes where).
 - `feature-rules:$capability` — comparisons against a literal, each with its `fullTest` (e.g. `lv.Hours > 16 && flow == L1`), whether it `rejects`, and its `enclosingFunction`. Good for numeric thresholds (the approval ladder).
 - `feature-flows:$capability` — the request paths, so you know the sequence (auth → validate → decide → persist).
+- `feature-screens:$capability` — the screens whose address names this capability. Where a flow plainly starts from one, say so in the diagram's opening node or its explanation — *"Employee submits a leave request (My → Leave → Create)"* — as navigation, never a raw path, and only where a matching screen exists.
 
 These are the facts. The flowchart is your synthesis of them into something readable — you may reorder checks into the sequence the journey follows and translate a raw condition into plain words, but **every node must trace to a decision or rule in the data**. Do not invent a branch, a threshold, or an approval step the data does not contain.
 

@@ -8,6 +8,8 @@ Follow a request through, in words, so a reader understands the sequence without
 
 `feature-decisions:$capability` — the choices the code makes in this capability's files: what is being decided, the branches, and whether taking each one stops the request or carries on.
 
+`feature-screens:$capability` — the screens whose address names this capability. Where a journey plainly starts from one of them, open it there — *"from My → Leave → Create, the request goes to the service…"* — naming the screen as navigation, never as a raw path. Only where a matching screen exists; never invent one.
+
 ## How to write it
 
 Take the main path first — the thing this capability is mostly for — and narrate it: *"the request arrives, is checked for a signed-in user, the balance is read, and if there is enough the request is recorded and the manager sees it in their list."*

@@ -84,6 +84,28 @@ beforeAll(() => {
     ].join("\n"),
   );
 
+  // A browser application declaring screens: two named for leave, one not.
+  write(
+    "package.json",
+    JSON.stringify({ name: "svc-ui", dependencies: { "react-router-dom": "^6.0.0" } }),
+  );
+  write(
+    "ui/src/App.tsx",
+    [
+      'import { Route, Routes } from "react-router-dom";',
+      "",
+      "export function App() {",
+      "  return (",
+      "    <Routes>",
+      '      <Route path="/my/leave/create" element={<CreateLeave />} />',
+      '      <Route path="/manage/approval/leave/list" element={<LeaveList />} />',
+      '      <Route path="/manage/billing" element={<Billing />} />',
+      "    </Routes>",
+      "  );",
+      "}",
+    ].join("\n"),
+  );
+
   // Outside every capability's files: a decision that must not be scoped
   // into one.
   write(
@@ -153,8 +175,12 @@ describe("asking the knowledge base questions", () => {
   it("separates what the project serves from what it shows", () => {
     // An indexer reports both as routes. Listing them together would have
     // something rebuilding this project create an endpoint per screen.
-    expect(kb.endpoints().length).toBeGreaterThan(0);
-    expect(kb.screens()).toEqual([]);
+    const served = kb.endpoints().map((route) => route.path);
+    const shown = kb.screens().map((route) => route.path);
+    expect(served.length).toBeGreaterThan(0);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(served).not.toContain("/my/leave/create");
+    expect(shown).not.toContain("/v2/leaves");
   });
 
   it("returns a table with its columns rather than four lists to join", () => {
@@ -288,5 +314,31 @@ describe("what belongs to a capability", () => {
 
   it("returns nothing for a capability that does not exist", () => {
     expect(kb.decisionsForFeature("feat_nonexistent")).toEqual([]);
+  });
+
+  it("finds the screens whose address names the capability, and no others", () => {
+    const leave = kb.features().find((feature) => feature.term === "leave");
+    expect(leave, "the fixture must detect a leave capability").toBeDefined();
+
+    const paths = kb.screensForFeature(leave!.id).map((screen) => screen.path);
+    expect(paths).toContain("/my/leave/create");
+    expect(paths).toContain("/manage/approval/leave/list");
+    // A billing screen is not where leave is found.
+    expect(paths).not.toContain("/manage/billing");
+  });
+
+  it("finds the status sets named for the capability, and no others", () => {
+    const leave = kb.features().find((feature) => feature.term === "leave");
+    const sets = kb.statusSetsForFeature(leave!.id);
+    // The fixture declares LeaveStatusDraft/LeaveStatusApproved constants.
+    expect(sets.length, "the fixture's leave status constants must be found").toBeGreaterThan(0);
+    for (const set of sets) {
+      expect(`${set.name} ${set.relPath}`.toLowerCase()).toContain("leave");
+    }
+  });
+
+  it("returns no screens and no status sets for an unknown capability", () => {
+    expect(kb.screensForFeature("feat_nonexistent")).toEqual([]);
+    expect(kb.statusSetsForFeature("feat_nonexistent")).toEqual([]);
   });
 });

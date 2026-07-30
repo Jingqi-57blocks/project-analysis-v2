@@ -70,6 +70,8 @@ const SELECTORS: Readonly<Record<string, Resolver>> = {
   "feature-decisions": (kb, id) => (id === null ? [] : kb.decisionsForFeature(id)),
   "feature-guards": (kb, id) => (id === null ? [] : kb.guardsForFeature(id)),
   "feature-permissions": (kb, id) => (id === null ? [] : kb.permissionsForFeature(id)),
+  "feature-screens": (kb, id) => (id === null ? [] : kb.screensForFeature(id)),
+  "feature-status-sets": (kb, id) => (id === null ? [] : kb.statusSetsForFeature(id)),
   guards: (kb) => kb.guards(),
   "structural-findings": (kb, severity) => kb.structuralFindings(severity ?? undefined),
   "feature-findings": (kb, severity) => kb.featureFindings(severity ?? undefined),
