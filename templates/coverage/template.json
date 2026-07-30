@@ -1,6 +1,6 @@
 {
   "id": "coverage",
-  "title": "$project — coverage",
+  "title": "$project \u2014 coverage",
   "params": [],
   "sections": [
     {
@@ -38,6 +38,16 @@
         "analysis-dimensions"
       ],
       "omitWhenEmpty": true
+    },
+    {
+      "id": "silence",
+      "kind": "code",
+      "heading": "Where This Stopped Reading",
+      "fragment": "silent-files",
+      "requires": [
+        "silent-files",
+        "unread-files"
+      ]
     },
     {
       "id": "flows",

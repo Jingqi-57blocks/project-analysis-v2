@@ -108,6 +108,26 @@ export interface FileFacts {
   readonly migrationsWithFacts: number;
 }
 
+/**
+ * A file this analysis read and drew nothing behavioural from.
+ *
+ * Named rather than counted, because the point is that a reader can open it. A
+ * capability report once said nothing whatever about a file holding an entire
+ * leave policy, and a reader reasonably concluded there was nothing in it —
+ * omission does not announce itself.
+ *
+ * "Nothing behavioural" is not "nothing at all": these files usually yielded
+ * symbols and imports. What they did not yield is any of the kinds that depend
+ * on the project actually doing something — a route, a table access, a guard, a
+ * decision, a validation rule, a scheduled task, an entity.
+ */
+export interface SilentFile {
+  readonly rootName: string;
+  readonly relPath: string;
+  /** Largest first, since a large unread file is a larger silence. */
+  readonly sizeBytes: number;
+}
+
 export interface ProfileInput {
   readonly roots: readonly RootSummaryFact[];
   readonly fileFacts: readonly FileFacts[];

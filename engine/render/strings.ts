@@ -31,6 +31,19 @@ export const FRAME_EN: Glossary = {
   "col-flows-traced": "Flows followed to the end",
   "col-steps-traced": "Steps established",
   "col-flow": "Flow",
+  "col-file": "File",
+  kib: "{0} KB",
+  bytes: "{0} bytes",
+  "col-size": "Size",
+  "silent-lead":
+    "Nothing about behaviour was extracted from these files — no route, table access, rule, decision, scheduled task or entity. That is a statement about this analysis, not about the files: several of them plainly do contain such things, and one of them being large is the clearest sign of what a report drawn only from what was found would leave out. Largest first, because that is where to start looking.",
+  "unread-lead":
+    "And nothing at all was extracted from these — not a symbol, not an import. Whether they hold anything about behaviour is unknown rather than known to be absent, which is the stronger statement of the two: a model file declaring a table appears here because no reader could read it, not because it says nothing.",
+  "silent-note":
+    "A file counts as read for the coverage fraction when anything at all came out of it — a symbol, an import, a comment — so a repository can be read in full and still be listed here in quantity. Neither group is a claim that a file is empty. It is where this report stopped, so a gap is visible rather than silent.",
+  "silent-none": "Every file this capability owns yielded something about behaviour.",
+  "silent-none-repo": "Every file read yielded something about behaviour.",
+  "silent-in": "In {0}:",
   "col-stops-at": "Where the trace stops",
 
   "role-serves-http": "serves an API",

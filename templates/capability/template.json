@@ -166,6 +166,16 @@
       }
     },
     {
+      "id": "silence",
+      "kind": "code",
+      "heading": "Where This Stopped Reading",
+      "fragment": "capability-silent-files",
+      "requires": [
+        "feature-silent-files:$capability",
+        "feature-unread-files:$capability"
+      ]
+    },
+    {
       "id": "limitations",
       "kind": "code",
       "heading": "Analysis Limitations",

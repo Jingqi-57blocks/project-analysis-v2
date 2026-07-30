@@ -104,6 +104,77 @@ export const CONDITIONAL_KINDS = [
   "entity-constraint",
 ] as const;
 
+/**
+ * Kinds that say something about behaviour a report can name per file.
+ *
+ * The subset of `CONDITIONAL_KINDS` that answers "does this file tell us
+ * anything about what the system does". Used to decide which files a report
+ * stopped reading, so membership has one test: would a reader see this fact
+ * attributed to this file anywhere?
+ *
+ * Excluded, and why each:
+ *
+ * - `error-handling` is reported only as a per-repository count, never per file.
+ *   Counting it hid 38 files on one workspace — including a 4.7 KB DTO and an
+ *   11 KB mail service — behind an anonymous +1, which is precisely the silence
+ *   this list exists to break.
+ * - `package-dependency` and `build-target` describe a manifest, not behaviour,
+ *   and a manifest is not code a reader opens looking for a missing rule.
+ * - `test-relation` says a test covers something, which is a fact about the test
+ *   suite rather than about what this file does.
+ */
+export const NON_BEHAVIOURAL_KINDS = [
+  "error-handling",
+  "package-dependency",
+  "build-target",
+  "test-relation",
+] as const satisfies readonly ConditionalKind[];
+
+export const BEHAVIOURAL_KINDS = [
+  "route",
+  "outbound-call",
+  "external-call",
+  "data-access",
+  "auth-annotation",
+  "validation-rule",
+  "transaction-boundary",
+  "condition",
+  "decision",
+  "guard",
+  "scheduled-task",
+  "notification-call",
+  "discarded-error",
+  "entity",
+  "entity-field",
+  "entity-relation",
+  "entity-constraint",
+] as const satisfies readonly ConditionalKind[];
+
+/**
+ * Proof that every conditional kind was considered, not merely that the
+ * behavioural list is a subset.
+ *
+ * Without this a kind added to `CONDITIONAL_KINDS` lands outside both lists by
+ * default, and files carrying only that kind quietly become silent — a new
+ * reader's first effect would be to widen a list that exists to be trusted. The
+ * union has to be exhaustive, so adding a kind fails the build until someone
+ * decides which side it is on.
+ */
+type Unclassified = Exclude<
+  ConditionalKind,
+  (typeof BEHAVIOURAL_KINDS)[number] | (typeof NON_BEHAVIOURAL_KINDS)[number]
+>;
+// A conditional type, not an array: `const x: Unclassified[] = []` compiles for
+// every `Unclassified`, because an empty array literal is assignable to any
+// element type. That version of this check could never fail, and a guarantee
+// stated in a comment and not enforced is worse than none — it tells the next
+// person not to look.
+type EveryConditionalKindClassified = Unclassified extends never
+  ? true
+  : ["unclassified conditional kind", Unclassified];
+const _everyConditionalKindClassified: EveryConditionalKindClassified = true;
+void _everyConditionalKindClassified;
+
 export const STRUCTURAL_KINDS = [...UNIVERSAL_KINDS, ...CONDITIONAL_KINDS] as const;
 
 export type UniversalKind = (typeof UNIVERSAL_KINDS)[number];

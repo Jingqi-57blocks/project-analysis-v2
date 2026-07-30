@@ -13,6 +13,7 @@ import { assemble, writeAssembled, UnansweredSectionsError } from "../../engine/
 import { resolveSelector, SelectorError } from "../../engine/render/selectors.js";
 import { exportDocument, retarget, UnknownFormatError } from "../../engine/render/export.js";
 import { hasFragment, renderFragment } from "../../engine/render/fragments.js";
+import { FRAME_EN } from "../../engine/render/strings.js";
 import { undrawableDiagramLines } from "../../engine/render/validate.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
@@ -454,6 +455,133 @@ describe("what the review found", () => {
     expect(rows[0]).toContain("and 37 more");
     // The per-file path is dropped from the reason, since it repeats the location.
     expect(rows[0]).not.toContain('"/Screen0"');
+  });
+});
+
+/**
+ * The silence sections, tested on their input rather than on a codebase.
+ *
+ * These assert properties no target's contents can settle: that the truncation
+ * accounting adds up, that every repository is named, that nothing bypasses the
+ * frame. Real behaviour — which files are silent and why — is graded against WCP
+ * in `tests/run/real-targets.test.ts`, because a hand-written codebase shaped to
+ * be convenient to analyze would flatter the tool. A list of records is not a
+ * codebase; it is fragment input, the same as every other fragment test here.
+ */
+describe("where a report stopped reading", () => {
+  function silentFile(rootName: string, n: number, sizeBytes = 2048) {
+    return { rootName, relPath: `src/part${n}.ts`, sizeBytes };
+  }
+
+  function render(
+    files: readonly { rootName: string; relPath: string; sizeBytes: number }[],
+    unread: readonly { rootName: string; relPath: string; sizeBytes: number }[] = [],
+  ) {
+    return renderFragment("silent-files", {
+      kb,
+      params: {},
+      data: { "silent-files": files, "unread-files": unread },
+    });
+  }
+
+  /** Rows in the tables, and what the "and N more" lines add up to. */
+  function accounting(rendered: string): { rows: number; more: number } {
+    const rows = rendered
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !line.startsWith("| ---") && !line.includes("| Size |"));
+    const more = rendered
+      .split("\n")
+      .flatMap((line) => [...line.matchAll(/and (\d+) more/g)].map((m) => Number(m[1])));
+    return { rows: rows.length, more: more.reduce((sum, n) => sum + n, 0) };
+  }
+
+  it("accounts for every file it was given, shown or summarised", () => {
+    // The invariant the truncation limit's own comment claims: what is dropped is
+    // counted, so a truncated list never reads as a complete one. Independent of
+    // the limit's value, so tightening or widening it cannot break the promise.
+    const files = [
+      ...Array.from({ length: 10 }, (_, n) => silentFile("api", n, 9000 - n)),
+      ...Array.from({ length: 3 }, (_, n) => silentFile("ui", n, 500 - n)),
+    ];
+    const { rows, more } = accounting(render(files));
+    expect(rows + more).toBe(files.length);
+    expect(more).toBeGreaterThan(0);
+
+    // And enough of each repository to be worth reading. A limit of one would
+    // keep the accounting honest and the section useless, so the property is
+    // "several per repository" rather than the constant's exact value.
+    expect(rows).toBeGreaterThan(4);
+  });
+
+  it("names every repository that has a silence, however large its neighbours", () => {
+    // A global top-N is decided by the biggest repository: on a real workspace 22
+    // of 25 rows came from the front end and two repositories were named nowhere.
+    const files = [
+      ...Array.from({ length: 30 }, (_, n) => silentFile("big", n, 20_000 - n)),
+      silentFile("small", 0, 300),
+    ];
+    const rendered = render(files);
+    expect(rendered).toContain("big");
+    expect(rendered).toContain("small");
+    expect(rendered).toContain("src/part0.ts");
+  });
+
+  it("puts every word through the frame, so a translation cannot leak English", () => {
+    // Every value replaced by its own key: anything left in English bypassed t(),
+    // and a bracketed key means a string the frame does not carry.
+    const marked = Object.fromEntries(
+      Object.keys(FRAME_EN).map((key) => [key, `<<${key}>>`]),
+    ) as typeof FRAME_EN;
+    const rendered = renderFragment("silent-files", {
+      kb,
+      params: {},
+      frame: marked,
+      data: { "silent-files": [silentFile("api", 1)], "unread-files": [silentFile("api", 2)] },
+    });
+
+    expect(rendered).toContain("<<silent-lead>>");
+    expect(rendered).toContain("<<unread-lead>>");
+    expect(rendered).toContain("<<silent-note>>");
+    expect(rendered).toContain("<<col-file>>");
+    expect(rendered).not.toMatch(/\[[a-z-]+\]/);
+    expect(rendered).not.toMatch(/[Ss]topped reading|behaviour was extracted/);
+  });
+
+  it("says nothing was missed when nothing was, rather than printing an empty table", () => {
+    const rendered = render([]);
+    expect(rendered).not.toBe("");
+    expect(rendered).not.toContain("| ---");
+  });
+
+  it("keeps a file nothing was read from apart from one that was", () => {
+    // Two facts, and conflating them was wrong in both directions: folding the
+    // unread into the silent led the list with a file that is entirely commented
+    // out, and dropping them hid forty-one model files declaring tables.
+    const rendered = render([silentFile("api", 1, 4000)], [silentFile("api", 2, 3000)]);
+    expect(rendered).toContain("src/part1.ts");
+    expect(rendered).toContain("src/part2.ts");
+    // Each group gets its own claim, and the unread one is the stronger.
+    const silentAt = rendered.indexOf("extracted from these files");
+    const unreadAt = rendered.indexOf("nothing at all was extracted");
+    expect(silentAt).toBeGreaterThanOrEqual(0);
+    expect(unreadAt).toBeGreaterThan(silentAt);
+  });
+
+  it("accounts for both groups together", () => {
+    const silent = Array.from({ length: 10 }, (_, n) => silentFile("api", n, 9000 - n));
+    const unread = Array.from({ length: 12 }, (_, n) => silentFile("ui", n, 500 - n));
+    const { rows, more } = accounting(render(silent, unread));
+    expect(rows + more).toBe(silent.length + unread.length);
+  });
+
+  it("says nothing was missed only when neither group has anything", () => {
+    // A capability with no silent file but an unread one has something to report.
+    expect(render([], [silentFile("api", 1)])).toContain("src/part1.ts");
+  });
+
+  it("shows a size a reader can weigh, at the boundary either side", () => {
+    expect(render([silentFile("api", 1, 1023)])).toContain("1023 bytes");
+    expect(render([silentFile("api", 1, 1024)])).toContain("1 KB");
   });
 });
 
