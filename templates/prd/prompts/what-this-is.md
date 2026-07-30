@@ -5,7 +5,7 @@ This is the opening section of a specification **recovered from source code**, w
 ## What you have
 
 - `run-context` — the services analysed, their sizes, the project's name, and whatever description the repositories' own documentation carried.
-- `features` — the capabilities detected from the system's own vocabulary, each with the endpoints it owns and the tables its files touch. `tables` are those read or written in the file handling one of its endpoints and `tablesNearby` those touched elsewhere in that file's package: both are wider than the capability, so treat them as where its data lives rather than as what it owns.
+- `features` — the capabilities detected from the system's own vocabulary, each with the endpoints it owns and the tables its files touch. `tables` are those read or written in the file handling one of its endpoints and `tablesNearby` those touched elsewhere in that file's package: both are wider than the capability, so treat them as where its data lives rather than as what it owns. `tablesTruncated` says at least one of its traces reached more tables than it names, so never present either list as the complete set for a capability carrying it.
 - `repositories` — one row per service: what it appears to do, how many code files it holds, how many endpoints it serves, how completely it was read.
 - `screens` — the addresses the browser application serves, where there is one.
 

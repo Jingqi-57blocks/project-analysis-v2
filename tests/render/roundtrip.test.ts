@@ -759,6 +759,32 @@ describe("the recovered specification's tables", () => {
     expect(rendered).toContain(FRAME_EN["tables-in-package"]!.replace("{0}", "").trim().split(":")[0]!);
   });
 
+  it("marks nothing where no trace stopped counting", () => {
+    // On the row: the lead explains what the marker means, so the word is in the
+    // section either way.
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1, ["wcp_leave"])],
+      endpoints: [],
+    });
+    const row = rendered.split("\n").find((line) => line.includes("| Leave |"))!;
+    expect(row).not.toContain("uncounted");
+  });
+
+  it("does not print the truncation marker as a row's whole table cell", () => {
+    // A capability with no table at either scope and a truncated trace printed the
+    // marker alone, which reads as a table named "and more, uncounted".
+    const rendered = render("prd-features", {
+      features: [feature("Vocabulary", 0, [], { truncated: true })],
+      endpoints: [],
+    });
+    const cells = rendered
+      .split("\n")
+      .find((line) => line.includes("Vocabulary"))!
+      .split("|")
+      .map((part) => part.trim());
+    expect(cells[5]).toBe("—");
+  });
+
   it("says the lists are short where a trace stopped counting tables", () => {
     // Two caps compound: this section's, and the assembler's per-flow cap whose
     // remainder is unknowable. Eleven capabilities printed twelve tables and said
@@ -767,7 +793,8 @@ describe("the recovered specification's tables", () => {
       features: [feature("Openai", 1, [], { nearby: ["a_table"], truncated: true })],
       endpoints: [],
     });
-    expect(rendered).toContain("uncounted");
+    const row = rendered.split("\n").find((line) => line.includes("| Openai |"))!;
+    expect(row).toContain("uncounted");
   });
 
   it("accounts for the tables it does not name at either scope", () => {
@@ -1024,12 +1051,21 @@ describe("the recovered specification's tables", () => {
 
   it("does not claim the drawn flows rest on the handler alone", () => {
     // 14 of the 16 drawn against WCP carry a step observed only in the handler's
-    // package, and every such edge says so three lines above this sentence.
+    // package, and every such edge says so three lines above this sentence. Three
+    // flows, so the line that carried the claim is actually emitted — with one it
+    // never was, and this assertion passed against the wording it rejects.
     const rendered = render("prd-flows", {
-      flows: [flow("feat_Leave", "svc:GET /a", { vague: 2, steps: 3 })],
-      features: [feature("Leave", 1)],
+      flows: [
+        flow("feat_Leave", "svc:GET /a", { vague: 2, steps: 3 }),
+        flow("feat_Leave", "svc:GET /b", { vague: 2, steps: 3 }),
+        flow("feat_Leave", "svc:GET /c", { vague: 2, steps: 3 }),
+      ],
+      features: [feature("Leave", 3)],
     });
+    expect(rendered).toContain("traced flow(s) are not drawn");
     expect(rendered).not.toContain("established in the handler itself");
+    // And says a gap is what puts a flow last, not only where its steps came from.
+    expect(rendered).toContain("no gap in them");
   });
 
   it("draws a complete trace before one with a gap", () => {

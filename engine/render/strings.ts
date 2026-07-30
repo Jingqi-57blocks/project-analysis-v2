@@ -71,9 +71,12 @@ export const FRAME_EN: Glossary = {
   // Not "the ones whose steps were established in the handler itself": 14 of the
   // 16 drawn carry a step observed only in the handler's package, and the diagrams
   // three lines above say so on every one of those edges.
+  // Both keys, not the second alone: four of the eight drawn capabilities have an
+  // undrawn flow with no package-scoped step at all, undrawn because it has a gap.
   "prd-flows-left-out":
     "{0} of {1} traced flow(s) are not drawn: at most {2} per capability appear here, " +
-    "whichever of its flows rest least on evidence from outside the handler.",
+    "the ones with no gap in them, and among those the ones resting least on " +
+    "evidence from outside the handler.",
   "prd-flows-capabilities-left-out":
     "{0} of the {1} capabilities with a traced flow have no diagram here: the ones " +
     "with the most flows are drawn. The rest are traced in the knowledge base and " +
@@ -87,7 +90,7 @@ export const FRAME_EN: Glossary = {
     "No flow was traced end to end, so this section is empty rather than guessed. " +
     "Entry points and the tables they reach are listed in their own sections.",
   "prd-features-lead":
-    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, and a second list gives the tables touched elsewhere in that file's package. Read either as where to look rather than as what this capability stores; a dash means no table was attributed at either scope. A row ending \"and more, uncounted\" means a trace of this capability reached more tables than it records, so that row's lists are short by an amount nothing here can state.",
+    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, and a second list gives the tables touched elsewhere in that file's package. Read either as where to look rather than as what this capability stores; a dash means no table was attributed at either scope. A row ending \"and more, uncounted\" means at least one trace of this capability reached more tables than it names; some of those may still appear in the row through another of its endpoints, and how many do not is beyond what this can state.",
   "prd-orphan-endpoints":
     "{0} of {1} endpoints belong to no capability above: the system's vocabulary gave " +
     "no term to file them under. They are part of the surface a rebuild has to " +
