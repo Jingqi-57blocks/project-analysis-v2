@@ -94,7 +94,9 @@ function step(unresolvedReason: string | null, truncated = false) {
 function input(overrides: Partial<ProfileInput> = {}): ProfileInput {
   return {
     roots: [root("svc")],
-    fileFacts: [{ rootName: "svc", codeFiles: 8, filesWithFacts: 6 }],
+    fileFacts: [
+      { rootName: "svc", codeFiles: 8, filesWithFacts: 6, migrationFiles: 3, migrationsWithFacts: 1 },
+    ],
     sourceFiles: [],
     endpoints: [],
     screens: [],
@@ -166,9 +168,19 @@ describe("what a repository is", () => {
     expect([profile.codeFiles, profile.filesWithFacts]).toEqual([8, 6]);
   });
 
+  it("keeps migration scripts out of the code coverage fraction", () => {
+    // WCP's older service holds 290 migrations against 121 source files.
+    // Folded together its coverage read as 63% when 81% of its code had been
+    // read — a denominator that misleads is worse than two numbers.
+    const profile = repositoryProfiles(input())[0]!;
+    expect([profile.codeFiles, profile.filesWithFacts]).toEqual([8, 6]);
+    expect([profile.migrationFiles, profile.migrationsWithFacts]).toEqual([3, 1]);
+  });
+
   it("reports no coverage rather than a wrong one for a root the file table missed", () => {
     const profile = repositoryProfiles(input({ fileFacts: [] }))[0]!;
     expect([profile.codeFiles, profile.filesWithFacts]).toEqual([0, 0]);
+    expect([profile.migrationFiles, profile.migrationsWithFacts]).toEqual([0, 0]);
   });
 });
 

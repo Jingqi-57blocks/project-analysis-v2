@@ -44,9 +44,19 @@ export interface RepositoryProfile {
   readonly roles: readonly string[];
   readonly analyzedFiles: number;
   readonly excludedFiles: number;
-  /** Files a reader could extract facts from: code, tests, migrations. */
+  /** Files whose behaviour a report describes: source and tests. */
   readonly codeFiles: number;
   readonly filesWithFacts: number;
+  /**
+   * Schema-migration scripts, counted apart from code.
+   *
+   * They declare a schema rather than behaviour, and one repository here has
+   * 290 of them against 121 source files — folded together, its coverage read
+   * as 63% when 81% of its actual code had been read. A denominator that
+   * misleads is worse than two numbers.
+   */
+  readonly migrationFiles: number;
+  readonly migrationsWithFacts: number;
   readonly endpointCount: number;
   /** Endpoints whose path through the code was followed to its end. */
   readonly tracedEndpointCount: number;
@@ -65,6 +75,8 @@ export interface FileFacts {
   readonly rootName: string;
   readonly codeFiles: number;
   readonly filesWithFacts: number;
+  readonly migrationFiles: number;
+  readonly migrationsWithFacts: number;
 }
 
 export interface ProfileInput {
@@ -239,6 +251,8 @@ export function repositoryProfiles(input: ProfileInput): readonly RepositoryProf
       excludedFiles: root.excluded,
       codeFiles: facts?.codeFiles ?? 0,
       filesWithFacts: facts?.filesWithFacts ?? 0,
+      migrationFiles: facts?.migrationFiles ?? 0,
+      migrationsWithFacts: facts?.migrationsWithFacts ?? 0,
       endpointCount: endpoints.length,
       tracedEndpointCount: endpoints.filter((route) =>
         tracedEntryKeys.has(`${route.rootName}:${route.method ?? "ANY"} ${route.path}`),

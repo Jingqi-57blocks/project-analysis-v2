@@ -226,6 +226,15 @@ export function derive(input: DeriveInput): Derived {
     ),
   });
 
+  // How a capability's files were chosen, because it bounds every file-scoped
+  // question asked of it later — its rules, its states, its screens. Verified
+  // on WCP: `third_party/itms/client.go` is an HTTP client, and it is
+  // attributed to the Client capability, which is about customers.
+  notes.push({
+    subject: "features",
+    note: "a file belongs to a capability when its own name, or a folder above it, names that capability; a file named for an unrelated sense of the same word is attributed too, so a capability's rules may include one that is not about it",
+  });
+
   if (detection.setAside.length > 0) {
     notes.push({
       subject: "features",

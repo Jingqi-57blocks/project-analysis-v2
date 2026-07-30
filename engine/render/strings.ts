@@ -46,6 +46,8 @@ export const FRAME_EN: Glossary = {
   "stack-and-more": "{0} direct dependencies in all, {1} of them pinned to an exact version",
   "range-marked":
     "_A version marked ✱ is what the manifest declares as acceptable — a range, or a minimum. No lockfile in this run settled which version is actually installed._",
+  "migrations-read":
+    "_Beside its code, **{0}** holds schema-migration scripts: {1} of them yielded a fact. They declare a schema rather than behaviour, so they are counted apart._",
   "not-looked-for": "**Not looked for in this run.** Nothing below says whether the project has any:",
   "looked-found-none": "**Looked for and not found:**",
   "dimensions-note":

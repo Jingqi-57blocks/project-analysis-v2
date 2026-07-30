@@ -186,6 +186,20 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       });
     if (stacks.length > 0) parts.push(stacks.join("\n"));
 
+    // Migrations are counted apart from code, so a repository that has them
+    // says so rather than having them silently left out of both numbers.
+    const migrations = profiles
+      .filter((profile) => profile.migrationFiles > 0)
+      .map((profile) =>
+        t(
+          f,
+          "migrations-read",
+          profile.rootName,
+          share(f, profile.migrationsWithFacts, profile.migrationFiles),
+        ),
+      );
+    if (migrations.length > 0) parts.push(migrations.join("\n\n"));
+
     const anyRange = profiles.some((profile) =>
       [...profile.platforms, ...profile.stack].some(
         (entry) => entry.version !== null && !entry.resolved,

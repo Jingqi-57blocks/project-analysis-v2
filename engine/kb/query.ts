@@ -834,8 +834,13 @@ export class KnowledgeBase {
    *
    * The denominator is deliberately not every analyzed file: nothing can be
    * extracted from a PNG or a lockfile, and counting those would report a low
-   * number as a failure of the analysis. Source, tests and migrations are the
-   * files a reader was meant to get something out of.
+   * number as a failure of the analysis. Source and tests are the files whose
+   * behaviour a report describes.
+   *
+   * Migration scripts are counted apart. They declare a schema rather than
+   * behaviour, and WCP's older service has 290 of them against 121 source
+   * files — folded together, its coverage read as 63% when 81% of its code had
+   * been read.
    *
    * The numerator excludes the two kinds every analyzed file has by
    * construction — its own source-file record and its folder containment —
@@ -849,20 +854,32 @@ export class KnowledgeBase {
    */
   private fileFacts(): readonly FileFacts[] {
     return this.store
-      .all<{ root_name: string; code_files: number; with_facts: number }>(
+      .all<{
+        root_name: string;
+        code_files: number;
+        with_facts: number;
+        migrations: number;
+        migrations_with_facts: number;
+      }>(
         `SELECT r.name AS root_name,
-                COUNT(*) AS code_files,
-                SUM(CASE WHEN EXISTS (
-                      SELECT 1 FROM structural_records s
-                       WHERE s.snapshot_id = ? AND s.source_root_id = f.source_root_id
-                         AND s.rel_path = f.rel_path
-                         AND s.kind NOT IN ('source-file','module-containment'))
-                    OR EXISTS (
-                      SELECT 1 FROM evidence_items e
-                       WHERE e.snapshot_id = ? AND e.source_root_id = f.source_root_id
-                         AND e.rel_path = f.rel_path)
-                    THEN 1 ELSE 0 END) AS with_facts
-           FROM files f JOIN source_roots r ON r.id = f.source_root_id
+                SUM(CASE WHEN f.classification IN ('source','test') THEN 1 ELSE 0 END) AS code_files,
+                SUM(CASE WHEN f.classification = 'schema-migration' THEN 1 ELSE 0 END) AS migrations,
+                SUM(CASE WHEN f.classification IN ('source','test') AND yielded THEN 1 ELSE 0 END)
+                  AS with_facts,
+                SUM(CASE WHEN f.classification = 'schema-migration' AND yielded THEN 1 ELSE 0 END)
+                  AS migrations_with_facts
+           FROM (SELECT f.*,
+                        (EXISTS (
+                           SELECT 1 FROM structural_records s
+                            WHERE s.snapshot_id = ? AND s.source_root_id = f.source_root_id
+                              AND s.rel_path = f.rel_path
+                              AND s.kind NOT IN ('source-file','module-containment'))
+                         OR EXISTS (
+                           SELECT 1 FROM evidence_items e
+                            WHERE e.snapshot_id = ? AND e.source_root_id = f.source_root_id
+                              AND e.rel_path = f.rel_path)) AS yielded
+                   FROM files f) f
+                JOIN source_roots r ON r.id = f.source_root_id
           WHERE r.snapshot_id = ? AND f.disposition = 'analyzed'
             AND f.classification IN ('source','test','schema-migration')
           GROUP BY r.name`,
@@ -872,6 +889,8 @@ export class KnowledgeBase {
         rootName: row.root_name,
         codeFiles: row.code_files,
         filesWithFacts: row.with_facts,
+        migrationFiles: row.migrations,
+        migrationsWithFacts: row.migrations_with_facts,
       }));
   }
 
