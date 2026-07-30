@@ -110,6 +110,8 @@ describe("a fragment gets what its section was told to require", () => {
     "analysis-dimensions": ["analysis-dimensions"],
     "flow-coverage": ["flow-coverage"],
     "capability-flow-coverage": ["feature-flow-coverage"],
+    "silent-files": ["silent-files", "unread-files"],
+    "capability-silent-files": ["feature-silent-files", "feature-unread-files"],
     limitations: ["coverage-notes", "extraction-failures"],
   };
 

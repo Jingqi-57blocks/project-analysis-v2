@@ -49,8 +49,9 @@ import {
   type FeatureFlowCoverage,
   type FileFacts,
   type RepositoryProfile,
+  type SilentFile,
 } from "./profiles.js";
-import { STRUCTURAL_KINDS, isUniversalKind } from "../structural/kinds.js";
+import { BEHAVIOURAL_KINDS, STRUCTURAL_KINDS, isUniversalKind } from "../structural/kinds.js";
 import type { ImportRecord, SourceFileRecord } from "../structural/code.js";
 import type {
   CoverageNote,
@@ -510,6 +511,17 @@ export class KnowledgeBase {
 
   private accessCache: Map<string, { line: number; entity: string | null }[]> | null = null;
 
+  /**
+   * The silent-file list, built once.
+   *
+   * Rendering a workspace's capabilities calls the scoped version once per
+   * capability. Measured on a five-root workspace the query is ~0.9s, so 48
+   * capabilities meant 40 seconds of repeating one answer.
+   */
+  private quietCache:
+    | { readonly silent: readonly SilentFile[]; readonly unread: readonly SilentFile[] }
+    | undefined;
+
   private dataAccessByFile(): ReadonlyMap<string, { line: number; entity: string | null }[]> {
     if (this.accessCache !== null) return this.accessCache;
 
@@ -802,6 +814,156 @@ export class KnowledgeBase {
   }
 
   /**
+   * Files this analysis read and drew nothing behavioural from, largest first.
+   *
+   * The counterpart to the coverage fraction, and deliberately a stricter test
+   * than it. Coverage counts a file as read when *anything* came out of it — a
+   * symbol, an import, a comment — so a repository can be 100% read while most
+   * of its files say nothing about what the system does. That gap is what a
+   * reader needs, and stating only the fraction hides it.
+   *
+   * "Nothing behavioural" is `BEHAVIOURAL_KINDS`: no route, table access, rule,
+   * decision, guard, condition, scheduled task, notification or entity, and no
+   * derived fact either. A file with only symbols and imports counts as silent,
+   * which is the point — it was parsed, and nothing about what the system does
+   * came out of it.
+   *
+   * Derived facts have to count, and leaving them out was wrong on real code: a
+   * file of role constants produced a value set and no structural record of any
+   * behavioural kind, so it was listed as having yielded nothing while it had in
+   * fact supplied the vocabulary the roles section reads. Matched on the
+   * denormalized columns rather than the payload, which is both 86 times faster
+   * and true of every kind the persist layer locates.
+   *
+   * A file must have been *parsed* to be silent: at least one symbol or import.
+   * Nothing behavioural came out of a file something did come out of, which is
+   * what the section claims. Files nothing came out of at all are a different
+   * fact and go to `unreadFiles` — dropping them altogether was wrong, since the
+   * strongest evidence in one workspace was forty-one model files no reader could
+   * parse.
+   *
+   * The floor stays as well, and cheaply: a file holding `package off` yields
+   * nothing because there is nothing in it.
+   *
+   * Ordered by size, because a large silence is a larger one and a reader
+   * choosing what to open should start there.
+   */
+  silentFiles(): readonly SilentFile[] {
+    return this.quietFiles().silent;
+  }
+
+  /**
+   * Files nothing at all came out of — not even a symbol or an import.
+   *
+   * A different fact from silence, and a sharper one. A silent file was read and
+   * says nothing about behaviour; one of these could not be read, so whether it
+   * holds behaviour is unknown rather than known-absent. That distinction is the
+   * whole point of separating them, and folding these into the silent list was
+   * wrong twice over: it led the list with a file whose ninety-six of
+   * ninety-seven lines are commented out, and dropping them instead lost the
+   * strongest evidence in the workspace — forty-one Sequelize model files, each
+   * declaring a table the report describes, none of them parsed by any reader.
+   *
+   * Kept out of the "start with the largest" list, because a reader following
+   * that instruction wants a file worth reading. Named in their own right, because
+   * a model file appearing here is a reader gap worth reporting, not a silence.
+   */
+  unreadFiles(): readonly SilentFile[] {
+    return this.quietFiles().unread;
+  }
+
+  /**
+   * The two lists, from one pass.
+   *
+   * Both ask the same three questions and differ only on the last, so asking them
+   * together costs one query rather than two. Rendering every capability of a
+   * workspace calls these once per capability, and the query is not cheap —
+   * measured at ~0.9s on five roots, which is why the answer is kept.
+   */
+  private quietFiles(): { readonly silent: readonly SilentFile[]; readonly unread: readonly SilentFile[] } {
+    if (this.quietCache !== undefined) return this.quietCache;
+
+    const behavioural = BEHAVIOURAL_KINDS.map(() => "?").join(",");
+    const rows = this.store.all<{
+      root_name: string;
+      rel_path: string;
+      size_bytes: number;
+      parsed: number;
+    }>(
+      `SELECT r.name AS root_name, f.rel_path, f.size_bytes,
+              EXISTS (
+                SELECT 1 FROM structural_records p
+                 WHERE p.snapshot_id = ?
+                   AND p.source_root_id = f.source_root_id
+                   AND p.rel_path = f.rel_path
+                   AND p.kind IN ('symbol', 'import')) AS parsed
+         FROM files f
+         JOIN source_roots r ON r.id = f.source_root_id
+        WHERE r.snapshot_id = ?
+          AND f.disposition = 'analyzed'
+          AND f.classification IN ('source','test')
+          AND f.size_bytes >= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM structural_records s
+             WHERE s.snapshot_id = ?
+               AND s.source_root_id = f.source_root_id
+               AND s.rel_path = f.rel_path
+               AND s.kind IN (${behavioural}))
+          AND NOT EXISTS (
+            SELECT 1 FROM derived_records d
+             WHERE d.snapshot_id = ?
+               AND d.root_name = r.name
+               AND d.rel_path = f.rel_path)
+        ORDER BY f.size_bytes DESC, r.name, f.rel_path`,
+      [
+        this.snapshot.id,
+        this.snapshot.id,
+        TRIVIAL_FILE_BYTES,
+        this.snapshot.id,
+        ...BEHAVIOURAL_KINDS,
+        this.snapshot.id,
+      ],
+    );
+
+    const file = (row: { root_name: string; rel_path: string; size_bytes: number }): SilentFile => ({
+      rootName: row.root_name,
+      relPath: row.rel_path,
+      sizeBytes: row.size_bytes,
+    });
+
+    this.quietCache = {
+      silent: rows.filter((row) => row.parsed === 1).map(file),
+      unread: rows.filter((row) => row.parsed === 0).map(file),
+    };
+    return this.quietCache;
+  }
+
+  /**
+   * The same, for one capability's own files.
+   *
+   * Scoped by ownership rather than by name, so a file two capabilities both
+   * touch is silent for whichever one owns it — the same rule the rules,
+   * decisions and guards queries use. Reads the memoized whole-workspace list,
+   * because rendering every capability of a large workspace calls this once per
+   * capability and the query is not cheap.
+   */
+  silentFilesForFeature(featureId: string): readonly SilentFile[] {
+    return this.ownedBy(featureId, this.silentFiles());
+  }
+
+  /** The unread files one capability owns. Same ownership rule as the silent ones. */
+  unreadFilesForFeature(featureId: string): readonly SilentFile[] {
+    return this.ownedBy(featureId, this.unreadFiles());
+  }
+
+  private ownedBy(featureId: string, files: readonly SilentFile[]): readonly SilentFile[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const owned = new Set(feature.filePaths);
+    return files.filter((file) => owned.has(`${file.rootName}/${file.relPath}`));
+  }
+
+  /**
    * How many tests name each service, and a sample of what they are named.
    *
    * A count of test *names*, not a coverage percentage: a service absent here
@@ -1015,6 +1177,17 @@ export class KnowledgeBase {
       .map((row) => ({ providerId: row.provider_id, scope: row.scope, reason: row.reason }));
   }
 }
+
+/**
+ * Below this, a file has nothing to be silent about.
+ *
+ * A Go file holding `package off` and a newline is 12 bytes and yields nothing
+ * because there is nothing in it. Listing it under an instruction to open one
+ * and see what the analysis missed spends the trust the section exists to earn.
+ * A floor rather than a cleverer test, because size is what a reader is already
+ * being shown and can judge for themselves.
+ */
+const TRIVIAL_FILE_BYTES = 128;
 
 /** Opens a knowledge base at the named run, or at the latest published one. */
 export function openKnowledgeBase(
