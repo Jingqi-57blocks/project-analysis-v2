@@ -582,7 +582,7 @@ export function logicCapabilities(): ProviderCapabilities {
           "a named error must be the thrown expression or its first argument, and its parts must be capitalised — so `raise PermissionDenied`, `return ErrNotFound` and `throw new ForbiddenException()` are all missed, and a gate that rejects through one of those is absent rather than reported",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
           "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
-          "a styling attribute is never read as a message, so a rule stated only through a class name is missed — and one stated in a component's other props, or as element text, is read as though it were a rejection",
+          "a styling attribute is never read as a message, so a rule stated only through a class name is missed — and one stated in a component's other props is read as though it were a rejection",
           "languages without a grammar in this run are not read at all",
         ],
       },

@@ -34,8 +34,11 @@ export const FRAME_EN: Glossary = {
   "col-id": "ID",
   "col-tables": "Tables",
   "col-when": "When",
-  "col-first-seen": "First seen",
+  // Not "First seen": the cell lists every file in this repository that states the
+  // rule, and a first is walk order rather than a fact about the code.
+  "col-enforced-in": "Enforced in",
   "and-files": "{0} and {1} more file(s)",
+  "also-in-other-repositories": "also enforced in {0} file(s) in other repositories",
   "col-endpoints": "Endpoints",
   "col-what-was-read": "What was read",
   "col-area": "Area",
@@ -46,8 +49,24 @@ export const FRAME_EN: Glossary = {
   "col-places": "Places",
   "message-kind-stated": "a message in the code",
   "message-kind-error-code": "a named error constant",
+  "prd-flows-lead":
+    "A few traced flows per capability, drawn from the calls the analysis could follow. " +
+    "A step it could not resolve is drawn as a gap rather than left out, so a " +
+    "diagram never implies a hop that was not found.",
+  "prd-flow-whole": "{0} flow(s), every step established",
+  "prd-flow-partial": "{0} of {1} flow(s) have a step that could not be resolved",
+  "prd-flow-entry": "Entry point `{0}`",
+  "prd-flows-left-out":
+    "{0} of {1} traced flow(s) are not drawn here. Every one of them is reachable " +
+    "from the endpoints listed above.",
+  "prd-flows-untraced":
+    "{0} of {1} capabilities have no traced flow: an entry point was found, but no " +
+    "call chain from it could be followed to the end.",
+  "prd-no-flows":
+    "No flow was traced end to end, so this section is empty rather than guessed. " +
+    "Entry points and the tables they reach are listed in their own sections.",
   "prd-features-lead":
-    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints, files and tables named beside it.",
+    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints and tables named beside it. A dash under Tables means no table could be attributed to it, not that it stores nothing.",
   "prd-features-note":
     "Identifiers are assigned by this document, not carried in the code, so they are stable for one run rather than across the system's history. No row carries a priority: nothing in a codebase records which capability mattered more, and a recovered specification that invented a ranking would be putting a product decision in a reader's mouth.",
   "prd-no-features": "No capability was detected from this system's vocabulary.",

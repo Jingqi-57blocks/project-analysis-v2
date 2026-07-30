@@ -1,6 +1,6 @@
 {
   "id": "prd",
-  "title": "$project \u2014 recovered specification",
+  "title": "$project — recovered specification",
   "params": [],
   "sections": [
     {
@@ -86,11 +86,11 @@
       "id": "flows",
       "kind": "code",
       "heading": "How Work Moves Through the System",
-      "fragment": "flow-coverage",
+      "fragment": "prd-flows",
       "requires": [
-        "flow-coverage"
-      ],
-      "omitWhenEmpty": true
+        "flows",
+        "features"
+      ]
     },
     {
       "id": "states",

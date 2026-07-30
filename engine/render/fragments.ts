@@ -13,7 +13,7 @@
  */
 
 import type { KnowledgeBase, Coverage, DimensionCoverage } from "../kb/query.js";
-import type { CoverageNote, FeatureFact, MapEdge } from "../kb/facts.js";
+import type { CoverageNote, FeatureFact, FeatureFlowFact, MapEdge } from "../kb/facts.js";
 import type { GuardRecord } from "../structural/rules.js";
 import type { RouteRecord } from "../structural/boundaries.js";
 import type {
@@ -251,7 +251,57 @@ const PAGES_PER_AREA = 6;
  * High enough to print all of them on a real workspace: the format this follows
  * lists every validation message, and a sample of rules is not a specification.
  */
-const VALIDATION_PER_ROOT = 400;
+/**
+ * High enough to print every rule a real workspace states: WCP-V2's largest
+ * service alone has 490 distinct messages, and at 400 the recovered specification
+ * silently ended that table with 90 of the biggest service's rules missing.
+ */
+const VALIDATION_PER_ROOT = 1000;
+
+/** Conditions shown per rule before the rest are counted. */
+const TESTS_PER_RULE = 2;
+
+/** Capabilities whose flows are drawn, and flows drawn for each: a diagram is a page. */
+const FEATURES_WITH_FLOWS = 8;
+const FLOWS_PER_FEATURE = 2;
+
+/** Steps attributed to the handler's package rather than to the handler itself. */
+function vagueSteps(flow: FeatureFlowFact): number {
+  return flow.steps.filter((step) => step.indirect === true).length;
+}
+
+/** How many of a capability's flows closed, which is what "traced" has to mean. */
+function flowTally(f: Glossary, flows: readonly FeatureFlowFact[]): string {
+  const partial = flows.filter((flow) => flow.partial).length;
+  return partial === 0
+    ? t(f, "prd-flow-whole", flows.length)
+    : t(f, "prd-flow-partial", partial, flows.length);
+}
+
+interface Rule {
+  message: string;
+  kind: string;
+  tests: Set<string>;
+  /** Every `<root>/<path>` that states this rule, which is more than one often. */
+  where: Set<string>;
+}
+
+/**
+ * The conditions under which a rule rejects, one per line.
+ *
+ * Two were joined with `·`, which under a column headed "When" reads as one
+ * compound trigger: `status === 0 · status === UserStatus.Inactive` are two
+ * mutually exclusive checks in two files, and a rebuild implements the
+ * conjunction. 78 of WCP's 686 messages have more than one distinct condition and
+ * one has thirteen, all silently dropped past the second.
+ */
+function conditions(f: Glossary, tests: ReadonlySet<string>): string | null {
+  const all = [...tests].sort();
+  if (all.length === 0) return null;
+  const shown = all.slice(0, TESTS_PER_RULE);
+  const rest = all.length - shown.length;
+  return [...shown, ...(rest > 0 ? [t(f, "and-more", rest)] : [])].join("<br>");
+}
 
 /** How many of a capability's addresses to name before summarising. */
 const ENDPOINTS_PER_FEATURE = 8;
@@ -682,6 +732,68 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
   },
 
   /**
+   * How work actually moves: the traced flows themselves, a few per capability.
+   *
+   * The section was filled with `flow-coverage`, which states how much of each
+   * capability's flows the analysis followed — two numbers about the analysis,
+   * under a heading promising the system's behaviour, in a document that already
+   * has a section for what the analysis could not do.
+   *
+   * Drawn per flow rather than per capability. A capability's overview chart puts
+   * every endpoint and table on one canvas, which for WCP's Review capability is
+   * 222 nodes joined by 14 edges: a reader sees a wall of names and almost no
+   * movement, and the section came to 2,068 lines of a 3,270-line document. One
+   * flow is an entry point and the steps it reaches, which is what movement is.
+   *
+   * Flows with every step established come first, because a reader comparing two
+   * capabilities should meet a complete trace before a partial one.
+   */
+  "prd-flows": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const flows = pick<readonly FeatureFlowFact[]>(input, "flows") ?? [];
+    const features = pick<readonly FeatureFact[]>(input, "features") ?? [];
+    if (flows.length === 0) return t(f, "prd-no-flows");
+
+    const nameOf = new Map(features.map((feature) => [feature.id, feature.name]));
+    const byFeature = new Map<string, FeatureFlowFact[]>();
+    for (const flow of flows) {
+      byFeature.set(flow.featureId, [...(byFeature.get(flow.featureId) ?? []), flow]);
+    }
+
+    const parts = [t(f, "prd-flows-lead")];
+    let drawn = 0;
+    const ordered = [...byFeature.entries()].sort(
+      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
+    );
+    for (const [featureId, own] of ordered.slice(0, FEATURES_WITH_FLOWS)) {
+      // Clearest first: a trace that closes, and whose steps were observed in the
+      // handler rather than somewhere in its package. Without the second term the
+      // section opened on a delete endpoint drawn against 13 tables, every edge
+      // dotted and labelled "observed in the handler's package" — honest, and no
+      // picture of anything. How many flows are not drawn is stated below.
+      const show = [...own]
+        .sort(
+          (a, b) =>
+            Number(a.partial) - Number(b.partial) ||
+            vagueSteps(a) - vagueSteps(b) ||
+            a.steps.length - b.steps.length ||
+            a.entryKey.localeCompare(b.entryKey),
+        )
+        .slice(0, FLOWS_PER_FEATURE);
+      parts.push(`**${nameOf.get(featureId) ?? featureId}** — ${flowTally(f, own)}`);
+      for (const flow of show) {
+        parts.push(`${t(f, "prd-flow-entry", flow.entryKey)}`, mermaid(flow.diagram));
+        drawn += 1;
+      }
+    }
+    if (flows.length > drawn) parts.push(t(f, "prd-flows-left-out", flows.length - drawn, flows.length));
+
+    const untraced = features.filter((feature) => !byFeature.has(feature.id)).length;
+    if (untraced > 0) parts.push(t(f, "prd-flows-untraced", untraced, features.length));
+    return parts.join("\n\n");
+  },
+
+  /**
    * The feature list, one row per capability the analysis detected.
    *
    * Identifiers are `F001…` because that is what the receiving format uses, and
@@ -824,7 +936,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
     const byMessage = new Map<
       string,
-      { message: string; kind: string; tests: Set<string>; where: Set<string>; first: string }
+      Rule
     >();
     for (const guard of guards) {
       const at = `${guard.rootName}/${guard.source.relPath}`;
@@ -833,7 +945,6 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         kind: guard.messageKind,
         tests: new Set<string>(),
         where: new Set<string>(),
-        first: at,
       };
       if (guard.test !== null && guard.test !== "") entry.tests.add(guard.test);
       entry.where.add(at);
@@ -846,12 +957,19 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     // ordered by message instead, and the cap is high enough to print them all
     // on a real workspace, because the example this format follows lists every
     // validation message rather than a sample.
-    const byRoot = new Map<string, typeof byMessage extends Map<string, infer V> ? V[] : never>();
+    //
+    // A rule enforced in two repositories appears under both. Filing it under
+    // whichever file happened to be walked first printed WCP's password rules once,
+    // under a proposal-share modal, with the service that also enforces them
+    // reduced to "and 1 more file(s)" — and a rebuild most needs to know that a
+    // rule lives in two codebases at once.
+    const byRoot = new Map<string, Rule[]>();
     for (const entry of byMessage.values()) {
-      const rootName = entry.first.split("/")[0]!;
-      const group = byRoot.get(rootName) ?? [];
-      group.push(entry);
-      byRoot.set(rootName, group);
+      for (const rootName of new Set([...entry.where].map((at) => at.split("/")[0]!))) {
+        const group = byRoot.get(rootName) ?? [];
+        group.push(entry);
+        byRoot.set(rootName, group);
+      }
     }
 
     const parts = [t(f, "prd-validation-lead")];
@@ -864,15 +982,24 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       const shown = group.slice(0, VALIDATION_PER_ROOT);
       parts.push(
         table(
-          [t(f, "col-rejects-with"), t(f, "col-when"), t(f, "col-stated-as"), t(f, "col-first-seen")],
-          shown.map((entry) => [
-            entry.message,
-            [...entry.tests].sort().slice(0, 2).join(" · ") || null,
-            t(f, `message-kind-${entry.kind}`),
-            entry.where.size === 1
-              ? entry.first
-              : t(f, "and-files", entry.first, entry.where.size - 1),
-          ]),
+          [t(f, "col-rejects-with"), t(f, "col-when"), t(f, "col-stated-as"), t(f, "col-enforced-in")],
+          shown.map((entry) => {
+            // Where this rule lives in *this* repository. Naming a file in another
+            // one under this heading is how the cross-repository case was lost.
+            const here = [...entry.where].filter((at) => at.startsWith(`${rootName}/`)).sort();
+            const elsewhere = entry.where.size - here.length;
+            return [
+              entry.message,
+              conditions(f, entry.tests),
+              t(f, `message-kind-${entry.kind}`),
+              [
+                here.length === 1 ? here[0]! : t(f, "and-files", here[0]!, here.length - 1),
+                elsewhere > 0 ? t(f, "also-in-other-repositories", elsewhere) : null,
+              ]
+                .filter(Boolean)
+                .join(", "),
+            ];
+          }),
         ),
       );
       if (group.length > shown.length) {

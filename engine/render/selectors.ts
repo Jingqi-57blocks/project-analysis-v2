@@ -96,6 +96,7 @@ const SELECTORS: Readonly<Record<string, Resolver>> = {
   repositories: (kb) => kb.repositories(),
   "analysis-dimensions": (kb) => kb.analysisDimensions(),
   "flow-coverage": (kb) => kb.flowCoverage(),
+  flows: (kb) => kb.flows(),
   "feature-flow-coverage": (kb, id) => (id === null ? null : kb.flowCoverageForFeature(id)),
   "coverage-notes": (kb) => kb.coverageNotes(),
   "extraction-failures": (kb) => kb.extractionFailures(),
