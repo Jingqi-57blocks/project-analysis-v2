@@ -17,6 +17,16 @@ import type { ImportRecord, SourceFileRecord } from "../structural/code.js";
 import type { RouteRecord } from "../structural/boundaries.js";
 import type { FeatureFlowFact, RootSummaryFact } from "./facts.js";
 
+/**
+ * An endpoint's key, in the one spelling flows and traces both use.
+ *
+ * Built by hand here once, and it matched — but two spellings of one identity
+ * is how a join silently returns nothing, so it is written down once.
+ */
+function entryKeyOf(route: { rootName: string; method: string | null; path: string }): string {
+  return `${route.rootName}:${route.method ?? "ANY"} ${route.path}`;
+}
+
 export interface LanguageCount {
   readonly name: string;
   readonly files: number;
@@ -58,8 +68,27 @@ export interface RepositoryProfile {
   readonly migrationFiles: number;
   readonly migrationsWithFacts: number;
   readonly endpointCount: number;
-  /** Endpoints whose path through the code was followed to its end. */
+  /**
+   * Endpoints whose walk through this repository's own code completed.
+   *
+   * From the traces, not from the capability flows. A flow's first step is the
+   * *caller*, so an endpoint nothing in the workspace calls counted as untraced
+   * however completely its handler was followed — and an endpoint belonging to
+   * no capability has no flow at all, so it counted as untraced too. Together
+   * those reported wcp-service as 21 of 90 where 82 of its 90 handler walks
+   * completed, which reads as a failure of the analysis rather than as what it
+   * is: an endpoint with no observed caller.
+   */
   readonly tracedEndpointCount: number;
+  /**
+   * Endpoints whose capability flow found nothing in the workspace calling
+   * them — the fact the traced count used to swallow.
+   *
+   * Counted only where a flow exists to say so: an endpoint belonging to no
+   * capability has no flow, and nothing here claims to know whether it has a
+   * caller.
+   */
+  readonly endpointsWithoutCaller: number;
   readonly screenCount: number;
   readonly entityCount: number;
   readonly testCount: number;
@@ -90,6 +119,8 @@ export interface ProfileInput {
   readonly dependencies: readonly PackageDependencyRecord[];
   readonly imports: readonly ImportRecord[];
   readonly flows: readonly FeatureFlowFact[];
+  /** One per entry point whose walk through the code completed. */
+  readonly completedTraces: readonly { readonly entryKey: string; readonly partial: boolean }[];
   readonly scheduledRoots: readonly string[];
   readonly notifyingRoots: readonly string[];
   readonly dataAccessRoots: readonly string[];
@@ -215,7 +246,16 @@ export function repositoryProfiles(input: ProfileInput): readonly RepositoryProf
     [...new Set(input.dependencies.map((dependency) => dependency.name))],
   );
   const tracedEntryKeys = new Set(
-    input.flows.filter((flow) => !flow.partial).map((flow) => flow.entryKey),
+    input.completedTraces.filter((trace) => !trace.partial).map((trace) => trace.entryKey),
+  );
+  const withoutCaller = new Set(
+    input.flows
+      .filter((flow) =>
+        flow.steps.some(
+          (step) => step.kind === "frontend-call" && step.unresolvedReason !== null,
+        ),
+      )
+      .map((flow) => flow.entryKey),
   );
   const scheduled = new Set(input.scheduledRoots);
   const notifying = new Set(input.notifyingRoots);
@@ -255,7 +295,10 @@ export function repositoryProfiles(input: ProfileInput): readonly RepositoryProf
       migrationsWithFacts: facts?.migrationsWithFacts ?? 0,
       endpointCount: endpoints.length,
       tracedEndpointCount: endpoints.filter((route) =>
-        tracedEntryKeys.has(`${route.rootName}:${route.method ?? "ANY"} ${route.path}`),
+        tracedEntryKeys.has(entryKeyOf(route)),
+      ).length,
+      endpointsWithoutCaller: endpoints.filter((route) =>
+        withoutCaller.has(entryKeyOf(route)),
       ).length,
       screenCount: input.screens.filter((screen) => screen.rootName === root.name).length,
       entityCount: input.entities.filter((entity) => entity.rootName === root.name).length,
@@ -338,11 +381,13 @@ export function flowCoverage(flows: readonly FeatureFlowFact[]): readonly Featur
         fullyTracedFlows: covered.filter((flow) => flow.resolvedSteps === flow.steps).length,
         steps: covered.reduce((total, flow) => total + flow.steps, 0),
         resolvedSteps: covered.reduce((total, flow) => total + flow.resolvedSteps, 0),
-        flows: covered.sort(
-          (a, b) =>
-            a.resolvedSteps / a.steps - b.resolvedSteps / b.steps ||
-            a.path.localeCompare(b.path),
-        ),
+        // A flow with no steps would make a ratio NaN, and NaN in a comparator
+        // is not an ordering — it silently leaves the list however it arrived.
+        flows: covered.sort((a, b) => {
+          const share = (flow: FlowCoverage): number =>
+            flow.steps === 0 ? 1 : flow.resolvedSteps / flow.steps;
+          return share(a) - share(b) || a.path.localeCompare(b.path);
+        }),
       };
     })
     .sort((a, b) => b.flowCount - a.flowCount || a.featureName.localeCompare(b.featureName));

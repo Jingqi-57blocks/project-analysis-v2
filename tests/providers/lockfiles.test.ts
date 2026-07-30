@@ -177,6 +177,33 @@ describe("reading an exact version out of a lockfile", () => {
     expect(versions.get("real")).toBe("2.1.0");
   });
 
+  it("refuses a workspace sibling and a pnpm entry that is not a release", () => {
+    // `myapp@workspace:.` publishes the placeholder 0.0.0-use.local, and a
+    // pnpm `file:` key was being read with the version "file".
+    expect(read("yarn.lock", ['"myapp@workspace:.":', "  version: 0.0.0-use.local"].join("\n")).size).toBe(0);
+
+    const pnpm = read(
+      "pnpm-lock.yaml",
+      ["packages:", "", "  local@file:../x:", "    resolution: {}", "", "  ok@1.2.3:", "    resolution: {}"].join("\n"),
+    );
+    expect([...pnpm.keys()]).toEqual(["ok"]);
+  });
+
+  it("refuses an npm entry installed from git or linked from disk", () => {
+    const versions = read(
+      "package-lock.json",
+      JSON.stringify({
+        packages: {
+          "node_modules/from-git": { version: "0.0.0", resolved: "git+ssh://git@github.com/a/b.git#abc" },
+          "node_modules/linked": { version: "1.0.0", link: true },
+          // A registry release names a tarball URL, which is ordinary.
+          "node_modules/real": { version: "2.0.0", resolved: "https://registry.npmjs.org/real/-/real-2.0.0.tgz" },
+        },
+      }),
+    );
+    expect([...versions.keys()]).toEqual(["real"]);
+  });
+
   it("resolves an aliased dependency under the name that asks for it", () => {
     const versions = read(
       "yarn.lock",

@@ -105,6 +105,7 @@ function input(overrides: Partial<ProfileInput> = {}): ProfileInput {
     dependencies: [],
     imports: [],
     flows: [],
+    completedTraces: [],
     scheduledRoots: [],
     notifyingRoots: [],
     dataAccessRoots: [],
@@ -147,19 +148,31 @@ describe("what a repository is", () => {
     expect(repositoryProfiles(input())[0]!.roles).toEqual([]);
   });
 
-  it("counts endpoints as traced only where the flow reached its end", () => {
+  it("counts endpoints as traced from the walk through the code, not from a flow", () => {
+    // A flow's first step is the caller, so an endpoint nothing in the
+    // workspace calls used to count as untraced however completely its handler
+    // was followed — and an endpoint in no capability has no flow at all.
+    // Measured on wcp-service: 21 of 90 reported where 82 walks completed.
     const profile = repositoryProfiles(
       input({
-        endpoints: [route("svc", "/v2/leaves"), route("svc", "/v2/holidays")],
-        flows: [
-          flow({ entryKey: "svc:POST /v2/leaves", partial: false }),
-          flow({ entryKey: "svc:POST /v2/holidays", partial: true }),
+        endpoints: [
+          route("svc", "/v2/leaves"),
+          route("svc", "/v2/holidays"),
+          route("svc", "/v2/orphan"),
+        ],
+        // No flow for the orphan: it belongs to no capability.
+        flows: [flow({ entryKey: "svc:POST /v2/leaves", partial: true })],
+        completedTraces: [
+          { entryKey: "svc:POST /v2/leaves", partial: false },
+          { entryKey: "svc:POST /v2/holidays", partial: true },
+          { entryKey: "svc:POST /v2/orphan", partial: false },
         ],
       }),
     )[0]!;
 
-    expect(profile.endpointCount).toBe(2);
-    expect(profile.tracedEndpointCount).toBe(1);
+    expect(profile.endpointCount).toBe(3);
+    // Leave's flow is partial for want of a caller; its own walk completed.
+    expect(profile.tracedEndpointCount).toBe(2);
   });
 
   it("carries the file counts the file table answered", () => {

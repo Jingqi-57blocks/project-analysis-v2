@@ -108,11 +108,17 @@ function coverageLine(coverage: Coverage | undefined, subject: string): string {
         reasons.map((reason) => `- ${reason}`).join("\n");
 }
 
-/** `6 of 8 (75%)`, or `0 of 0` where a percentage would divide by nothing. */
+/**
+ * `6 of 8 (75%)`, or `0 of 0` where a percentage would divide by nothing.
+ *
+ * Rounded down short of the whole: `Math.round` prints "(100%)" for 199 of 200,
+ * and a reader who sees 100% stops looking for the one that is missing.
+ */
 function share(frame: Glossary, part: number, whole: number): string {
-  return whole === 0
-    ? t(frame, "of-total", part, whole)
-    : t(frame, "of-total-percent", part, whole, Math.round((part / whole) * 100));
+  if (whole === 0) return t(frame, "of-total", part, whole);
+  const exact = (part / whole) * 100;
+  const percent = part < whole ? Math.min(Math.floor(exact), 99) : Math.round(exact);
+  return t(frame, "of-total-percent", part, whole, percent);
 }
 
 /**
@@ -200,6 +206,20 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       );
     if (migrations.length > 0) parts.push(migrations.join("\n\n"));
 
+    // The fact the traced count used to swallow: a handler followed to its end,
+    // with nothing in the workspace seen to call it.
+    const uncalled = profiles
+      .filter((profile) => profile.endpointsWithoutCaller > 0)
+      .map((profile) =>
+        t(
+          f,
+          "endpoints-without-caller",
+          profile.rootName,
+          share(f, profile.endpointsWithoutCaller, profile.endpointCount),
+        ),
+      );
+    if (uncalled.length > 0) parts.push(uncalled.join("\n\n"));
+
     const anyRange = profiles.some((profile) =>
       [...profile.platforms, ...profile.stack].some(
         (entry) => entry.version !== null && !entry.resolved,
@@ -247,6 +267,21 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       );
     }
 
+    // A kind with records in one repository and none in another: the reason it
+    // found nothing *there* was collected but never shown, because this list
+    // only considered kinds empty everywhere. On WCP that lost the reason
+    // imports were not read in the older service.
+    const emptyInSomeRoot = dimensions
+      .filter((dimension) => dimension.records > 0)
+      .flatMap((dimension) =>
+        dimension.byRoot
+          .filter((entry) => entry.records === 0 && entry.reason !== null)
+          .map((entry) => `- ${dimension.kind} · ${entry.rootName} — ${localizeNote(f, entry.reason!)}`),
+      );
+    if (emptyInSomeRoot.length > 0) {
+      parts.push(`${t(f, "empty-in-some-root")}\n\n${emptyInSomeRoot.join("\n")}`);
+    }
+
     // Looked for and empty is a third state, and the reason a reader needs is
     // the one its readers already stated.
     const emptyWithReason = dimensions
@@ -268,7 +303,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             .map((entry) =>
               entry.reasons.length === 0
                 ? `- ${entry.kind}`
-                : `- ${entry.kind} — ${entry.reasons.map((reason) => localizeNote(f, reason)).join("；")}`,
+                : `- ${entry.kind} — ${entry.reasons.map((reason) => localizeNote(f, reason)).join(t(f, "join"))}`,
             )
             .join("\n"),
       );
@@ -314,7 +349,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
           share(f, flow.resolvedSteps, flow.steps),
           flow.unresolvedReasons.length === 0
             ? null
-            : flow.unresolvedReasons.map((reason) => stopReason(f, reason)).join("；"),
+            : flow.unresolvedReasons.map((reason) => stopReason(f, reason)).join(t(f, "join")),
         ]),
       ),
     ];
