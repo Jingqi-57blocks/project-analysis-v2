@@ -15,7 +15,7 @@ const MINIMAL = {
 };
 
 /** Every template this tool ships, so none of them drifts unchecked. */
-const SHIPPED = ["overview", "capability", "coverage"] as const;
+const SHIPPED = ["overview", "capability", "coverage", "prd"] as const;
 
 describe("reading a template", () => {
   it("reads sections in the order they are written", () => {
@@ -111,6 +111,10 @@ describe("a fragment gets what its section was told to require", () => {
     "flow-coverage": ["flow-coverage"],
     "capability-flow-coverage": ["feature-flow-coverage"],
     "silent-files": ["silent-files", "unread-files"],
+    "prd-features": ["features"],
+    "prd-pages": ["screens"],
+    "prd-validation": ["guards"],
+    "prd-not-recoverable": ["silent-files", "unread-files", "coverage-notes"],
     "capability-silent-files": ["feature-silent-files", "feature-unread-files"],
     limitations: ["coverage-notes", "extraction-failures"],
   };

@@ -31,6 +31,45 @@ export const FRAME_EN: Glossary = {
   "col-flows-traced": "Flows followed to the end",
   "col-steps-traced": "Steps established",
   "col-flow": "Flow",
+  "col-id": "ID",
+  "col-endpoints": "Endpoints",
+  "col-what-was-read": "What was read",
+  "col-area": "Area",
+  "col-pages": "Pages",
+  "col-addresses": "Addresses",
+  "col-rejects-with": "Rejects with",
+  "col-stated-as": "Stated as",
+  "col-places": "Places",
+  "message-kind-stated": "a message in the code",
+  "message-kind-error-code": "a named error constant",
+  "prd-features-lead":
+    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints, files and tables named beside it.",
+  "prd-features-note":
+    "Identifiers are assigned by this document, not carried in the code, so they are stable for one run rather than across the system's history. No row carries a priority: nothing in a codebase records which capability mattered more, and a recovered specification that invented a ranking would be putting a product decision in a reader's mouth.",
+  "prd-no-features": "No capability was detected from this system's vocabulary.",
+  "prd-pages-lead":
+    "{0} addresses were read from the application's own route table, grouped by the area each belongs to. Hierarchy is the paths' own — a nested address is a nested page — and a parameter appears as the code writes it.",
+  "prd-pages-note":
+    "No page here is joined to the component that draws it, so what a page is *for* — its goal, its main action, what it must not show — is absent by necessity rather than oversight. An address assembled at run time is not read at all and so cannot appear.",
+  "prd-no-pages": "This system serves no client-side route table that could be read as a page map.",
+  "prd-validation-lead":
+    "What the system refuses, quoted in the words it refuses with. Each row is a rule the code enforces; the message is the rule as the code states it, not an interpretation of what it means.",
+  "prd-validation-note":
+    "Two gates stating the same message on different values read alike here. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear.",
+  "prd-no-validation": "No rejection with a stated message was read from this system.",
+  "prd-absent-lead":
+    "This specification was recovered from source. It states in mechanical detail what the system does, and the following cannot be recovered from code by any means — they are absent here because no codebase records them, not because the recovery fell short:",
+  "prd-absent-goal": "**What the product is for.** No statement of purpose, problem or intended outcome survives in source.",
+  "prd-absent-users": "**Who uses it, and what for.** Roles the code enforces are recorded elsewhere in this document; who those roles are and what they are trying to achieve is not.",
+  "prd-absent-metrics": "**What success means.** No target, threshold or measure of success exists in code.",
+  "prd-absent-priority": "**What matters most.** No ranking of capabilities survives; every one below is stated at equal weight because that is all the evidence supports.",
+  "prd-absent-risks": "**What the team was worried about.** Risks and assumptions are decisions and conversations, not artefacts.",
+  "prd-absent-scope":
+    "One section inverts. Read forwards, *out of scope* is a decision someone made; read backwards, everything in the code is in scope by definition. So the honest content of that section is not what anyone chose to leave out but what this analysis could not read — stated below and throughout, rather than omitted.",
+  "prd-absent-counts":
+    "Of the files this analysis read, {0} yielded nothing about behaviour and a further {1} yielded nothing at all. Both are named in full elsewhere in this document, because a specification quietly smaller than its system is more dangerous than one visibly incomplete.",
+  "prd-absent-notes":
+    "{0} standing limits of the readers that produced this document are listed with it. They are conditions on every statement here, and worth reading before relying on any single one.",
   "col-file": "File",
   kib: "{0} KB",
   bytes: "{0} bytes",

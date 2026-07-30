@@ -9,6 +9,8 @@
 
 import type { KnowledgeBase, Coverage, DimensionCoverage } from "../kb/query.js";
 import type { CoverageNote, FeatureFact, MapEdge } from "../kb/facts.js";
+import type { GuardRecord } from "../structural/rules.js";
+import type { RouteRecord } from "../structural/boundaries.js";
 import type {
   FeatureFlowCoverage,
   RepositoryProfile,
@@ -232,6 +234,21 @@ const STACK_SHOWN = 6;
 function versionOf(entry: StackEntry): string {
   if (entry.version === null) return entry.name;
   return `${entry.name} ${entry.version}${entry.resolved ? "" : "✱"}`;
+}
+
+/** How many addresses to list per area before summarising. */
+const PAGES_PER_AREA = 6;
+
+/** How many distinct rejection messages to name before summarising. */
+const VALIDATION_SHOWN = 40;
+
+/** The endpoint count a capability's own signals state, or zero. */
+function endpointsOf(feature: FeatureFact): number {
+  for (const signal of feature.signals) {
+    const match = /^(\d+) endpoints?$/.exec(signal);
+    if (match) return Number(match[1]);
+  }
+  return 0;
 }
 
 const FRAGMENTS: Readonly<Record<string, Fragment>> = {
@@ -657,6 +674,178 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       parts.push(table([t(f, "col-reader"), t(f, "col-where"), t(f, "col-went-wrong")], rows));
     }
     return parts.length === 0 ? t(f, "no-limits") : parts.join("\n\n");
+  },
+
+  /**
+   * The feature list, one row per capability the analysis detected.
+   *
+   * Identifiers are `F001…` because that is what the receiving format uses, and
+   * they are assigned here rather than carried in the facts: whether a producer
+   * mints them is unsettled (57B-277), so they are a rendering decision that can
+   * be swapped without touching a single extracted record.
+   *
+   * Ordered by endpoint count, so the largest surface reads first. What each row
+   * cannot say is priority — no ranking survives in source, and inventing one
+   * would put a product decision in a recovered document.
+   */
+  "prd-features": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const features = pick<readonly FeatureFact[]>(input, "features") ?? [];
+    if (features.length === 0) return t(f, "prd-no-features");
+
+    const ranked = [...features].sort(
+      (a, b) => endpointsOf(b) - endpointsOf(a) || a.name.localeCompare(b.name),
+    );
+
+    return [
+      t(f, "prd-features-lead"),
+      table(
+        [t(f, "col-id"), t(f, "col-capability"), t(f, "col-endpoints"), t(f, "col-what-was-read")],
+        ranked.map((feature, index) => [
+          `F${String(index + 1).padStart(3, "0")}`,
+          feature.name,
+          endpointsOf(feature) === 0 ? null : endpointsOf(feature),
+          feature.signals.join(" · "),
+        ]),
+      ),
+      t(f, "prd-features-note"),
+    ].join("\n\n");
+  },
+
+  /**
+   * The page map: the application's own addresses, as read from its route table.
+   *
+   * Grouped by first path segment, which is how these applications are organised
+   * and how a reader navigates them. The hierarchy is the paths' own — a nested
+   * path is a nested page — and route parameters are left as the code writes them
+   * so `:id` reads as a parameter rather than a literal.
+   *
+   * What this cannot say is stated rather than guessed: no page is joined to the
+   * component that draws it on this evidence, so page goal, key action and
+   * completion criteria are absent by necessity, not oversight.
+   */
+  "prd-pages": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const screens = pick<readonly RouteRecord[]>(input, "screens") ?? [];
+    if (screens.length === 0) return t(f, "prd-no-pages");
+
+    const byArea = new Map<string, string[]>();
+    for (const screen of screens) {
+      const area = screen.path.split("/").filter(Boolean)[0] ?? "/";
+      const group = byArea.get(area) ?? [];
+      group.push(screen.path);
+      byArea.set(area, group);
+    }
+
+    const rows = [...byArea.entries()]
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([area, paths]) => {
+        const sorted = [...paths].sort();
+        const shown = sorted.slice(0, PAGES_PER_AREA);
+        return [
+          `/${area}`,
+          sorted.length,
+          shown.join(", ") + (sorted.length > shown.length ? `, ${t(f, "and-more", sorted.length - shown.length)}` : ""),
+        ];
+      });
+
+    return [
+      t(f, "prd-pages-lead", screens.length),
+      table([t(f, "col-area"), t(f, "col-pages"), t(f, "col-addresses")], rows),
+      t(f, "prd-pages-note"),
+    ].join("\n\n");
+  },
+
+  /**
+   * What the system rejects, in the words it rejects with.
+   *
+   * The strongest material a recovered specification has: each row is a rule the
+   * code enforces and the sentence it states when the rule is broken, quoted
+   * rather than paraphrased. A rebuild that reproduces these reproduces the
+   * behaviour a user actually meets.
+   *
+   * Deliberately not grouped by capability here — the same message often guards
+   * several routes, and one list with locations is shorter than the same rule
+   * restated per feature.
+   */
+  "prd-validation": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const guards = pick<readonly GuardRecord[]>(input, "guards") ?? [];
+    if (guards.length === 0) return t(f, "prd-no-validation");
+
+    const byMessage = new Map<string, { message: string; kind: string; where: Set<string> }>();
+    for (const guard of guards) {
+      const entry = byMessage.get(guard.message) ?? {
+        message: guard.message,
+        kind: guard.messageKind,
+        where: new Set<string>(),
+      };
+      entry.where.add(`${guard.rootName}/${guard.source.relPath}`);
+      byMessage.set(guard.message, entry);
+    }
+
+    const ranked = [...byMessage.values()].sort(
+      (a, b) => b.where.size - a.where.size || a.message.localeCompare(b.message),
+    );
+    const shown = ranked.slice(0, VALIDATION_SHOWN);
+
+    const parts = [
+      t(f, "prd-validation-lead"),
+      table(
+        [t(f, "col-rejects-with"), t(f, "col-stated-as"), t(f, "col-places")],
+        shown.map((entry) => [
+          entry.message,
+          t(f, `message-kind-${entry.kind}`),
+          entry.where.size,
+        ]),
+      ),
+    ];
+    if (ranked.length > shown.length) {
+      parts.push(t(f, "and-more", ranked.length - shown.length));
+    }
+    parts.push(t(f, "prd-validation-note"));
+    return parts.join("\n\n");
+  },
+
+  /**
+   * What this document cannot say, and why — stated rather than left blank.
+   *
+   * A recovered specification is structurally complete and intent-empty: it
+   * states in mechanical detail what the system does, and cannot state why any
+   * of it was built or which parts matter. Leaving those sections absent invites
+   * a reader to assume the recovery failed, or worse, that the system has no
+   * goals. Naming them is what makes the document honest enough to build from.
+   *
+   * Also inverts one section deliberately. Read forwards, "out of scope" is a
+   * decision somebody made. Read backwards, everything in the code is in scope by
+   * definition, so the only honest content is what could not be read.
+   */
+  "prd-not-recoverable": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const silent = pick<readonly SilentFile[]>(input, "silent-files") ?? [];
+    const unread = pick<readonly SilentFile[]>(input, "unread-files") ?? [];
+    const notes = pick<readonly CoverageNote[]>(input, "coverage-notes") ?? [];
+
+    const parts = [t(f, "prd-absent-lead")];
+    parts.push(
+      [
+        t(f, "prd-absent-goal"),
+        t(f, "prd-absent-users"),
+        t(f, "prd-absent-metrics"),
+        t(f, "prd-absent-priority"),
+        t(f, "prd-absent-risks"),
+      ]
+        .map((line) => `- ${line}`)
+        .join("\n"),
+    );
+    parts.push(t(f, "prd-absent-scope"));
+    if (silent.length + unread.length > 0) {
+      parts.push(t(f, "prd-absent-counts", silent.length, unread.length));
+    }
+    if (notes.length > 0) {
+      parts.push(t(f, "prd-absent-notes", notes.length));
+    }
+    return parts.join("\n\n");
   },
 
   /**

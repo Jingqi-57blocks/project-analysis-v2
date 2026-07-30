@@ -172,12 +172,35 @@ const EXIT_KINDS = new Set<string>(["return_statement", "throw_statement"]);
 const PLUMBING_TEST =
   /^(!?\w*(err|error)\w*)\s*(!=|==)\s*nil$|^!?ok$|^!?\w*ok$|(err|error)\s*(!=|==)\s*nil/i;
 
-/** The first string literal inside a node — the message a rejection states. */
+/**
+ * The first string literal inside a node — the message a rejection states.
+ *
+ * Markup is skipped entirely. A component that returns an element is producing a
+ * value, not refusing to work, and the first string inside that element is a prop
+ * or a label rather than a rule: `if (record.cancel_flag) return <Button
+ * className="py-0 lh-base text-nowrap">` had a CSS class list read as a business
+ * rule, and it reached a recovered specification under the heading "rules the
+ * system enforces". Same reasoning the named-constant test already applies to a
+ * `return` — see `errorCodeName` — extended to stated messages.
+ */
 function firstMessage(node: SgNode): string | null {
   const stack: SgNode[] = [node];
   while (stack.length > 0) {
     const current = stack.shift()!;
     const kind = current.kind() as string;
+    // Markup is not a message. A component returning an element produces a
+    // value, and the first string inside that element is a prop or a label:
+    // `if (record.cancel_flag) return <Button className="py-0 lh-base
+    // text-nowrap">` had a CSS class list read as a business rule. Same
+    // reasoning `errorCodeName` already applies to a returned constant.
+    //
+    // Excluding settings objects as well was tried and reverted. It removed the
+    // remaining noise — an IntersectionObserver's `rootMargin` — but a rejection
+    // in Express or Go commonly states its message *by* building a response body,
+    // so it also lost "Invalid Authorization header", "Missing Authorization
+    // header", "invalid client" and "redirect_uri mismatch". The noise and the
+    // rules live in the same shape, and one rule for both loses one of them.
+    if (kind.startsWith("jsx_")) continue;
     if (kind.includes("string") && !kind.includes("template")) {
       const raw = current.text().replace(/^[`'"]|[`'"]$/g, "").trim();
       // A message, not a format verb, a key, or a single word like "id".
