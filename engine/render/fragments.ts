@@ -268,6 +268,34 @@ const VALIDATION_PER_ROOT = 1000;
 /** Conditions shown per rule before the rest are counted. */
 const TESTS_PER_RULE = 2;
 
+/**
+ * What a capability's files touch, and what its package touches beside them.
+ *
+ * Two scopes, never merged: a table read in the handler's own file is closer to
+ * this capability than one read somewhere else in its package, and printing them
+ * alike would widen a cell that is already wider than the capability.
+ */
+function tableCell(f: Glossary, own: readonly string[], nearby: readonly string[]): string | null {
+  const parts: string[] = [];
+  if (own.length > 0) parts.push(own.slice(0, TABLES_PER_FEATURE).join(", "));
+  if (own.length > TABLES_PER_FEATURE) parts.push(t(f, "and-more", own.length - TABLES_PER_FEATURE));
+  if (nearby.length > 0) {
+    const shown = nearby.slice(0, TABLES_PER_FEATURE);
+    parts.push(
+      t(
+        f,
+        "tables-in-package",
+        shown.join(", ") +
+          (nearby.length > shown.length ? `, ${t(f, "and-more", nearby.length - shown.length)}` : ""),
+      ),
+    );
+  }
+  return parts.length === 0 ? null : parts.join("<br>");
+}
+
+/** Tables named per scope before the rest are counted: Employee has 45 nearby. */
+const TABLES_PER_FEATURE = 12;
+
 /** Endpoints named individually where no capability claimed them. */
 const ORPHAN_ENDPOINTS = 80;
 
@@ -811,6 +839,14 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     if (flows.length > drawn) {
       parts.push(t(f, "prd-flows-left-out", flows.length - drawn, flows.length, FLOWS_PER_FEATURE));
     }
+    // The bound on capabilities was never stated, so 28 of WCP's 36 capabilities
+    // with traced flows vanished from a section whose lead reads as covering all
+    // of them. Their flows were inside a total; the capabilities were nowhere.
+    if (byFeature.size > FEATURES_WITH_FLOWS) {
+      parts.push(
+        t(f, "prd-flows-capabilities-left-out", byFeature.size - FEATURES_WITH_FLOWS, byFeature.size),
+      );
+    }
 
     // Two different silences, and stating one reason for both was wrong for every
     // capability it described: all 12 of WCP's flowless capabilities have no
@@ -850,16 +886,27 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     );
 
     const rows = ranked.map((feature, index) => {
-      const paths = [...new Set(feature.endpoints.map((e) => `${e.method ?? "ANY"} ${e.path}`))].sort();
+      // Keyed by service as well as address, and shown with it. Dropping the
+      // service made a count and a list disagree — Support says 21 endpoints and
+      // listed 19 — and lost the fact a rebuild most needs, that
+      // `GET /v2/support/projects` is served by two services at once.
+      const paths = [
+        ...new Set(feature.endpoints.map((e) => `${e.rootName}: ${e.method ?? "ANY"} ${e.path}`)),
+      ].sort();
       const shown = paths.slice(0, ENDPOINTS_PER_FEATURE);
       const tables = [...new Set(feature.tables)].sort();
+      // Tables observed in the handler's package rather than its file. Without
+      // these, 24 of 38 dashes stood for 1 to 45 attributed tables, and the flows
+      // section drew Billing's seven tables three pages after Billing's row said
+      // none could be attributed at all.
+      const nearby = [...new Set(feature.tablesNearby)].sort().filter((name) => !tables.includes(name));
       return [
         `F${String(index + 1).padStart(3, "0")}`,
         feature.name,
         feature.endpoints.length === 0 ? null : feature.endpoints.length,
         shown.join("<br>") +
           (paths.length > shown.length ? `<br>${t(f, "and-more", paths.length - shown.length)}` : ""),
-        tables.length === 0 ? null : tables.join(", "),
+        tableCell(f, tables, nearby),
       ];
     });
 

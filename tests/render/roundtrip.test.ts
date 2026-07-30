@@ -690,7 +690,12 @@ describe("the recovered specification's own sections", () => {
  * kills one, and none depends on any target's contents.
  */
 describe("the recovered specification's tables", () => {
-  function feature(name: string, endpoints: number, tables: readonly string[] = []) {
+  function feature(
+    name: string,
+    endpoints: number,
+    tables: readonly string[] = [],
+    options: { nearby?: readonly string[]; roots?: readonly string[] } = {},
+  ) {
     return {
       id: `feat_${name}`,
       name,
@@ -698,6 +703,7 @@ describe("the recovered specification's tables", () => {
       signals: [],
       filePaths: [],
       tables: [...tables],
+      tablesNearby: [...(options.nearby ?? [])],
       endpoints: Array.from({ length: endpoints }, (_, n) => ({
         method: "GET",
         path: `/${name.toLowerCase()}/${n}`,
@@ -729,6 +735,46 @@ describe("the recovered specification's tables", () => {
       ["F002", "Mike"],
       ["F003", "Alpha"],
     ]);
+  });
+
+  it("names the tables its package touches where its own files touch none", () => {
+    // 24 of 38 dashes stood for 1 to 45 attributed tables, and the flows section
+    // drew Billing's seven tables three pages after Billing's row said none.
+    const rendered = render("prd-features", {
+      features: [feature("Billing", 2, [], { nearby: ["wcp_billing", "wcp_project"] })],
+      endpoints: [],
+    });
+    expect(rendered).toContain("wcp_billing");
+    expect(rendered).toContain(FRAME_EN["tables-in-package"]!.replace("{0}", "").trim().split(":")[0]!);
+  });
+
+  it("keeps the two scopes apart rather than merging them into one list", () => {
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1, ["wcp_leave"], { nearby: ["wcp_user"] })],
+      endpoints: [],
+    });
+    const row = rendered.split("\n").find((line) => line.includes("Leave"))!;
+    expect(row.indexOf("wcp_leave")).toBeLessThan(row.indexOf("elsewhere in its package"));
+    expect(row.indexOf("elsewhere in its package")).toBeLessThan(row.indexOf("wcp_user"));
+  });
+
+  it("names an address with the service that serves it, so a count adds up", () => {
+    // Deduped on the address alone, a capability said 2 endpoints and listed one,
+    // losing the fact that both services serve it.
+    const rendered = render("prd-features", {
+      features: [
+        {
+          ...feature("Support", 0),
+          endpoints: [
+            { method: "GET", path: "/v2/support/projects", rootName: "svc-a" },
+            { method: "GET", path: "/v2/support/projects", rootName: "svc-b" },
+          ],
+        },
+      ],
+      endpoints: [],
+    });
+    expect(rendered).toContain("svc-a: GET /v2/support/projects");
+    expect(rendered).toContain("svc-b: GET /v2/support/projects");
   });
 
   it("names a capability's addresses and tables, not only how many", () => {
@@ -965,6 +1011,18 @@ describe("the recovered specification's tables", () => {
     const flows = Array.from({ length: 9 }, (_, n) => flow("feat_Leave", `svc:GET /f${n}`));
     const rendered = render("prd-flows", { flows, features: [feature("Leave", 9)] });
     expect(rendered.split("```mermaid").length - 1).toBeLessThan(4);
+  });
+
+  it("says how many capabilities with flows have no diagram", () => {
+    // 28 of WCP's 36 capabilities with traced flows vanished from a section whose
+    // lead read as covering all of them.
+    const features = Array.from({ length: 20 }, (_, n) => feature(`Cap${n}`, n + 1));
+    const flows = features.map((f) => flow(f.id, `svc:GET /${f.name}`));
+    const rendered = render("prd-flows", { flows, features });
+    const drawnCaps = [...rendered.matchAll(/^\*\*Cap\d+\*\*/gm)].length;
+    const said = Number(/(\d+) of the 20 capabilities with a traced flow/.exec(rendered)?.[1] ?? 0);
+    expect(drawnCaps + said).toBe(20);
+    expect(said).toBeGreaterThan(0);
   });
 
   it("draws flows for some capabilities, not for forty-eight", () => {

@@ -38,6 +38,7 @@ export const FRAME_EN: Glossary = {
   // endpoint reading `wcp_title` alone, and eleven tables in this cell, because
   // its handler shares a file with the rest of the user service.
   "col-tables-touched": "Tables its files touch",
+  "tables-in-package": "elsewhere in its package: {0}",
   "col-when": "When",
   // Not "First seen": the cell lists every file in this repository that states the
   // rule, and a first is walk order rather than a fact about the code.
@@ -53,7 +54,8 @@ export const FRAME_EN: Glossary = {
   "message-kind-stated": "a message in the code",
   "message-kind-error-code": "a named error constant",
   "prd-flows-lead":
-    "Up to two traced flows per capability, chosen as the clearest: a trace whose " +
+    "Up to two traced flows for each of the capabilities with the most of them, " +
+    "chosen as the clearest: a trace whose " +
     "every step was established before one with a gap, and one observed in the " +
     "handler itself before one observed only somewhere in its package. " +
     "A step it could not resolve is drawn as a gap rather than left out, so a " +
@@ -67,6 +69,10 @@ export const FRAME_EN: Glossary = {
   "prd-flows-left-out":
     "{0} of {1} traced flow(s) are not drawn: at most {2} per capability appear here, " +
     "the ones whose steps were established in the handler itself.",
+  "prd-flows-capabilities-left-out":
+    "{0} of the {1} capabilities with a traced flow have no diagram here: the ones " +
+    "with the most flows are drawn. The rest are traced in the knowledge base and " +
+    "can be rendered per capability.",
   "prd-flows-no-entry":
     "{0} of {1} capabilities have no diagram because no entry point was attributed to " +
     "them at all — they were detected from the system's vocabulary, not from a route.",
@@ -76,7 +82,7 @@ export const FRAME_EN: Glossary = {
     "No flow was traced end to end, so this section is empty rather than guessed. " +
     "Entry points and the tables they reach are listed in their own sections.",
   "prd-features-lead":
-    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, which for a shared service file means most of that service's tables. Treat it as where to look, not as what this capability stores; a dash means nothing could be attributed at all.",
+    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, and a second list gives the tables touched elsewhere in that file's package. Read either as where to look rather than as what this capability stores; a dash means no table was attributed at either scope.",
   "prd-orphan-endpoints":
     "{0} of {1} endpoints belong to no capability above: the system's vocabulary gave " +
     "no term to file them under. They are part of the surface a rebuild has to " +
@@ -92,7 +98,7 @@ export const FRAME_EN: Glossary = {
   "prd-validation-lead":
     "What the system refuses, quoted in the words it refuses with. Each row is a rule the code enforces; the message is the rule as the code states it, not an interpretation of what it means.",
   "prd-validation-note":
-    "One row per message per repository: two gates stating the same message in one codebase collapse into one row, and a message enforced in two codebases appears under each, because the conditions are rarely the same rule twice. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all; a message a component states in its props is read as a rejection even where it is only a label; and a message built from a template is quoted only as far as its first interpolation.",
+    "One row per message per repository: two gates stating the same message in one codebase collapse into one row, and a message enforced in two codebases appears under each, because the conditions are rarely the same rule twice. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all; a message a component states in its props is read as a rejection even where it is only a label; and a message built from a template is quoted as the first run of its text that reads like a sentence, which may begin or end at an interpolation.",
   "prd-no-validation": "No rejection with a stated message was read from this system.",
   "prd-absent-lead":
     "This specification was recovered from source. It states in mechanical detail what the system does, and the following cannot be recovered from code by any means — they are absent here because no codebase records them, not because the recovery fell short:",

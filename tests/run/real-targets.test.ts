@@ -90,6 +90,19 @@ describe.skipIf(!wcpV2.ok)("runAnalyze on wcp-auth", () => {
         [result.snapshotId],
       );
       expect(JSON.parse(context!.payload).runId).toBe(result.runId);
+
+      // A coverage note says what the analysis did, never where a document puts
+      // it. One said 65 endpoints were "listed only under their service" — a
+      // section the overview has and the recovered specification does not, so the
+      // note sent a reader looking for something that was not there.
+      const notes = openKnowledgeBase(store, result.runId).coverageNotes();
+      expect(notes.length).toBeGreaterThan(0);
+      for (const note of notes) {
+        // Stating an absence — "their columns are not in this report" — is honest.
+        // Directing a reader to a listing is not the analysis's business: which
+        // sections exist belongs to whichever template renders the note.
+        expect(note.note).not.toMatch(/listed (only )?(under|below|above|in)\b|see the\b/i);
+      }
     } finally {
       store.close();
     }

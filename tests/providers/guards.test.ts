@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseSource } from "../../engine/text/ast.js";
-import { guardsIn } from "../../engine/providers/logic/provider.js";
+import { createLogicProvider, guardsIn } from "../../engine/providers/logic/provider.js";
 
 function guards(source: string, file = "svc.go") {
   const parsed = parseSource(file.endsWith(".go") ? "go" : "typescript", source);
@@ -274,5 +274,44 @@ describe("a branch that returns markup", () => {
 
     expect(messages).toContain("Exceeded the expect date by more than a month");
     expect(messages).not.toContain("text-nowrap text-danger");
+  });
+});
+
+describe("what the reader says it cannot do", () => {
+  /** The declared limits for the rule reader, which reach every report. */
+  function ruleLimits(): readonly string[] {
+    const declared = createLogicProvider()
+      .structuralCapabilities()
+      .declarations.find((capability) => capability.kind === "guard");
+    return declared?.limits ?? [];
+  }
+
+  it("declares that a templated message is quoted incompletely", () => {
+    // A real `WKL_Already_Exist` rule ships as `Already have a work log for`, and
+    // `entries[${i}].date must be YYYY-MM-DD` as `].date must be YYYY-MM-DD`. Left
+    // undeclared, a reader takes both for the whole sentence.
+    const limits = ruleLimits().join("\n");
+    expect(limits).toContain("template");
+    expect(limits).toContain("160");
+  });
+
+  it("declares that a prop stating a label is read as a rejection", () => {
+    // The trade for keeping the four rules WCP states in a tooltip's title.
+    expect(ruleLimits().join("\n")).toContain("props");
+  });
+
+  it("claims nothing about element text, which it never reads", () => {
+    // The limit said a rule stated as element text is read as a rejection, which
+    // invited a reader to discount valid rows for a class that cannot exist.
+    expect(ruleLimits().join("\n")).not.toContain("element text");
+    const found = guards(
+      `function f(p) {
+  if (p.x) {
+    return <span>Amount must be positive here</span>;
+  }
+}`,
+      "a.tsx",
+    );
+    expect(found).toEqual([]);
   });
 });
