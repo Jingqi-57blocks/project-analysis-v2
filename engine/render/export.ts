@@ -71,6 +71,8 @@ export interface ExportResult {
 /** What the sidebar needs from the manifest — nothing else is read. */
 interface ManifestNav {
   readonly frame?: Readonly<Record<string, string>>;
+  /** The language the document was prepared in, absent for English. */
+  readonly language?: string;
   readonly sections?: readonly {
     readonly id: string;
     readonly heading: string | null;
@@ -172,14 +174,18 @@ export function exportDocument(
       const markdown = retarget(raw, format);
       // A whole document navigates by its own headings; a split page needs
       // the sibling pages the markdown alone cannot know about.
+      // The page states the language it is written in, so a screen reader
+      // does not read a Chinese report aloud in English.
+      const language = manifest.language === undefined ? {} : { language: manifest.language };
       const options: RenderOptions =
         split && source !== "report.md"
           ? {
               contentsLabel,
+              ...language,
               nav: splitNav(manifest, sources, source, markdown),
               homeHref: source.startsWith("sections/") ? "../index.html" : "#",
             }
-          : { contentsLabel };
+          : { contentsLabel, ...language };
       writeFileSync(path, renderHtml(markdown, title, options), "utf8");
     }
     files.push(relative(runDir, path));

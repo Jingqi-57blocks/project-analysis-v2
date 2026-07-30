@@ -258,7 +258,15 @@ export function prepare(options: PrepareOptions): PrepareResult {
         sections: template.sections.map((section) => ({
           id: section.id,
           kind: section.kind,
-          heading: section.heading,
+          // The heading as the document renders it, not as the template
+          // declares it. Everything downstream matches a rendered heading
+          // against this: a split document names its files by looking a
+          // heading up here, and a sidebar labels itself from it. With the
+          // English heading stored, a translated report split into pages named
+          // every file after its Chinese heading while every link pointed at
+          // the section id, so no link in it resolved — and its navigation was
+          // in English.
+          heading: section.heading === null ? null : localizeHeading(frame, section.heading),
           optional: section.kind === "llm" && section.optional === true,
           omitted: omitted.includes(section.id),
         })),

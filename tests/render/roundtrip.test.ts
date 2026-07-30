@@ -543,6 +543,41 @@ describe("a format is a view, not a second document", () => {
     expect(index).not.toContain('href="sections/parts.md"');
   });
 
+  it("keeps a translated document's pages and its navigation in agreement", () => {
+    // A split report names each page by looking its heading up in the
+    // manifest. With the template's English heading stored there, a Chinese
+    // report named every page after its Chinese heading while every link
+    // pointed at the section id: no link in the document resolved, and the
+    // sidebar was in English beside Chinese pages.
+    const outDir = join(workDir, "out", "translated-split");
+    prepare({ template: loadTemplate(templateDir), kb, outDir, language: "zh-CN" });
+    writeFileSync(
+      join(outDir, "tasks", "_frame", "answer.md"),
+      JSON.stringify({ "heading:Parts": "组成部分", "heading:Intro": "简介", contents: "目录" }),
+    );
+    prepare({
+      template: loadTemplate(templateDir),
+      kb,
+      outDir,
+      language: "zh-CN",
+      preserveAnswers: true,
+    });
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "正文。");
+    writeAssembled(outDir, assemble(outDir), { split: true });
+    exportDocument(outDir, "html", "T");
+
+    const index = readFileSync(join(outDir, "html", "index.html"), "utf8");
+    // The page says what language it is in, so a screen reader does not read
+    // Chinese aloud in English.
+    expect(index).toContain('<html lang="zh-CN">');
+    // The sidebar is in the report's language...
+    expect(index).toContain("组成部分");
+    // ...and every link it offers resolves to a file that exists.
+    for (const href of [...index.matchAll(/href="(sections\/[^"#]+)"/g)].map((m) => m[1]!)) {
+      expect(existsSync(join(outDir, "html", href)), href).toBe(true);
+    }
+  });
+
   it("leaves a link that was not part of this document alone", () => {
     expect(retarget("[docs](https://example.com/a.md)", "html")).toBe(
       "[docs](https://example.com/a.md)",
