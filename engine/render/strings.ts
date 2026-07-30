@@ -68,6 +68,7 @@ export const FRAME_EN: Glossary = {
   "col-kind": "Kind",
   "col-detail": "Detail",
   "col-about": "About",
+  "every-root": "all parts",
   "col-cannot-establish": "What this analysis could not establish",
   "col-reader": "Reader",
   "col-where": "Where",

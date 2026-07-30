@@ -16,6 +16,7 @@ import type {
 } from "../kb/profiles.js";
 import { mapToMermaid } from "../flows/mermaid.js";
 import { isRealIntegration } from "../kb/hosts.js";
+import { EVERY_ROOT } from "../kb/coverage.js";
 import {
   FRAME_EN,
   note as localizeNote,
@@ -449,7 +450,12 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       parts.push(
         table(
           [t(f, "col-about"), t(f, "col-cannot-establish")],
-          notes.map((entry) => [entry.subject, localizeNote(f, entry.note)]),
+          notes.map((entry) => [
+            // The subject is `kind · where`, and `where` may be the engine's
+            // own word for "everywhere" rather than a list of root names.
+            entry.subject.replace(EVERY_ROOT, t(f, "every-root")),
+            localizeNote(f, entry.note),
+          ]),
         ),
       );
     }
