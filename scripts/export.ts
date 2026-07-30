@@ -65,9 +65,22 @@ function assertSafeOutput(kb: KnowledgeBase, outPath: string, store: ReturnType<
   );
 }
 
+/**
+ * The analyzed project's name, safe to use as a directory.
+ *
+ * Run ids alone made `reports/` unreadable — two runs of two projects were
+ * four opaque folders. The project name goes first, the run id under it.
+ */
+function projectSlug(kb: KnowledgeBase): string {
+  const name =
+    kb.runContext()?.projectName ?? kb.snapshot.workspacePath.split("/").filter(Boolean).pop() ?? "project";
+  return name.replaceAll(/[^\w.-]+/g, "-");
+}
+
 function exportJson(kb: KnowledgeBase, argv: readonly string[], store: ReturnType<typeof openStore>): number {
   const outPath = resolve(
-    flagValue(argv, "--out") ?? `./.analysis/export/${kb.snapshot.runId ?? kb.snapshot.id}.json`,
+    flagValue(argv, "--out") ??
+      `./.analysis/export/${projectSlug(kb)}/${kb.snapshot.runId ?? kb.snapshot.id}.json`,
   );
   assertSafeOutput(kb, outPath, store);
   mkdirSync(dirname(outPath), { recursive: true });
@@ -96,7 +109,7 @@ function exportDocumentType(
   // id, so a fresh run can never overwrite an older one.
   const workDir = resolve(
     flagValue(argv, "--work") ??
-      `./.analysis/work/${kb.snapshot.runId ?? kb.snapshot.id}/${template.id}${suffix === "" ? "" : `-${suffix}`}`,
+      `./.analysis/work/${projectSlug(kb)}/${kb.snapshot.runId ?? kb.snapshot.id}/${template.id}${suffix === "" ? "" : `-${suffix}`}`,
   );
   assertSafeOutput(kb, workDir, store);
 
@@ -159,7 +172,7 @@ function exportDocumentType(
   if (format !== undefined) {
     const target = resolve(
       out ??
-        `./.analysis/reports/${kb.snapshot.runId ?? kb.snapshot.id}/${template.id}${suffix === "" ? "" : `-${suffix}`}`,
+        `./.analysis/reports/${projectSlug(kb)}/${kb.snapshot.runId ?? kb.snapshot.id}/${template.id}${suffix === "" ? "" : `-${suffix}`}`,
     );
     assertSafeOutput(kb, target, store);
     const view = exportDocument(workDir, format, template.title, target);
