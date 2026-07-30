@@ -16,9 +16,32 @@ An issue is not finished when its tests pass. All eight steps, in order:
 1. **Branch from `feat/kb-truthfulness`**, named `57b-NNN`. Never from another
    issue branch. Confirm the base before cutting it.
 2. Code and tests. `pnpm test` and `pnpm run typecheck` green.
-3. **Adversarial review by a subagent** (Opus, xhigh). Fix P0 and P1 only.
-4. **Re-review after fixing.** Repeat until ACCEPT. Verify its findings by
-   execution rather than accepting or dismissing them on reading.
+3. **Review: one round, four readers in parallel.** Not sequential rounds. Six
+   rounds on 57B-278 found six blockers, and four of them were defects introduced
+   by the previous round's fix — a reviewer cannot find a defect that does not
+   exist yet, so rounds do not converge, they chase. Dispatch together:
+   - **claims** — enumerate every sentence the diff adds to a document, a note or
+     a declared limit, and verify each against the knowledge base and the target's
+     source. This class produced every blocker from rounds 3 to 6.
+   - **bounds** — every cap, slice and truncation: is it stated, is it counted, and
+     do two caps compound anywhere without saying so.
+   - **mutation** — revert each fix by hand and confirm a test fails; report every
+     survivor. Assertions that pass for the wrong reason count as survivors.
+   - **facts** — sample the rendered output against the target's real source, and
+     the change against git history and prior review comments on these files.
+
+   Opus, xhigh, and none of them filters by confidence: state the finding and its
+   evidence. Fix P0 and P1 only.
+
+   **Before dispatching, check my own new claims.** Render, and read every sentence
+   the change added against the data behind it. Twenty seconds against twenty
+   minutes, and it is the step whose absence caused four of the six rounds.
+
+4. **One re-review after fixing**, by the reader whose findings were fixed, and
+   only that one. Verify every finding by execution rather than accepting or
+   dismissing it on reading: several were right in substance and wrong in cause.
+   A third round means the fixes are introducing defects, which is a signal to
+   slow down rather than to review again.
 5. Commit subjects `57B-NNN: description`, whole-word identifiers, and never a
    deferred issue's identifier.
 6. **Open a PR into `feat/kb-truthfulness`.**
