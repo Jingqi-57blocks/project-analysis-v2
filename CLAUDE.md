@@ -4,6 +4,18 @@ Commands, layout and the target-derivation workflow are in [README.md](README.md
 This file is the part that is not obvious from reading the code: the rules that
 have already cost us something when broken.
 
+## Read the roadmap first
+
+[ROADMAP.md](ROADMAP.md) is the plan of record until 57B-267 and 57B-275 are
+Done. It holds the ordered queue, the phase each issue belongs to, and the
+**eight-step definition of done** — of which the last three are opening a PR,
+setting the Linear issue to In Review, and merging before the next issue starts.
+
+An issue is not finished when its tests pass. Skipping those three steps is how
+two issues came to share one branch with no PR and no Linear record. A change of
+priority changes what is worked on next; it never changes what is owed on work
+already in hand.
+
 ## Never change an analyzed project's content
 
 The rule is about the project's **own** files, and only those. Never edit,
