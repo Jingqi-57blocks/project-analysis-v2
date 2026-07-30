@@ -29,15 +29,6 @@ import type { StructuralProvider } from "../structural/provider.js";
 import type { DataModelProvider } from "../datamodel/types.js";
 import type { SemanticCollector } from "../semantic/types.js";
 
-/**
- * The reader that fills the code index, named here rather than at every caller.
- *
- * Keeps the vendor's name inside the one module that already knows it — a run
- * asking "did the indexer fail" should not have to know which tool the indexer
- * is.
- */
-export { PROVIDER_ID as CODE_INDEX_PROVIDER_ID } from "../providers/codegraph/provider.js";
-
 export interface ReaderSet {
   readonly structural: readonly StructuralProvider[];
   readonly data: readonly DataModelProvider[];

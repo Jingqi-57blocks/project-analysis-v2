@@ -439,6 +439,12 @@ describe("where the code index goes", () => {
     // On disk, not in the report. The report agreeing with the plan is what
     // 57B-253 already had while the index itself went somewhere useless, so the
     // filesystem is the only witness worth asking.
+    //
+    // Load-bearing beyond its title: `isIndexed` looks for the store by name, so
+    // if the vendor renames or shards it, presence goes false forever and the
+    // note starts claiming an absent index while symbols arrive. This assertion
+    // is what turns that into a red build. Do not weaken it to a skip when the
+    // indexer is missing — it is meant to fail there.
     write("alpha", "thing.py", "def thing():\n    return 1\n");
     const result = runAnalyze({ paths: [alphaPath], dbPath });
 

@@ -44,10 +44,11 @@ export interface DeriveInput {
   /**
    * Whether one is actually there, checked after extraction.
    *
-   * Absent leaves the note reading as a presence, so a caller that does not
-   * check is not made to announce a missing index on no evidence.
+   * Presence, not authorship — the distinction that produced a false note twice
+   * on the way here. Absent leaves the note reading as a presence, so a caller
+   * that does not check is not made to announce a missing index on no evidence.
    */
-  readonly codeIndexWritten?: boolean | undefined;
+  readonly codeIndexPresent?: boolean | undefined;
 }
 
 export interface Derived {
@@ -128,8 +129,8 @@ export function derive(input: DeriveInput): Derived {
     notes.push({
       subject: "code-index",
       note:
-        input.codeIndexWritten === false
-          ? `no code index is present at ${codeIndexArtifact(input.codeIndexPath)}, which is where this run would have built one — the indexer did not produce it, and the extraction failures say why. Nothing was written near the project`
+        input.codeIndexPresent === false
+          ? `no code index is present at ${codeIndexArtifact(input.codeIndexPath)}, which is where this run would have built one — so the symbols an index supplies are missing from this analysis. Any failure the indexer reported is in the extraction failures for this run`
           : `a code index is present at ${codeIndexArtifact(input.codeIndexPath)}, the directory holding the analyzed roots — the only thing this analysis writes anywhere near the project. Its location is not configurable: the indexer stores its database inside whatever it indexes, so an index of this code can only live in a directory containing it. --no-code-index skips it entirely`,
     });
   } else if (input.codeIndexPath === null) {
