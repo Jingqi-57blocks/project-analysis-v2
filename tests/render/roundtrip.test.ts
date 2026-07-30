@@ -17,9 +17,16 @@ import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkr
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
 import { createSqlSchemaProvider } from "../../engine/datamodel/sql.js";
 import { createDocumentationCollector } from "../../engine/collectors/documentation.js";
+import { createSourceFileProvider } from "../../engine/providers/sourcefiles/provider.js";
+import { createManifestProvider } from "../../engine/providers/manifests/provider.js";
 
 const READERS = {
-  structural: [createFrameworkRoutesProvider(), createLogicProvider()],
+  structural: [
+    createSourceFileProvider(),
+    createManifestProvider(),
+    createFrameworkRoutesProvider(),
+    createLogicProvider(),
+  ],
   data: [createSqlSchemaProvider()],
   collectors: [createDocumentationCollector()],
 };
@@ -697,5 +704,119 @@ describe("rebuilding one section", () => {
         only: "intro",
       }),
     ).toThrow(/Prepare it once/);
+  });
+});
+
+describe("what was analyzed reaches the report", () => {
+  /** A document made of the three sections these fragments fill. */
+  function coverageDoc(name: string): string {
+    const outDir = join(workDir, "out", name);
+    prepare({
+      template: parseTemplate(
+        JSON.stringify({
+          id: "cov",
+          title: "$project",
+          params: [],
+          sections: [
+            {
+              id: "repositories",
+              kind: "code",
+              heading: "Repositories",
+              fragment: "repositories",
+              requires: ["repositories"],
+              omitWhenEmpty: true,
+            },
+            {
+              id: "dimensions",
+              kind: "code",
+              heading: "What Was Looked For",
+              fragment: "analysis-dimensions",
+              requires: ["analysis-dimensions"],
+              omitWhenEmpty: true,
+            },
+            {
+              id: "flows",
+              kind: "code",
+              heading: "Business Flow Coverage",
+              fragment: "flow-coverage",
+              requires: ["flow-coverage"],
+              omitWhenEmpty: true,
+            },
+          ],
+        }),
+        templateDir,
+      ),
+      kb,
+      outDir,
+    });
+    return readFileSync(join(outDir, "report.partial.md"), "utf8");
+  }
+
+  it("names every repository, with what was read of it as a proportion", () => {
+    const report = coverageDoc("repos");
+    expect(report).toContain("## Repositories");
+    expect(report).toContain("| svc |");
+    // A proportion, never a bare count: `6 of 8 (75%)`.
+    expect(report).toMatch(/\| \d+ of \d+ \(\d+%\) \|/);
+  });
+
+  it("lists the fact kinds that were read, and the ones nobody looked for", () => {
+    const report = coverageDoc("dimensions");
+    expect(report).toContain("| route |");
+    // No reader in this set supplies test relations, and saying so is the
+    // difference between "the project has no tests" and "nothing looked".
+    expect(report).toContain("Not looked for in this run");
+    expect(report).toContain("- test-relation");
+  });
+
+  it("measures each capability's flows where a reader meets the diagrams", () => {
+    const report = coverageDoc("flows");
+    if (kb.features().length === 0) return;
+    expect(report).toContain("## Business Flow Coverage");
+    expect(report).toMatch(/\| Leave \| \d+ of \d+/);
+  });
+
+  it("says a version is a range rather than passing it off as installed", () => {
+    // The fixture's go.mod pins exactly, and nothing else here has a lockfile,
+    // so both states must be distinguishable in one report.
+    const report = coverageDoc("versions");
+    const stack = report.split("\n").find((line) => line.startsWith("- **svc**"));
+    expect(stack, "the repository's stack line must be written").toBeDefined();
+    expect(stack).toContain("github.com/gin-gonic/gin v1.9.1");
+    expect(stack).not.toContain("v1.9.1✱");
+  });
+
+  it("carries the new labels into a translated report", () => {
+    // Every label these sections add is a frame key, so a Chinese export
+    // translates them without a dictionary in the engine.
+    const outDir = join(workDir, "out", "repos-zh");
+    prepare({
+      template: parseTemplate(
+        JSON.stringify({
+          id: "cov",
+          title: "$project",
+          params: [],
+          sections: [
+            {
+              id: "repositories",
+              kind: "code",
+              heading: "Repositories",
+              fragment: "repositories",
+              requires: ["repositories"],
+            },
+          ],
+        }),
+        templateDir,
+      ),
+      kb,
+      outDir,
+      language: "zh-CN",
+    });
+
+    const frame = JSON.parse(
+      readFileSync(join(outDir, "tasks", "_frame", "data.json"), "utf8"),
+    ) as Record<string, string>;
+    expect(Object.keys(frame)).toContain("col-repository");
+    expect(Object.keys(frame)).toContain("role-serves-http");
   });
 });

@@ -11,12 +11,43 @@
       "requires": [
         "run-context",
         "signals",
-        "coverage-notes"
+        "coverage-notes",
+        "repositories"
       ],
       "contract": {
         "maxWords": 600,
         "maxHeadingLevel": 3
       }
+    },
+    {
+      "id": "repositories",
+      "kind": "code",
+      "heading": "Coverage by Repository",
+      "fragment": "repositories",
+      "requires": [
+        "repositories"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "dimensions",
+      "kind": "code",
+      "heading": "What Was Looked For",
+      "fragment": "analysis-dimensions",
+      "requires": [
+        "analysis-dimensions"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "flows",
+      "kind": "code",
+      "heading": "Business Flow Coverage",
+      "fragment": "flow-coverage",
+      "requires": [
+        "flow-coverage"
+      ],
+      "omitWhenEmpty": true
     },
     {
       "id": "map",

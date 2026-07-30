@@ -7,8 +7,13 @@
  * mean is an `llm` section with a prompt someone can edit.
  */
 
-import type { KnowledgeBase, Coverage } from "../kb/query.js";
+import type { KnowledgeBase, Coverage, DimensionCoverage } from "../kb/query.js";
 import type { CoverageNote, FeatureFact, MapEdge } from "../kb/facts.js";
+import type {
+  FeatureFlowCoverage,
+  RepositoryProfile,
+  StackEntry,
+} from "../kb/profiles.js";
 import { mapToMermaid } from "../flows/mermaid.js";
 import { isRealIntegration } from "../kb/hosts.js";
 import { FRAME_EN, t, type Glossary } from "./strings.js";
@@ -95,7 +100,208 @@ function coverageLine(coverage: Coverage | undefined, subject: string): string {
         reasons.map((reason) => `- ${reason}`).join("\n");
 }
 
+/** `6 of 8 (75%)`, or `0 of 0` where a percentage would divide by nothing. */
+function share(frame: Glossary, part: number, whole: number): string {
+  return whole === 0
+    ? t(frame, "of-total", part, whole)
+    : t(frame, "of-total-percent", part, whole, Math.round((part / whole) * 100));
+}
+
+/**
+ * `react 18.3.1`, or `react ^18.0.0✱` for a range.
+ *
+ * The mark rather than a word per entry: a stack line carries a dozen of
+ * these, and a parenthesis on each would bury the versions themselves.
+ */
+function versionOf(entry: StackEntry): string {
+  if (entry.version === null) return entry.name;
+  return `${entry.name} ${entry.version}${entry.resolved ? "" : "✱"}`;
+}
+
 const FRAGMENTS: Readonly<Record<string, Fragment>> = {
+
+  /**
+   * What was analyzed: one row per repository, then what each is built with.
+   *
+   * The table holds what is comparable across repositories; the stack is a
+   * line of its own because a dozen packages with versions does not fit a
+   * cell a reader can scan.
+   */
+  repositories: (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const profiles = pick<readonly RepositoryProfile[]>(input, "repositories") ?? [];
+    if (profiles.length === 0) return "";
+
+    const rows = profiles.map((profile) => [
+      profile.rootName,
+      profile.roles.length === 0
+        ? t(f, "role-none")
+        : profile.roles.map((role) => t(f, `role-${role}`)).join(" · "),
+      profile.languages
+        .slice(0, 3)
+        .map((language) => `${language.name} ${language.files}`)
+        .join(", "),
+      share(f, profile.filesWithFacts, profile.codeFiles),
+      profile.endpointCount === 0
+        ? null
+        : share(f, profile.tracedEndpointCount, profile.endpointCount),
+      profile.screenCount === 0 ? null : profile.screenCount,
+      profile.testCount === 0 ? null : profile.testCount,
+    ]);
+
+    const parts = [
+      table(
+        [
+          t(f, "col-repository"),
+          t(f, "col-does"),
+          t(f, "col-languages"),
+          t(f, "col-files-read"),
+          t(f, "col-endpoints-traced"),
+          t(f, "col-screens"),
+          t(f, "col-tests"),
+        ],
+        rows,
+      ),
+    ];
+
+    const stacks = profiles
+      .filter((profile) => profile.platforms.length > 0 || profile.stack.length > 0)
+      .map((profile) => {
+        const named = [...profile.platforms, ...profile.stack].map(versionOf).join(" · ");
+        const counted = t(
+          f,
+          "stack-and-more",
+          profile.directDependencies,
+          profile.dependenciesWithExactVersion,
+        );
+        return `- ${t(f, "stack-line", profile.rootName, `${named} (${counted})`)}`;
+      });
+    if (stacks.length > 0) parts.push(stacks.join("\n"));
+
+    const anyRange = profiles.some((profile) =>
+      [...profile.platforms, ...profile.stack].some(
+        (entry) => entry.version !== null && !entry.resolved,
+      ),
+    );
+    if (anyRange) parts.push(t(f, "range-marked"));
+
+    return parts.filter((part) => part !== "").join("\n\n");
+  },
+
+  /**
+   * Which kinds of fact this run looked for, and what each yielded where.
+   *
+   * The honest companion to a coverage percentage: a reader who can see that
+   * call edges were never read knows why a trace stops, instead of concluding
+   * the code has no calls.
+   */
+  "analysis-dimensions": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const dimensions = pick<readonly DimensionCoverage[]>(input, "analysis-dimensions") ?? [];
+    if (dimensions.length === 0) return "";
+
+    const roots = dimensions[0]!.byRoot.map((entry) => entry.rootName);
+    const supplied = [...dimensions]
+      .filter((dimension) => dimension.records > 0)
+      .sort((a, b) => b.records - a.records);
+
+    const parts = [
+      table(
+        [t(f, "col-fact"), t(f, "col-total"), ...roots],
+        supplied.map((dimension) => [
+          dimension.kind,
+          dimension.records,
+          ...dimension.byRoot.map((entry) => (entry.records === 0 ? null : entry.records)),
+        ]),
+      ),
+      t(f, "dimensions-note"),
+    ];
+
+    const neverAsked = dimensions.filter((dimension) => !dimension.attempted);
+    if (neverAsked.length > 0) {
+      parts.push(
+        `${t(f, "not-looked-for")}\n\n` +
+          neverAsked.map((dimension) => `- ${dimension.kind}`).join("\n"),
+      );
+    }
+
+    // Looked for and empty is a third state, and the reason a reader needs is
+    // the one its readers already stated.
+    const emptyWithReason = dimensions
+      .filter((dimension) => dimension.attempted && dimension.records === 0)
+      .map((dimension) => ({
+        kind: dimension.kind,
+        reasons: [
+          ...new Set(
+            dimension.byRoot
+              .map((entry) => entry.reason)
+              .filter((reason): reason is string => reason !== null),
+          ),
+        ],
+      }));
+    if (emptyWithReason.length > 0) {
+      parts.push(
+        `${t(f, "looked-found-none")}\n\n` +
+          emptyWithReason
+            .map((entry) =>
+              entry.reasons.length === 0
+                ? `- ${entry.kind}`
+                : `- ${entry.kind} — ${entry.reasons.join("; ")}`,
+            )
+            .join("\n"),
+      );
+    }
+
+    return parts.filter((part) => part !== "").join("\n\n");
+  },
+
+  /** How much of each capability's flows was followed, across the project. */
+  "flow-coverage": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const coverage = pick<readonly FeatureFlowCoverage[]>(input, "flow-coverage") ?? [];
+    if (coverage.length === 0) return "";
+
+    return table(
+      [t(f, "col-capability"), t(f, "col-flows-traced"), t(f, "col-steps-traced")],
+      coverage.map((entry) => [
+        entry.featureName,
+        share(f, entry.fullyTracedFlows, entry.flowCount),
+        share(f, entry.resolvedSteps, entry.steps),
+      ]),
+    );
+  },
+
+  /**
+   * The same, flow by flow, for one capability.
+   *
+   * Beside the diagrams it belongs to: a reader weighing a flowchart needs to
+   * know it was followed to the end, and the least-complete flows come first
+   * because they are the ones a claim should not rest on.
+   */
+  "capability-flow-coverage": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const coverage = pick<FeatureFlowCoverage | null>(input, "feature-flow-coverage");
+    if (!coverage || coverage.flows.length === 0) return "";
+
+    const shown = coverage.flows.slice(0, 40);
+    const parts = [
+      table(
+        [t(f, "col-flow"), t(f, "col-steps-traced"), t(f, "col-stops-at")],
+        shown.map((flow) => [
+          `${flow.method ?? ""} ${flow.path}`.trim(),
+          share(f, flow.resolvedSteps, flow.steps),
+          flow.unresolvedReasons.length === 0 ? null : flow.unresolvedReasons.join("; "),
+        ]),
+      ),
+    ];
+
+    if (coverage.flows.length > shown.length) {
+      parts.push(t(f, "and-more", coverage.flows.length - shown.length));
+    }
+    if (coverage.fullyTracedFlows === 0) parts.push(t(f, "no-flows-traced"));
+
+    return parts.filter((part) => part !== "").join("\n\n");
+  },
 
   "project-map": (input) => {
     const f = input.frame ?? FRAME_EN;

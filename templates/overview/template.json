@@ -22,6 +22,16 @@
       }
     },
     {
+      "id": "repositories",
+      "kind": "code",
+      "heading": "Repositories",
+      "fragment": "repositories",
+      "requires": [
+        "repositories"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
       "id": "map",
       "kind": "code",
       "heading": "Architecture",

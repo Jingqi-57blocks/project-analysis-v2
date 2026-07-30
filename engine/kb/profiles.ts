@@ -88,6 +88,20 @@ export const STACK_LIMIT = 12;
 
 const STACK_SCOPES: ReadonlySet<string> = new Set(["runtime", "development", "peer"]);
 
+/**
+ * The tie-break when import evidence is absent or equal.
+ *
+ * What the product needs to run comes before what its authors need to build
+ * it. Without this, a repository whose imports no reader could extract ranks
+ * its stack alphabetically, and a list opening with three eslint plugins
+ * describes the toolchain rather than the product.
+ */
+function scopeRank(scope: string): number {
+  if (scope === "runtime") return 0;
+  if (scope === "peer") return 1;
+  return 2;
+}
+
 function countBy<T>(items: readonly T[], key: (item: T) => string | null): Map<string, number> {
   const counts = new Map<string, number>();
   for (const item of items) {
@@ -172,7 +186,9 @@ function stackFor(
     .filter((dependency) => !languageNames.has(dependency.name.toLowerCase()))
     .sort((a, b) => {
       const byImports = (importCounts.get(b.name) ?? 0) - (importCounts.get(a.name) ?? 0);
-      return byImports !== 0 ? byImports : a.name.localeCompare(b.name);
+      if (byImports !== 0) return byImports;
+      const byScope = scopeRank(a.scope) - scopeRank(b.scope);
+      return byScope !== 0 ? byScope : a.name.localeCompare(b.name);
     });
 
   return [...named, ...rest]

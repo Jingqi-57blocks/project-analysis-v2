@@ -325,3 +325,22 @@ describe("how much of a flow was followed", () => {
     expect(flowCoverage([])).toEqual([]);
   });
 });
+
+describe("ordering a stack when there is no import evidence", () => {
+  it("puts what the product runs on before what its authors build it with", () => {
+    // A repository whose imports no reader could extract used to rank its
+    // stack alphabetically, so a list of eslint plugins described the
+    // toolchain rather than the product.
+    const profile = repositoryProfiles(
+      input({
+        dependencies: [
+          dependency("svc", "eslint", { scope: "development" }),
+          dependency("svc", "zod"),
+        ],
+        imports: [],
+      }),
+    )[0]!;
+
+    expect(profile.stack.map((entry) => entry.name)).toEqual(["zod", "eslint"]);
+  });
+});

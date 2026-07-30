@@ -70,6 +70,16 @@
       "omitWhenEmpty": true
     },
     {
+      "id": "flow-coverage",
+      "kind": "code",
+      "heading": "Trace Coverage",
+      "fragment": "capability-flow-coverage",
+      "requires": [
+        "feature-flow-coverage:$capability"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
       "id": "rules",
       "kind": "llm",
       "heading": "Business Rules",

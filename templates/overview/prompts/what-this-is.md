@@ -6,7 +6,7 @@ You are writing the opening of a report for someone who has never seen this code
 
 The way one sentence explains Amazon: *a marketplace where sellers list products and buyers order them, with payment and delivery handled in between.* One sentence, no jargon, no hedging. If the evidence will not support a sentence that confident, write the most confident one it does support and say what is missing.
 
-Then a short paragraph or two: what the system is for, who it serves, and roughly its scale — one honest number about size sets expectations before anything else. Say how it is built at a glance: how many parts, what kinds (a web front end, backend services, an identity provider), and the languages, from `run-context` and `map-edges`.
+Then a short paragraph or two: what the system is for, who it serves, and roughly its scale — one honest number about size sets expectations before anything else. Say how it is built at a glance: how many parts, what kinds (a web front end, backend services, an identity provider), and the languages, from `run-context` and `map-edges`. A section immediately after this one tabulates every repository with its languages, versions and coverage, so name the shape and leave the inventory to it.
 
 ## Then name the one or two things that define it
 
