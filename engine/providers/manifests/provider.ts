@@ -147,14 +147,18 @@ function readLockfiles(root: StructuralRootInput, failures: ExtractionFailure[])
 
     try {
       const versions = reader.read(readFileSync(join(root.path, relPath), "utf8"));
-      const directory = dirname(relPath);
-      const forDirectory = index.get(directory) ?? new Map<string, Set<string>>();
-      for (const [name, version] of versions) {
+      const lockDirectory = dirname(relPath);
+      for (const [name, version, installedIn] of versions) {
+        // A workspace member's own copy is filed under that member, so a
+        // manifest there finds it before the root's hoisted version.
+        const directory =
+          installedIn === undefined ? lockDirectory : join(lockDirectory, installedIn);
+        const forDirectory = index.get(directory) ?? new Map<string, Set<string>>();
         const seen = forDirectory.get(name) ?? new Set<string>();
         seen.add(version);
         forDirectory.set(name, seen);
+        index.set(directory, forDirectory);
       }
-      index.set(directory, forDirectory);
     } catch (error) {
       failures.push({
         scope: relPath,
@@ -240,8 +244,11 @@ function collect(root: StructuralRootInput): Collected {
           stated !== null && agreesWithConstraint(dependency.versionConstraint, stated)
             ? stated
             : null;
-        const resolvedVersion =
-          fromLock ?? pinnedByManifest(reader.ecosystem, dependency.versionConstraint);
+        // An exact pin in the manifest wins. A stale go.sum holding one older
+        // version answered before go.mod's own `v1.9.1`, and no lockfile can be
+        // more authoritative than a manifest that names the version outright.
+        const pinned = pinnedByManifest(reader.ecosystem, dependency.versionConstraint);
+        const resolvedVersion = pinned ?? fromLock;
         const counter = resolvedVersion === null ? unresolved : resolvedCounts;
         counter.set(reader.ecosystem, (counter.get(reader.ecosystem) ?? 0) + 1);
 

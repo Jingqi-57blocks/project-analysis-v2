@@ -35,7 +35,16 @@ function versionOf(files: readonly string[], name: string): string | null {
  * twice; `versionsOf` is how a test asks about that deliberately.
  */
 function read(filename: string, content: string): ReadonlyMap<string, string> {
-  return new Map(lockfileReaderFor(filename)!.read(content));
+  return new Map(
+    lockfileReaderFor(filename)!
+      .read(content)
+      .map(([name, version]) => [name, version] as const),
+  );
+}
+
+/** Every entry a reader reported, with the directory it filed each under. */
+function entries(filename: string, content: string) {
+  return lockfileReaderFor(filename)!.read(content);
 }
 
 /** Every version a reader reported for one package, in order. */
@@ -212,23 +221,29 @@ describe("reading an exact version out of a lockfile", () => {
     expect(versions.get("left-pad")).toBe("1.2.3");
   });
 
-  it("does not read a workspace's own directory as a package", () => {
-    // Its key is a path, not an install path, and reading it put
-    // "packages/app" where a package name belongs.
-    const versions = read(
+  it("tells a workspace member's own copy from a copy installed for a dependent", () => {
+    // `packages/app` is a directory, not an install path — reading it put a
+    // path where a package name belongs. `packages/app/node_modules/x` is the
+    // member's own copy, kept and filed under the member so a manifest there
+    // finds it. `node_modules/a/node_modules/x` is a copy for `a`, and reading
+    // it let whichever came first answer for x.
+    const found = entries(
       "package-lock.json",
       JSON.stringify({
         packages: {
           "": { name: "root" },
           "packages/app": { name: "app", version: "1.0.0" },
           "node_modules/lodash": { version: "4.17.21" },
-          // A nested copy at another version does not displace the hoisted one.
           "packages/app/node_modules/lodash": { version: "3.10.1" },
+          "node_modules/legacy/node_modules/lodash": { version: "2.4.2" },
         },
       }),
     );
-    expect([...versions.keys()]).toEqual(["lodash"]);
-    expect(versions.get("lodash")).toBe("4.17.21");
+
+    expect(found).toEqual([
+      ["lodash", "4.17.21"],
+      ["lodash", "3.10.1", "packages/app"],
+    ]);
   });
 
   it("reads pnpm's keys in both the v6 and v9 spellings, dropping peer suffixes", () => {
@@ -355,6 +370,35 @@ describe("what the provider does with those versions", () => {
     write("yarn.lock", ['redux@^4.0.0:', '  version "4.2.1"'].join("\n"));
 
     expect(versionOf(["package.json", "yarn.lock"], "redux")).toBeNull();
+  });
+
+  it("gives a workspace member its own version, not the root's", () => {
+    // The root hoists 4.16.4 for one member; this member needs ^4.18.0 and npm
+    // nests its copy. Reading only the top level published 4.16.4 as what the
+    // member runs, and the major-only constraint check waved it through.
+    write("packages/b/package.json", JSON.stringify({ dependencies: { express: "^4.18.0" } }));
+    write(
+      "package-lock.json",
+      JSON.stringify({
+        packages: {
+          "node_modules/express": { version: "4.16.4" },
+          "packages/b/node_modules/express": { version: "4.18.2" },
+        },
+      }),
+    );
+
+    expect(versionOf(["packages/b/package.json", "package-lock.json"], "express")).toBe("4.18.2");
+  });
+
+  it("prefers the manifest's exact pin over a stale lockfile", () => {
+    // A go.sum holding one older version answered before go.mod's own pin, and
+    // Go majors are nearly always 0 or 1, so the constraint check could not see
+    // the difference. No lockfile is more authoritative than a manifest that
+    // names the version outright.
+    write("go.mod", "module m\n\nrequire golang.org/x/sys v0.15.0\n");
+    write("go.sum", "golang.org/x/sys v0.1.0 h1:stale=\n");
+
+    expect(versionOf(["go.mod", "go.sum"], "golang.org/x/sys")).toBe("v0.15.0");
   });
 
   it("keeps a version a loose constraint admits", () => {

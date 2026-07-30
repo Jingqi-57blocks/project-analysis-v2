@@ -29,7 +29,15 @@ import type { Ecosystem } from "../../structural/dependencies.js";
  * A list rather than a map: two entries for one name is the information that
  * matters, and a map is where that information used to be lost.
  */
-export type ResolvedVersions = readonly (readonly [name: string, version: string])[];
+export type ResolvedVersions = readonly (readonly [
+  name: string,
+  version: string,
+  /**
+   * Where this copy is installed, relative to the lockfile — set only for a
+   * workspace member's own copy of a package. Absent means the top level.
+   */
+  directory?: string,
+])[];
 
 export interface LockfileReader {
   readonly ecosystem: Ecosystem;
@@ -70,34 +78,39 @@ function isNotAReleaseSource(resolved: string): boolean {
 }
 
 /**
- * npm's install tree, read at the top level only.
+ * npm's install tree, read at the top level and at each workspace member.
  *
- * A key like `node_modules/a/node_modules/b` is a copy installed *for* another
- * package, and it can name a package the project also depends on directly at a
- * different version. Iteration order put whichever came first into the answer:
- * on wcp-ui that reported `redux` 4.2.1 where 5.0.1 is installed. Only a
- * single-package key — `node_modules/pkg` or `node_modules/@scope/pkg` — states
- * what the project itself gets.
+ * Two kinds of nested key look alike and mean opposite things.
+ * `node_modules/a/node_modules/b` is a copy installed *for* package `a`, and
+ * reading it let whichever came first answer for `b` — on wcp-ui that reported
+ * `redux` 4.2.1 where 5.0.1 is installed. But `packages/b/node_modules/x` is
+ * workspace member `b`'s own copy, installed there precisely because it needs a
+ * different version from the hoisted one; dropping it published the root's
+ * version as the member's. It is filed under its directory, and the lookup's
+ * walk outwards from a manifest finds the nearest copy first.
  */
 function npmLock(content: string): ResolvedVersions {
   const parsed: unknown = JSON.parse(content);
   if (typeof parsed !== "object" || parsed === null) return [];
   const record = parsed as Record<string, unknown>;
-  const found: [string, string][] = [];
+  const found: ([string, string] | [string, string, string])[] = [];
 
-  const HOISTED = /^node_modules\/((?:@[^/]+\/)?[^/]+)$/;
+  const INSTALL = /^(?:(.+)\/)?node_modules\/((?:@[^/]+\/)?[^/]+)$/;
   for (const [path, value] of Object.entries(asObject(record["packages"]))) {
-    const hoisted = HOISTED.exec(path);
-    if (hoisted === null) continue;
+    const install = INSTALL.exec(path);
+    if (install === null) continue;
+    const [, directory, name] = install;
+    // A prefix that is itself inside node_modules is a copy for a dependent.
+    if (directory !== undefined && directory.includes("node_modules")) continue;
     const entry = asObject(value);
     const version = entry["version"];
     const resolved = entry["resolved"];
-    if (typeof version !== "string") continue;
+    if (typeof version !== "string" || name === undefined) continue;
     // `resolved` names where it came from; a git or file source makes the
     // version field a placeholder rather than a release.
     if (typeof resolved === "string" && isNotAReleaseSource(resolved)) continue;
     if (entry["link"] === true) continue;
-    found.push([hoisted[1]!, version]);
+    found.push(directory === undefined ? [name, version] : [name, version, directory]);
   }
 
   // Lockfile v1 has no `packages`, only a `dependencies` tree. Its top level is
