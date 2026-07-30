@@ -234,6 +234,8 @@ describe("notifications", () => {
     const calls = extract(["svc.go"]).records["notification-call"];
     expect(calls).toHaveLength(1);
     expect(calls[0]!.channel).toBe("unknown");
-    expect(calls[0]!.provenance.confidence).toBe("low");
+    const provenance = calls[0]!.provenance;
+    expect(provenance.resolutionClass).toBe("inferred");
+    expect("confidence" in provenance && provenance.confidence).toBe("low");
   });
 });

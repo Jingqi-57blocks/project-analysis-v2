@@ -189,6 +189,34 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       // "this capability touches forty things" and what was actually seen.
       parts.push(t(f, "further-nearby", nearby.length, readable(nearby)));
     }
+
+    // The linkage a reader needs before changing this data: which of these
+    // records other capabilities also touch. Computed from the same tables
+    // the features already claim, so it introduces no new evidence — only
+    // the join nobody would do by hand.
+    const others = (pick<readonly FeatureFact[]>(input, "features") ?? []).filter(
+      (candidate) => candidate.id !== detail.feature.id,
+    );
+    if (others.length > 0 && tables.length > 0) {
+      const shared = tables
+        .map((table) => ({
+          table,
+          by: others
+            .filter((candidate) => candidate.tables.includes(table))
+            .map((candidate) => candidate.name)
+            .sort(),
+        }))
+        .filter((entry) => entry.by.length > 0);
+      if (shared.length > 0) {
+        const listed = shared
+          .slice(0, 8)
+          .map((entry) => `${readable([entry.table])} (${entry.by.join(", ")})`)
+          .join("; ");
+        const suffix =
+          shared.length > 8 ? `; ${t(f, "and-more", shared.length - 8)}` : "";
+        parts.push(t(f, "shared-tables", `${listed}${suffix}`));
+      }
+    }
     return parts.join("\n\n");
   },
 

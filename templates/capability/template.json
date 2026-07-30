@@ -1,23 +1,37 @@
 {
   "id": "capability",
   "title": "$capability",
-  "params": ["capability"],
+  "params": [
+    "capability"
+  ],
   "sections": [
     {
       "id": "what-this-is",
       "kind": "llm",
       "heading": "What this is",
       "prompt": "prompts/what-this-is.md",
-      "requires": ["feature-detail:$capability", "feature-flows:$capability"],
-      "contract": { "maxWords": 600, "maxHeadingLevel": 3 }
+      "requires": [
+        "feature-detail:$capability",
+        "feature-flows:$capability"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      }
     },
     {
       "id": "where-to-find",
       "kind": "llm",
       "heading": "Where to find it",
       "prompt": "prompts/where-to-find.md",
-      "requires": ["feature-screens:$capability", "run-context"],
-      "contract": { "maxWords": 400, "maxHeadingLevel": 3 },
+      "requires": [
+        "feature-screens:$capability",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 400,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
@@ -31,7 +45,10 @@
         "feature-rules:$capability",
         "feature-screens:$capability"
       ],
-      "contract": { "maxWords": 800, "maxHeadingLevel": 3 },
+      "contract": {
+        "maxWords": 800,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
@@ -47,7 +64,9 @@
         "feature-screens:$capability",
         "value-sets"
       ],
-      "contract": { "maxHeadingLevel": 3 },
+      "contract": {
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
@@ -55,8 +74,14 @@
       "kind": "llm",
       "heading": "The rules it enforces",
       "prompt": "prompts/rules.md",
-      "requires": ["feature-rules:$capability", "feature-guards:$capability"],
-      "contract": { "maxWords": 800, "maxHeadingLevel": 3 },
+      "requires": [
+        "feature-rules:$capability",
+        "feature-guards:$capability"
+      ],
+      "contract": {
+        "maxWords": 800,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
@@ -69,7 +94,10 @@
         "feature-guards:$capability",
         "feature-decisions:$capability"
       ],
-      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
@@ -77,8 +105,13 @@
       "kind": "llm",
       "heading": "Who can do what",
       "prompt": "prompts/who-can.md",
-      "requires": ["feature-permissions:$capability"],
-      "contract": { "maxWords": 500, "maxHeadingLevel": 3 },
+      "requires": [
+        "feature-permissions:$capability"
+      ],
+      "contract": {
+        "maxWords": 500,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
@@ -86,8 +119,14 @@
       "kind": "llm",
       "heading": "What happens automatically",
       "prompt": "prompts/automatic.md",
-      "requires": ["feature-scheduled:$capability", "feature-notifications:$capability"],
-      "contract": { "maxWords": 500, "maxHeadingLevel": 3 },
+      "requires": [
+        "feature-scheduled:$capability",
+        "feature-notifications:$capability"
+      ],
+      "contract": {
+        "maxWords": 500,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
@@ -95,7 +134,11 @@
       "kind": "code",
       "heading": "What it remembers",
       "fragment": "capability-data",
-      "requires": ["feature-detail:$capability", "coverage:entity"],
+      "requires": [
+        "feature-detail:$capability",
+        "features",
+        "coverage:entity"
+      ],
       "omitWhenEmpty": true
     },
     {
@@ -103,15 +146,24 @@
       "kind": "llm",
       "heading": "What is wrong with it",
       "prompt": "prompts/issues.md",
-      "requires": ["feature-findings-for:$capability", "feature-rules:$capability"],
-      "contract": { "maxWords": 600, "maxHeadingLevel": 3 }
+      "requires": [
+        "feature-findings-for:$capability",
+        "feature-rules:$capability"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      }
     },
     {
       "id": "limitations",
       "kind": "code",
       "heading": "What this report cannot tell you",
       "fragment": "limitations",
-      "requires": ["coverage-notes", "extraction-failures"]
+      "requires": [
+        "coverage-notes",
+        "extraction-failures"
+      ]
     }
   ]
 }

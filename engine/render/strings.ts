@@ -46,6 +46,7 @@ export const FRAME_EN: Glossary = {
   "stops-having-used": "stops, having used {0}",
 
   "own-handling": "Its own handling was observed to read or write: {0}.",
+  "shared-tables": "Records this capability shares with others — a change to one is felt in both: {0}.",
   "further-nearby":
     "A further {0} kinds of record were touched elsewhere in the same code, so they may belong to this capability or to something beside it: {1}.",
 };
