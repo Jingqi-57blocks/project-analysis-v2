@@ -1,10 +1,18 @@
 /**
- * The entire CodeGraph surface this tool touches. If `grep -r codegraph engine/`
- * hits anything outside this directory, the boundary has leaked.
+ * The entire CodeGraph surface this tool touches.
  *
- * Queries go through the documented CLI. The index database inside
- * `.codegraph/` is never read — that store is theirs to change between
- * versions.
+ * Queries go through the documented CLI, and the index database is never opened
+ * — that store is theirs to change between versions. Its *name* is known here,
+ * because whether an index exists cannot be answered any other way: the
+ * directory is created before the tool decides whether to index, so testing for
+ * the directory answers yes to an empty shell. Knowing a filename is far weaker
+ * coupling than reading the file, and the alternative is a claim that is wrong.
+ *
+ * Two other modules legitimately name the vendor and no more should:
+ * `kb/build.ts` chooses which readers run and spells the disclosed path, and
+ * `artifacts.ts` accounts for what they leave on disk. Neither reads the store.
+ * `grep -rl codegraph engine/` outside this directory should return exactly
+ * those two — it once claimed to return none, while returning three.
  */
 
 import { execFileSync } from "node:child_process";
@@ -15,8 +23,19 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 /** The version this adapter was written and verified against. */
 export const VERIFIED_VERSION = "1.5.0";
 
-/** Where CodeGraph puts its index. Named here only to detect prior indexing — never opened. */
-const INDEX_DIRECTORY = ".codegraph";
+/** Where CodeGraph puts its index. Named for detection and disclosure — never opened. */
+export const INDEX_DIRECTORY = ".codegraph";
+
+/**
+ * The store inside it, whose presence is the only evidence an index exists.
+ *
+ * The directory alone proves nothing: a refused or crashed run leaves it holding
+ * telemetry, and `~/.codegraph` is where the tool installs itself. Worse, a shell
+ * is self-perpetuating — `ensureIndexed` sees the directory, chooses `index -q`
+ * over `init`, and that exits 0 having built nothing, so the run reports an
+ * index, supplies no symbols, and records no failure.
+ */
+const INDEX_STORE = "codegraph.db";
 
 /** Declared as a capability limit, so hitting it reports truncation rather than a partial whole. */
 export const NODE_LIMIT = 100_000;
@@ -210,7 +229,7 @@ function canonical(path: string): string {
 }
 
 export function isIndexed(rootPath: string): boolean {
-  return existsSync(join(rootPath, INDEX_DIRECTORY));
+  return existsSync(join(rootPath, INDEX_DIRECTORY, INDEX_STORE));
 }
 
 /**

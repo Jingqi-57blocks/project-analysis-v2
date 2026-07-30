@@ -8,12 +8,7 @@ import { beginSnapshot, publishOrRefuse, type SnapshotHandle } from "../snapshot
 import { walkRoot } from "../inventory/walk.js";
 import { recordInventory } from "../inventory/persist.js";
 import { runPreflight, requireAvailable, recordPreflight } from "../providers/index.js";
-import {
-  CODE_INDEX_PROVIDER_ID,
-  codeIndexLocation,
-  codeIndexPresent,
-  defaultReaders,
-} from "../kb/build.js";
+import { codeIndexLocation, codeIndexPresent, defaultReaders } from "../kb/build.js";
 import { extractRoot, type RootFacts } from "../kb/extract.js";
 import { derive } from "../kb/derive.js";
 import { recordDerived } from "../kb/persist.js";
@@ -81,24 +76,6 @@ export function assertOutsideRoots(
  * snapshot with `published_at` set. A run that throws at any point after that
  * simply leaves its own snapshot inert — the previous one is untouched.
  */
-/**
- * Whether the code-index reader failed on any root this run.
- *
- * Asked because the index directory existing proves nothing: the indexer creates
- * it before deciding whether to index, so a refused or crashed run leaves a
- * shell behind. What settles it is whether the reader that fills the directory
- * reported a failure.
- */
-function indexerFailed(rootFacts: readonly RootFacts[]): boolean {
-  return rootFacts.some((facts) =>
-    facts.contributions.some(
-      (entry) =>
-        entry.contribution.providerId === CODE_INDEX_PROVIDER_ID &&
-        entry.contribution.failures.length > 0,
-    ),
-  );
-}
-
 export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toISOString()): AnalysisResult {
   const timer = new PhaseTimer();
 
@@ -227,7 +204,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     // One answer, computed once from the reader's own outcome and reused by the
     // note and the returned result — so the terminal and the knowledge base can
     // never disagree about whether an index is there.
-    const indexPresent = codeIndexPresent(codeIndexPath, indexerFailed(rootFacts));
+    const indexPresent = codeIndexPresent(codeIndexPath);
 
     const derived = timer.time(
       "derive",

@@ -15,9 +15,12 @@
  * eventually disagree, and the failure would look like drift on one machine
  * and a missing file on another.
  *
- * This is the only place outside `providers/codegraph/` that names the vendor,
- * and it names it as data rather than behaviour. Anything else knowing about
- * CodeGraph would be a genuine boundary leak.
+ * One of two places outside `providers/codegraph/` that name the vendor, and the
+ * only one that names it as data rather than as a choice: this list is what the
+ * readers leave on disk. The other is `kb/build.ts`, which picks the reader that
+ * fills the index and spells the path a run discloses. A third module knowing
+ * about CodeGraph would be a genuine boundary leak — `grep -rl codegraph engine/`
+ * outside the adapter should return exactly these two.
  */
 export const ANALYSIS_ARTIFACT_DIRECTORIES: ReadonlySet<string> = new Set([".codegraph"]);
 

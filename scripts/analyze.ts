@@ -19,6 +19,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { codeIndexArtifact } from "../engine/kb/build.js";
 import { runAnalyze } from "../engine/run/analyze.js";
 
 const DEFAULT_DB_PATH = "./.analysis/kb.sqlite";
@@ -115,8 +116,8 @@ function main(argv: readonly string[]): number {
     result.codeIndexPath === null
       ? "  code index: none written"
       : result.codeIndexPresent
-        ? `  code index: ${result.codeIndexPath}/.codegraph — the only thing written near the source`
-        : `  code index: none at ${result.codeIndexPath}/.codegraph — the indexer did not produce one; nothing was written near the source`,
+        ? `  code index: ${codeIndexArtifact(result.codeIndexPath)} — the only thing written near the source`
+        : `  code index: none at ${codeIndexArtifact(result.codeIndexPath)} — the indexer did not produce one; nothing was written near the source`,
   );
 
   return 0;
