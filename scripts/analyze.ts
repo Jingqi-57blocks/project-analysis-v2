@@ -7,11 +7,11 @@
  * The knowledge base defaults to `./.analysis/kb.sqlite`, gitignored — never
  * point `--db` inside an analyzed target; targets stay read-only.
  *
- * One exception, and it is stated before every run rather than discovered
- * afterwards: the code indexer writes a cache into the directory it is
- * pointed at and offers no flag to relocate it. `--index-root` chooses a
- * different directory, at the cost of indexing only what is under it;
- * `--no-code-index` skips it and declares the missing symbols as a gap.
+ * One exception, reported when the run finishes and recorded in the knowledge
+ * base so every report states it too: the code indexer writes a cache into the
+ * directory it is pointed at. `--index-root` chooses a different directory, at
+ * the cost of indexing only what is under it; `--no-code-index` skips it and
+ * declares the missing symbols as a gap.
  */
 
 import { resolve } from "node:path";
