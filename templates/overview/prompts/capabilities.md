@@ -5,10 +5,10 @@ One line per capability. A reader should be able to run their eye down this list
 ## The shape of a line
 
 ```
-- **[Leave](capabilities/leave.md)** — staff request time off, a manager approves or rejects it, and the balance they have left is tracked.
+- **Leave** — staff request time off, a manager approves or rejects it, and the balance they have left is tracked.
 ```
 
-The name and the link exactly as `data.json` gives them — every capability carries a `name` and a `document` field, and the link must be the `document` value verbatim. A link you adjust is a link that does not resolve.
+The name in bold, exactly as `data.json` gives it. **No link** — a run exports the capability documents it was asked for, so a link written here would point at a page that may not exist beside this one; a dead link is worse than none. (Each capability's `document` field says where its page would live, for a pipeline that exports them all and adds the links itself.)
 
 Then a dash and one sentence saying what it is. Not what it contains: *"staff request time off and a manager approves"*, never *"27 endpoints across two services touching three tables"*. A reader who wanted counts would be reading the JSON.
 
