@@ -78,6 +78,21 @@ function openResultStore(): Store {
   return openStore(dbPath);
 }
 
+/** Symbols the run actually recorded, which is what an index either supplies or does not. */
+function symbolCount(snapshotId: number): number {
+  const store = openResultStore();
+  try {
+    return (
+      store.get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM structural_records WHERE snapshot_id = ? AND kind = 'symbol'",
+        [snapshotId],
+      )?.n ?? 0
+    );
+  } finally {
+    store.close();
+  }
+}
+
 describe("runAnalyze — happy path", () => {
   it("analyzes both roots and publishes the snapshot", () => {
     const result = runAnalyze(
@@ -386,11 +401,34 @@ describe("where the code index goes", () => {
     }
   });
 
-  it("puts the index exactly where it was told, not one directory above", { timeout: 600_000 }, () => {
-    const elsewhere = join(workDir, "index-here");
-    mkdirSync(elsewhere, { recursive: true });
-    const result = runAnalyze({ paths: [alphaPath], dbPath, indexRoot: elsewhere });
-    expect(result.codeIndexPath).toBe(elsewhere);
+  it("builds it in the directory holding the roots, and nowhere else", { timeout: 600_000 }, () => {
+    // On disk, not in the report. The report agreeing with the plan is what
+    // 57B-253 already had while the index itself went somewhere useless, so the
+    // filesystem is the only witness worth asking.
+    write("alpha", "thing.py", "def thing():\n    return 1\n");
+    const result = runAnalyze({ paths: [alphaPath], dbPath });
+
+    expect(result.codeIndexPath).toBe(workDir);
+    expect(result.codeIndexPresent).toBe(true);
+    expect(existsSync(join(workDir, ".codegraph"))).toBe(true);
+    // The read-only guarantee: never inside the analyzed root.
+    expect(existsSync(join(alphaPath, ".codegraph"))).toBe(false);
+  });
+
+  it("reads symbols the in-process readers cannot, when an index is built", { timeout: 600_000 }, () => {
+    // Python deliberately: the declaration reader claims every language it can
+    // parse, so a TypeScript fixture yields no CodeGraph symbols either way and
+    // the comparison would prove nothing.
+    write("alpha", "thing.py", "def thing():\n    return 1\n");
+
+    const indexed = runAnalyze({ paths: [alphaPath], dbPath });
+    const withIndex = symbolCount(indexed.snapshotId);
+
+    rmSync(dbPath, { force: true });
+    const skipped = runAnalyze({ paths: [alphaPath], dbPath, noCodeIndex: true });
+    const withoutIndex = symbolCount(skipped.snapshotId);
+
+    expect(withIndex).toBeGreaterThan(withoutIndex);
   });
 
   it("records the location in the knowledge base, not only in the terminal", { timeout: 600_000 }, () => {

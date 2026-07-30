@@ -4,16 +4,31 @@ Commands, layout and the target-derivation workflow are in [README.md](README.md
 This file is the part that is not obvious from reading the code: the rules that
 have already cost us something when broken.
 
-## The analyzed project is read-only
+## Never change an analyzed project's content
 
-Never write, modify, delete, or run `git` inside a target. Not a format, not a
-lint fix, not a `git status`. The tool's entire claim is that it observes without
-disturbing, and a single write invalidates that for every run afterwards.
+The rule is about the project's **own** files, and only those. Never edit,
+delete, reformat, lint, or run `git` inside a target — not a whitespace fix, not
+a `git status`. The tool's claim is that what it reports is what was there, and
+one modification invalidates that for every run afterwards. It is also
+self-defeating: a run that changes a root changes its content digest mid-flight
+and refuses to publish, blaming drift it caused itself.
 
-The one sanctioned exception is the code index, which the indexer writes into the
-directory it is pointed at. `--index-root` relocates it and `--no-code-index`
-skips it, declaring the missing symbols as a gap. Removing the exception is
-[57B-225](https://linear.app/57blocks-prd/issue/57B-225).
+**A code index is not a modification of the project.** The indexer creates a
+`.codegraph/` directory in the folder holding the analyzed roots — its own data,
+alongside the code, touching none of it. That is expected and fine, it needs no
+apology in the docs, and it is not an exception to be engineered away.
+
+Two properties keep it honest, and those are worth defending:
+
+- **It never lands inside an analyzed root** — always the directory above, so a
+  repository being analyzed gains nothing, not even an ignore-file entry.
+- **Every run says where it is**, on the terminal and in the knowledge base, and
+  says so from the filesystem rather than from its own intention.
+
+Where it goes is not configurable, and asking for that is a dead end: the indexer
+stores its database inside whatever directory it indexes, so the only directory
+that can hold an index of the code is one that contains the code. `--no-code-index`
+skips it and declares the missing symbols as a gap.
 
 Knowledge bases and report output go somewhere outside the target. Throwaway
 files go in a scratch directory, never in this repository.

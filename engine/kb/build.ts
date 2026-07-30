@@ -14,7 +14,7 @@ import { languageOf } from "../text/ast.js";
 import { createOutboundProvider } from "../providers/outbound/provider.js";
 import { createConventionsProvider } from "../providers/conventions/provider.js";
 import { createCodeGraphProvider } from "../providers/codegraph/provider.js";
-import { sharedIndexRoot } from "../providers/codegraph/cli.js";
+import { isIndexed, sharedIndexRoot } from "../providers/codegraph/cli.js";
 import { createFrameworkRoutesProvider } from "../providers/frameworkroutes/provider.js";
 import { createUiCallsProvider } from "../providers/uicalls/provider.js";
 import { createLogicProvider } from "../providers/logic/provider.js";
@@ -35,15 +35,6 @@ export interface ReaderSet {
 }
 
 export interface ReaderOptions {
-  /**
-   * Where the code index may be written.
-   *
-   * CodeGraph writes into whatever directory it is pointed at and offers no
-   * flag to relocate that, so choosing a location and choosing what gets
-   * indexed are the same choice. Naming a directory that does not contain the
-   * roots means no symbols from it — declared as a gap, not left as silence.
-   */
-  readonly indexRoot?: string;
   /** Skip the code index entirely, and declare the resulting absence. */
   readonly noCodeIndex?: boolean;
 }
@@ -71,7 +62,6 @@ export function defaultReaders(
           // describe one function differently, and both surviving makes the
           // pair ambiguous rather than agreed.
           skipSymbolsIn: (relPath) => languageOf(relPath) !== null,
-          ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
         }),
       ];
 
@@ -105,5 +95,23 @@ export function codeIndexLocation(
   options: ReaderOptions = {},
 ): string | null {
   if (options.noCodeIndex === true) return null;
-  return options.indexRoot ?? sharedIndexRoot(rootPaths);
+  return sharedIndexRoot(rootPaths);
+}
+
+/**
+ * Whether an index is actually at the place a run meant to put one.
+ *
+ * `codeIndexLocation` states an intention, computed before anything runs, and it
+ * cannot know whether the indexer was installed, or crashed, or timed out.
+ * Reporting that intention as an accomplished write puts a false claim about the
+ * filesystem into the knowledge base and onto the terminal — measured with the
+ * indexer absent, both said an index had been written to a directory that held
+ * nothing.
+ *
+ * Presence, deliberately, not authorship: a run that reuses an index built
+ * earlier is telling the truth when it says one is there, and the extraction
+ * failures record whether this run managed to refresh it.
+ */
+export function codeIndexPresent(path: string | null | undefined): boolean {
+  return path !== null && path !== undefined && isIndexed(path);
 }

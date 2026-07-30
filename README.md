@@ -31,8 +31,7 @@ tests/      unit and target-driven tests
 
 ```bash
 pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowledge base
-                     [--index-root dir]          #   put the code index elsewhere
-                     [--no-code-index]           #   or skip it entirely
+                     [--no-code-index]           #   without building a code index
 pnpm run status  -- [--workspace dir] [--db kb.sqlite] [--run id]
 pnpm run export  -- --as json                    # the knowledge base as one JSON document
 pnpm run export  -- --as overview [--format html] [--lang <language>]
@@ -45,14 +44,17 @@ pnpm run export  -- --as overview --only <section>   # rebuild one section
 `status` takes no positional path — it reads `--workspace`, defaulting to the
 current directory.
 
-`analyze` is the only command that touches the project, and it reads
-everything except one thing: the code indexer writes a cache into the
-directory it is pointed at. Every run reports that path when it finishes, and
-records it in the knowledge base so the reports say so too. `--index-root`
-moves it, at the cost of indexing only what is under the directory you name;
-`--no-code-index` skips it and declares the missing symbols as a gap.
-Removing this exception entirely is
-[57B-225](https://linear.app/57blocks-prd/issue/57B-225).
+`analyze` is the only command that reads the project, and it never changes it.
+The code indexer does create a `.codegraph/` directory — its own data, in the
+folder that holds the analyzed roots, so for a workspace of five repositories it
+lands in the folder containing them and never inside any of them. Every run
+reports that path when it finishes and records it in the knowledge base, so the
+reports say so too.
+
+Where it goes is not configurable: the indexer stores its database inside
+whatever directory it indexes, so the only directory that can hold an index of
+your code is one that contains your code. `--no-code-index` skips it and declares
+the missing symbols as a gap.
 
 Everything after that reads the knowledge base. `export` produces the same
 bytes for the same run and needs no access to the source at all.
@@ -103,11 +105,15 @@ PA_TARGET_WCP_V2=/somewhere/else pnpm test
 A target that is absent is a normal state: tests skip and print why, so a
 skipped run explains itself rather than looking green.
 
-**Targets are read-only.** Nothing in this tool writes to them. `resolveTarget`
-and `digestDirectory` only stat and read, and `deriveVariant` refuses any output
-path that overlaps a source root, sits inside a registered target, or points at
-a non-empty directory it did not create. Those guards are enforced and tested,
-not assumed.
+**A target's own files are never changed.** `resolveTarget` and
+`digestDirectory` only stat and read; `deriveVariant` refuses any output path
+that overlaps a source root, sits inside a registered target, or points at a
+non-empty directory it did not create; and the knowledge base cannot be written
+inside a root. Those guards are enforced and tested, not assumed.
+
+The code index is the one thing this tool adds beside a project, and it adds
+nothing to one: `.codegraph/` goes in the directory above the analyzed roots,
+never in a root.
 
 Cases the real targets don't supply are produced by derivation:
 

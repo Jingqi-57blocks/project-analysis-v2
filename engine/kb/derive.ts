@@ -38,8 +38,15 @@ export interface DeriveInput {
   readonly runId: string;
   readonly generatedAt: string;
   readonly workspacePath: string;
-  /** Where this run wrote a code index, when it wrote one. */
+  /** Where this run would build a code index, when it means to build one. */
   readonly codeIndexPath?: string | null | undefined;
+  /**
+   * Whether one is actually there, checked after extraction.
+   *
+   * Absent leaves the note reading as a presence, so a caller that does not
+   * check is not made to announce a missing index on no evidence.
+   */
+  readonly codeIndexWritten?: boolean | undefined;
 }
 
 export interface Derived {
@@ -113,9 +120,16 @@ export function derive(input: DeriveInput): Derived {
   // it reaches a reader, rather than living only in the terminal output of
   // whoever happened to run it.
   if (input.codeIndexPath !== undefined && input.codeIndexPath !== null) {
+    // Whether an index is there, not whether one was planned. The path is
+    // decided before the run starts and the indexer can still be missing, crash
+    // or time out — reporting the plan as a write states something untrue about
+    // the disk, in the one note whose whole job is to be true about it.
     notes.push({
       subject: "code-index",
-      note: `a code index was written to ${input.codeIndexPath}/.codegraph — the only thing this analysis writes anywhere near the project, and the indexer offers no way to put it elsewhere; pass --index-root to move it or --no-code-index to skip it`,
+      note:
+        input.codeIndexWritten === false
+          ? `no code index is present at ${input.codeIndexPath}/.codegraph, which is where this run would have built one — the indexer did not produce it, and the extraction failures say why. Nothing was written near the project`
+          : `a code index is present at ${input.codeIndexPath}/.codegraph, the directory holding the analyzed roots — the only thing this analysis writes anywhere near the project. Its location is not configurable: the indexer stores its database inside whatever it indexes, so an index of this code can only live in a directory containing it. --no-code-index skips it entirely`,
     });
   } else if (input.codeIndexPath === null) {
     // Refusing the write is supported, and on a project whose frameworks the

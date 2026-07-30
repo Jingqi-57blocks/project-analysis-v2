@@ -8,7 +8,7 @@ import { beginSnapshot, publishOrRefuse, type SnapshotHandle } from "../snapshot
 import { walkRoot } from "../inventory/walk.js";
 import { recordInventory } from "../inventory/persist.js";
 import { runPreflight, requireAvailable, recordPreflight } from "../providers/index.js";
-import { codeIndexLocation, defaultReaders } from "../kb/build.js";
+import { codeIndexLocation, codeIndexPresent, defaultReaders } from "../kb/build.js";
 import { extractRoot, type RootFacts } from "../kb/extract.js";
 import { derive } from "../kb/derive.js";
 import { recordDerived } from "../kb/persist.js";
@@ -152,7 +152,6 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     );
 
     const indexOptions = {
-      ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
       ...(options.noCodeIndex === true ? { noCodeIndex: true } : {}),
     };
     const readers = options.readers ?? defaultReaders(roots.map((root) => root.path), indexOptions);
@@ -212,6 +211,10 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
           generatedAt: now,
           workspacePath: selection.workspacePath,
           codeIndexPath,
+          // Checked after extraction, never assumed from the plan.
+          ...(codeIndexPath === undefined
+            ? {}
+            : { codeIndexWritten: codeIndexPresent(codeIndexPath) }),
         }),
       (result) => ({ items: countDerived(result.records) }),
     );
@@ -273,6 +276,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       roots: rootResults,
       providerReport,
       codeIndexPath: codeIndexPath ?? null,
+      codeIndexPresent: codeIndexPresent(codeIndexPath),
     };
   } catch (error) {
     // A failed run's phase timings are still worth having — they show where
