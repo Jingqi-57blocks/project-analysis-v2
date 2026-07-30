@@ -17,7 +17,7 @@ import { dirname, join, relative } from "node:path";
 import { anchorFor, readHeadings } from "./contents.js";
 import { renderHtml, type NavEntry, type RenderOptions } from "./html.js";
 
-export const FORMATS = ["html"] as const;
+export const FORMATS = ["html", "md"] as const;
 export type ExportFormat = (typeof FORMATS)[number];
 
 export class UnknownFormatError extends Error {
@@ -160,22 +160,28 @@ export function exportDocument(
   const files: string[] = [];
 
   for (const source of sources) {
-    const markdown = retarget(readFileSync(join(runDir, source), "utf8"), format);
-
-    // A whole document navigates by its own headings; a split page needs the
-    // sibling pages the markdown alone cannot know about.
-    const options: RenderOptions =
-      split && source !== "report.md"
-        ? {
-            contentsLabel,
-            nav: splitNav(manifest, sources, source, markdown),
-            homeHref: source.startsWith("sections/") ? "../index.html" : "#",
-          }
-        : { contentsLabel };
-
+    const raw = readFileSync(join(runDir, source), "utf8");
     const path = join(target, source.replace(/\.md$/, `.${format}`));
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, renderHtml(markdown, title, options), "utf8");
+
+    if (format === "md") {
+      // The Markdown is the artifact; this format hands it over as written,
+      // links included — they already point at .md files beside each other.
+      writeFileSync(path, raw, "utf8");
+    } else {
+      const markdown = retarget(raw, format);
+      // A whole document navigates by its own headings; a split page needs
+      // the sibling pages the markdown alone cannot know about.
+      const options: RenderOptions =
+        split && source !== "report.md"
+          ? {
+              contentsLabel,
+              nav: splitNav(manifest, sources, source, markdown),
+              homeHref: source.startsWith("sections/") ? "../index.html" : "#",
+            }
+          : { contentsLabel };
+      writeFileSync(path, renderHtml(markdown, title, options), "utf8");
+    }
     files.push(relative(runDir, path));
   }
 

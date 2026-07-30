@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -591,6 +591,21 @@ describe("a format is a view, not a second document", () => {
     expect(section).toContain('href="../index.html"');
     // Limitations stays in the index, so its entry points into the index page.
     expect(section).toContain('href="../index.html#limits"');
+  });
+
+  it("puts the view in a named directory and nothing else beside it", () => {
+    // A deliverable folder holds only HTML; the Markdown, tasks and manifest
+    // stay in the working directory a rebuild needs.
+    const outDir = assembled("export-separate");
+    const viewDir = join(workDir, "out", "export-separate-view");
+    const result = exportDocument(outDir, "html", "T", viewDir);
+
+    expect(result.outDir).toBe(viewDir);
+    expect(existsSync(join(viewDir, "index.html"))).toBe(true);
+    const everything = readdirSync(viewDir, { recursive: true }) as string[];
+    expect(everything.filter((name) => name.endsWith(".md"))).toEqual([]);
+    // The working directory did not grow an html tree of its own.
+    expect(existsSync(join(outDir, "html"))).toBe(false);
   });
 
   it("refuses a format it does not have", () => {

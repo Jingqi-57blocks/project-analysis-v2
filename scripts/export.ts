@@ -1,12 +1,16 @@
 /**
  * Produces something from a knowledge base.
  *
- *   pnpm run export -- --as json                      [--out path]
- *   pnpm run export -- --as overview                  [--out dir] [--format html]
- *   pnpm run export -- --as capability --param capability=<id>
+ *   pnpm run export -- --as json                        [--out path]
+ *   pnpm run export -- --as overview --format html      [--out dir] [--work dir]
+ *   pnpm run export -- --as capability --param capability=<id> --format md
  *
  * One act: take a knowledge base, produce a thing. `--as` chooses what,
- * `--format` chooses how it is written down. Neither opens the project — a
+ * `--format` chooses how it is written down (html or md), and `--out` is where
+ * the deliverable lands — that folder receives only the chosen format. The
+ * machinery a rebuild needs — tasks, manifest, assembled Markdown — lives in
+ * the working directory (`--work`). Both default under the run id, so a fresh
+ * run can never overwrite an older one. Neither opens the project — a
  * knowledge base can be exported on a machine that does not have the source.
  *
  * A document with sections somebody has to write cannot finish in one call,
@@ -84,30 +88,36 @@ function exportDocumentType(
   const template = loadTemplate(as);
   const given = params(argv);
   const suffix = template.params.map((name) => given[name]).join("-");
-  const outDir = resolve(
-    flagValue(argv, "--out") ??
-      `./.analysis/export/${kb.snapshot.runId ?? kb.snapshot.id}/${template.id}${suffix === "" ? "" : `-${suffix}`}`,
+
+  // Two directories with two jobs. The working directory (--work) holds the
+  // machinery a rebuild needs — tasks, manifest, the assembled Markdown. The
+  // output directory (--out) receives only the format asked for, so a
+  // deliverable folder is exactly the deliverable. Both default under the run
+  // id, so a fresh run can never overwrite an older one.
+  const workDir = resolve(
+    flagValue(argv, "--work") ??
+      `./.analysis/work/${kb.snapshot.runId ?? kb.snapshot.id}/${template.id}${suffix === "" ? "" : `-${suffix}`}`,
   );
-  assertSafeOutput(kb, outDir, store);
+  assertSafeOutput(kb, workDir, store);
 
   const only = flagValue(argv, "--only");
   const language = flagValue(argv, "--lang");
-  const prepared = existsSync(join(outDir, "manifest.json"));
+  const prepared = existsSync(join(workDir, "manifest.json"));
 
-  if (argv.includes("--force")) rmSync(outDir, { recursive: true, force: true });
+  if (argv.includes("--force")) rmSync(workDir, { recursive: true, force: true });
 
   if (!prepared || argv.includes("--force") || only !== undefined) {
     const result = prepare({
       template,
       kb,
-      outDir,
+      outDir: workDir,
       params: given,
       ...(language === undefined ? {} : { language }),
       ...(only === undefined ? {} : { only }),
     });
 
     const waiting = result.tasks.filter(
-      (task) => !existsSync(join(outDir, "tasks", task.sectionId, "answer.md")),
+      (task) => !existsSync(join(workDir, "tasks", task.sectionId, "answer.md")),
     );
     if (waiting.length > 0) {
       console.log(`Prepared ${template.id} for run ${result.runId ?? "(unnamed)"}`);
@@ -117,7 +127,7 @@ function exportDocumentType(
       }
       console.log(`  ${waiting.length} awaiting an answer:`);
       for (const task of waiting) {
-        console.log(`    ${join(outDir, "tasks", task.sectionId)}/  → write answer.md`);
+        console.log(`    ${join(workDir, "tasks", task.sectionId)}/  → write answer.md`);
       }
       console.log(`  then run this command again to assemble`);
       return 0;
@@ -129,13 +139,13 @@ function exportDocumentType(
   if (
     only === undefined &&
     language !== undefined &&
-    existsSync(join(outDir, "tasks", FRAME_TASK, "answer.md"))
+    existsSync(join(workDir, "tasks", FRAME_TASK, "answer.md"))
   ) {
-    prepare({ template, kb, outDir, params: given, language, preserveAnswers: true });
+    prepare({ template, kb, outDir: workDir, params: given, language, preserveAnswers: true });
   }
 
-  const result = assemble(outDir, argv.includes("--allow-missing"));
-  const written = writeAssembled(outDir, result, { split: !argv.includes("--no-split") });
+  const result = assemble(workDir, argv.includes("--allow-missing"));
+  const written = writeAssembled(workDir, result, { split: !argv.includes("--no-split") });
 
   console.log(`Exported ${template.id} for run ${kb.snapshot.runId ?? "(unnamed)"}`);
   for (const outcome of result.outcomes) {
@@ -145,9 +155,17 @@ function exportDocumentType(
   console.log(`  ${written[0]!}`);
 
   const format = flagValue(argv, "--format");
+  const out = flagValue(argv, "--out");
   if (format !== undefined) {
-    const view = exportDocument(outDir, format, template.title);
+    const target = resolve(
+      out ??
+        `./.analysis/reports/${kb.snapshot.runId ?? kb.snapshot.id}/${template.id}${suffix === "" ? "" : `-${suffix}`}`,
+    );
+    assertSafeOutput(kb, target, store);
+    const view = exportDocument(workDir, format, template.title, target);
     console.log(`  ${view.files.length} ${view.format} file(s) in ${view.outDir}`);
+  } else if (out !== undefined) {
+    console.log(`  --out was given without --format; pass --format html or --format md to write ${out}`);
   }
   return 0;
 }
