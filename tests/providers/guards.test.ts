@@ -236,3 +236,43 @@ describe("which symbol a named rejection is read as", () => {
     ]);
   });
 });
+
+describe("a branch that returns markup", () => {
+  function tsx(source: string) {
+    const parsed = parseSource("tsx", source);
+    return guardsIn(parsed.root!, "ui", "Thing.tsx").map((guard) => guard.message);
+  }
+
+  it("does not read a class name as a rule", () => {
+    // The walk takes the first string in the returned subtree, and a component's
+    // first string is usually a prop. This shipped 68 CSS class lists into one
+    // browser application's business rules, two of which reached a recovered
+    // specification under the heading "rules the system enforces".
+    const messages = tsx(`function Row(props) {
+  if (props.record.cancel_flag) {
+    return <Button className="py-0 lh-base text-nowrap" variant="outline-primary" />;
+  }
+  return null;
+}`);
+
+    expect(messages).not.toContain("py-0 lh-base text-nowrap");
+    expect(messages).toEqual([]);
+  });
+
+  it("still reads a rule the component states in a tooltip", () => {
+    // Skipping markup wholesale was tried and cost real rules: this is how a
+    // browser application states several of them, and none is a literal
+    // comparison, so nothing else recovers them.
+    const messages = tsx(`function Cell(props) {
+  if (props.durationDays >= 30) {
+    return <BSTooltip title="Exceeded the expect date by more than a month">
+      <span className="text-nowrap text-danger">{props.children}</span>
+    </BSTooltip>;
+  }
+  return null;
+}`);
+
+    expect(messages).toContain("Exceeded the expect date by more than a month");
+    expect(messages).not.toContain("text-nowrap text-danger");
+  });
+});

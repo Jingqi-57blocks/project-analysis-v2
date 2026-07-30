@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { parseTemplate, TemplateError, loadTemplate } from "../../engine/render/template.js";
@@ -95,6 +98,19 @@ describe("the shipped templates", () => {
     // A fragment no template names is a question nobody asks, and it drifts
     // out of agreement with the data it reads.
     expect(fragmentNames().filter((name) => !used.has(name))).toEqual([]);
+  });
+
+  it("names a prompt file that exists, for every llm section", () => {
+    // A typo in a `prompt:` path fails at export time, in front of whoever ran
+    // the command, after the analysis has already been paid for.
+    for (const id of SHIPPED) {
+      const template = loadTemplate(id);
+      for (const section of template.sections) {
+        if (section.kind !== "llm") continue;
+        const prompt = join(template.dir, section.prompt);
+        expect(existsSync(prompt), `${id}/${section.id}: ${section.prompt} is missing`).toBe(true);
+      }
+    }
   });
 });
 

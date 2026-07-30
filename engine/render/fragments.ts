@@ -5,6 +5,11 @@
  * states facts and nothing else — no adjectives, no conclusions, no counts
  * dressed as judgements. Anything that needs a sentence about what the facts
  * mean is an `llm` section with a prompt someone can edit.
+ *
+ * One exception, and it is deliberate: `prd-not-recoverable` is fixed prose. What
+ * cannot be recovered from any codebase is a property of the method rather than
+ * of a project, so it is the same in every document — and a sentence that must
+ * never vary is safer as a fragment than as a prompt a writer could soften.
  */
 
 import type { KnowledgeBase, Coverage, DimensionCoverage } from "../kb/query.js";
@@ -240,16 +245,16 @@ function versionOf(entry: StackEntry): string {
 const PAGES_PER_AREA = 6;
 
 /** How many distinct rejection messages to name before summarising. */
-const VALIDATION_SHOWN = 40;
+/**
+ * How many distinct rejection messages to name per repository.
+ *
+ * High enough to print all of them on a real workspace: the format this follows
+ * lists every validation message, and a sample of rules is not a specification.
+ */
+const VALIDATION_PER_ROOT = 400;
 
-/** The endpoint count a capability's own signals state, or zero. */
-function endpointsOf(feature: FeatureFact): number {
-  for (const signal of feature.signals) {
-    const match = /^(\d+) endpoints?$/.exec(signal);
-    if (match) return Number(match[1]);
-  }
-  return 0;
-}
+/** How many of a capability's addresses to name before summarising. */
+const ENDPOINTS_PER_FEATURE = 8;
 
 const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
@@ -693,20 +698,41 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     const features = pick<readonly FeatureFact[]>(input, "features") ?? [];
     if (features.length === 0) return t(f, "prd-no-features");
 
+    // By endpoint count, and by name where two tie. `localeCompare` is pinned to
+    // one locale: unpinned it orders "Ärende" before "Order" on an English
+    // machine and after it on a Swedish one, so the same code would produce
+    // different identifiers on two developers' laptops.
     const ranked = [...features].sort(
-      (a, b) => endpointsOf(b) - endpointsOf(a) || a.name.localeCompare(b.name),
+      (a, b) => b.endpoints.length - a.endpoints.length || a.name.localeCompare(b.name, "en"),
     );
+
+    const rows = ranked.map((feature, index) => {
+      const paths = [...new Set(feature.endpoints.map((e) => `${e.method ?? "ANY"} ${e.path}`))].sort();
+      const shown = paths.slice(0, ENDPOINTS_PER_FEATURE);
+      const tables = [...new Set(feature.tables)].sort();
+      return [
+        `F${String(index + 1).padStart(3, "0")}`,
+        feature.name,
+        feature.endpoints.length === 0 ? null : feature.endpoints.length,
+        shown.join("<br>") +
+          (paths.length > shown.length
+            ? `<br>${t(f, "and-more", paths.length - shown.length)}`
+            : ""),
+        tables.length === 0 ? null : tables.join(", "),
+      ];
+    });
 
     return [
       t(f, "prd-features-lead"),
       table(
-        [t(f, "col-id"), t(f, "col-capability"), t(f, "col-endpoints"), t(f, "col-what-was-read")],
-        ranked.map((feature, index) => [
-          `F${String(index + 1).padStart(3, "0")}`,
-          feature.name,
-          endpointsOf(feature) === 0 ? null : endpointsOf(feature),
-          feature.signals.join(" · "),
-        ]),
+        [
+          t(f, "col-id"),
+          t(f, "col-capability"),
+          t(f, "col-endpoints"),
+          t(f, "col-addresses"),
+          t(f, "col-tables"),
+        ],
+        rows,
       ),
       t(f, "prd-features-note"),
     ].join("\n\n");
@@ -729,31 +755,54 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     const screens = pick<readonly RouteRecord[]>(input, "screens") ?? [];
     if (screens.length === 0) return t(f, "prd-no-pages");
 
-    const byArea = new Map<string, string[]>();
+    // By root first. Grouping on the path alone merged two front ends into one
+    // table and counted a duplicate address twice — the same failure the silence
+    // section already paid for, where one repository crowded out four others.
+    const byRoot = new Map<string, RouteRecord[]>();
     for (const screen of screens) {
-      const area = screen.path.split("/").filter(Boolean)[0] ?? "/";
-      const group = byArea.get(area) ?? [];
-      group.push(screen.path);
-      byArea.set(area, group);
+      const group = byRoot.get(screen.rootName) ?? [];
+      group.push(screen);
+      byRoot.set(screen.rootName, group);
     }
 
-    const rows = [...byArea.entries()]
-      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-      .map(([area, paths]) => {
-        const sorted = [...paths].sort();
-        const shown = sorted.slice(0, PAGES_PER_AREA);
-        return [
-          `/${area}`,
-          sorted.length,
-          shown.join(", ") + (sorted.length > shown.length ? `, ${t(f, "and-more", sorted.length - shown.length)}` : ""),
-        ];
-      });
+    const parts = [t(f, "prd-pages-lead", screens.length)];
+    const single = byRoot.size === 1;
+    for (const [rootName, group] of [...byRoot.entries()].sort(
+      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "en"),
+    )) {
+      if (!single) parts.push(t(f, "silent-in", rootName));
 
-    return [
-      t(f, "prd-pages-lead", screens.length),
-      table([t(f, "col-area"), t(f, "col-pages"), t(f, "col-addresses")], rows),
-      t(f, "prd-pages-note"),
-    ].join("\n\n");
+      // Two segments deep, because one put 132 of 182 addresses under `/manage`
+      // and listed six of them. An area a reader can navigate is `/manage/leave`,
+      // not `/manage`.
+      const byArea = new Map<string, Set<string>>();
+      for (const screen of group) {
+        const segments = screen.path.split("/").filter(Boolean);
+        const area = segments.length === 0 ? "/" : `/${segments.slice(0, 2).join("/")}`;
+        const paths = byArea.get(area) ?? new Set<string>();
+        paths.add(screen.path);
+        byArea.set(area, paths);
+      }
+
+      const rows = [...byArea.entries()]
+        .sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0], "en"))
+        .map(([area, paths]) => {
+          const sorted = [...paths].sort();
+          const shown = sorted.slice(0, PAGES_PER_AREA);
+          return [
+            area,
+            sorted.length,
+            shown.join(", ") +
+              (sorted.length > shown.length
+                ? `, ${t(f, "and-more", sorted.length - shown.length)}`
+                : ""),
+          ];
+        });
+      parts.push(table([t(f, "col-area"), t(f, "col-pages"), t(f, "col-addresses")], rows));
+    }
+
+    parts.push(t(f, "prd-pages-note"));
+    return parts.join("\n\n");
   },
 
   /**
@@ -773,35 +822,62 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     const guards = pick<readonly GuardRecord[]>(input, "guards") ?? [];
     if (guards.length === 0) return t(f, "prd-no-validation");
 
-    const byMessage = new Map<string, { message: string; kind: string; where: Set<string> }>();
+    const byMessage = new Map<
+      string,
+      { message: string; kind: string; tests: Set<string>; where: Set<string>; first: string }
+    >();
     for (const guard of guards) {
+      const at = `${guard.rootName}/${guard.source.relPath}`;
       const entry = byMessage.get(guard.message) ?? {
         message: guard.message,
         kind: guard.messageKind,
+        tests: new Set<string>(),
         where: new Set<string>(),
+        first: at,
       };
-      entry.where.add(`${guard.rootName}/${guard.source.relPath}`);
+      if (guard.test !== null && guard.test !== "") entry.tests.add(guard.test);
+      entry.where.add(at);
       byMessage.set(guard.message, entry);
     }
 
-    const ranked = [...byMessage.values()].sort(
-      (a, b) => b.where.size - a.where.size || a.message.localeCompare(b.message),
-    );
-    const shown = ranked.slice(0, VALIDATION_SHOWN);
+    // Not by how often a message repeats. Ranking that way filled every row with
+    // a repeated message and hid 623 rules stated in one place each — and noise
+    // repeats, so a CSS value outranked a real rule. Grouped by repository and
+    // ordered by message instead, and the cap is high enough to print them all
+    // on a real workspace, because the example this format follows lists every
+    // validation message rather than a sample.
+    const byRoot = new Map<string, typeof byMessage extends Map<string, infer V> ? V[] : never>();
+    for (const entry of byMessage.values()) {
+      const rootName = entry.first.split("/")[0]!;
+      const group = byRoot.get(rootName) ?? [];
+      group.push(entry);
+      byRoot.set(rootName, group);
+    }
 
-    const parts = [
-      t(f, "prd-validation-lead"),
-      table(
-        [t(f, "col-rejects-with"), t(f, "col-stated-as"), t(f, "col-places")],
-        shown.map((entry) => [
-          entry.message,
-          t(f, `message-kind-${entry.kind}`),
-          entry.where.size,
-        ]),
-      ),
-    ];
-    if (ranked.length > shown.length) {
-      parts.push(t(f, "and-more", ranked.length - shown.length));
+    const parts = [t(f, "prd-validation-lead")];
+    const single = byRoot.size === 1;
+    for (const [rootName, group] of [...byRoot.entries()].sort(
+      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "en"),
+    )) {
+      if (!single) parts.push(t(f, "silent-in", rootName));
+      group.sort((a, b) => a.message.localeCompare(b.message, "en"));
+      const shown = group.slice(0, VALIDATION_PER_ROOT);
+      parts.push(
+        table(
+          [t(f, "col-rejects-with"), t(f, "col-when"), t(f, "col-stated-as"), t(f, "col-first-seen")],
+          shown.map((entry) => [
+            entry.message,
+            [...entry.tests].sort().slice(0, 2).join(" · ") || null,
+            t(f, `message-kind-${entry.kind}`),
+            entry.where.size === 1
+              ? entry.first
+              : t(f, "and-files", entry.first, entry.where.size - 1),
+          ]),
+        ),
+      );
+      if (group.length > shown.length) {
+        parts.push(t(f, "and-more", group.length - shown.length));
+      }
     }
     parts.push(t(f, "prd-validation-note"));
     return parts.join("\n\n");

@@ -604,8 +604,27 @@ describe("the recovered specification's own sections", () => {
       fragment: "prd-features",
       data: {
         features: [
-          { id: "feat_a", name: "Leave", term: "leave", signals: ["26 endpoints", "3 data entities"], filePaths: [] },
-          { id: "feat_b", name: "Billing", term: "billing", signals: ["32 endpoints"], filePaths: [] },
+          {
+            id: "feat_a",
+            name: "Leave",
+            term: "leave",
+            signals: ["26 endpoints", "3 data entities"],
+            filePaths: [],
+            endpoints: [
+              { method: "POST", path: "/v2/leaves", rootName: "svc" },
+              { method: "GET", path: "/v2/leaves/me", rootName: "svc" },
+            ],
+            tables: ["wcp_leave", "wcp_leave_detail"],
+          },
+          {
+            id: "feat_b",
+            name: "Billing",
+            term: "billing",
+            signals: ["32 endpoints"],
+            filePaths: [],
+            endpoints: [{ method: "GET", path: "/v2/bills", rootName: "svc" }],
+            tables: [],
+          },
         ],
       },
     },
@@ -623,8 +642,20 @@ describe("the recovered specification's own sections", () => {
       fragment: "prd-validation",
       data: {
         guards: [
-          { rootName: "svc", message: "Comment is required when status is rejected.", messageKind: "stated", source: { relPath: "a.go", line: 1 } },
-          { rootName: "svc", message: "ErrNotFound", messageKind: "error-code", source: { relPath: "b.go", line: 2 } },
+          {
+            rootName: "svc",
+            message: "Comment is required when status is rejected.",
+            messageKind: "stated",
+            test: "status == rejected",
+            source: { relPath: "a.go", line: 1 },
+          },
+          {
+            rootName: "svc",
+            message: "ErrNotFound",
+            messageKind: "error-code",
+            test: "found == false",
+            source: { relPath: "b.go", line: 2 },
+          },
         ],
       },
     },
@@ -648,6 +679,148 @@ describe("the recovered specification's own sections", () => {
       expect(rendered).toMatch(/<<[a-z-]+>>/);
     });
   }
+});
+
+/**
+ * The recovered specification's tables, on their inputs.
+ *
+ * Nine of ten mutations of these fragments once survived the whole suite —
+ * changing a truncation limit, dropping a truncation notice, reversing a sort,
+ * breaking the identifier padding, mislabelling a count. Each assertion below
+ * kills one, and none depends on any target's contents.
+ */
+describe("the recovered specification's tables", () => {
+  function feature(name: string, endpoints: number, tables: readonly string[] = []) {
+    return {
+      id: `feat_${name}`,
+      name,
+      term: name.toLowerCase(),
+      signals: [],
+      filePaths: [],
+      tables: [...tables],
+      endpoints: Array.from({ length: endpoints }, (_, n) => ({
+        method: "GET",
+        path: `/${name.toLowerCase()}/${n}`,
+        rootName: "svc",
+      })),
+    };
+  }
+
+  function screen(rootName: string, path: string) {
+    return { rootName, path, method: null, middleware: [], handlerName: null };
+  }
+
+  function guard(rootName: string, relPath: string, message: string, test: string) {
+    return { rootName, message, messageKind: "stated", test, source: { relPath, line: 1 } };
+  }
+
+  const render = (fragment: string, data: Readonly<Record<string, unknown>>) =>
+    renderFragment(fragment, { kb, params: {}, data });
+
+  it("numbers capabilities by surface area, widest first, zero-padded", () => {
+    const rendered = render("prd-features", {
+      features: [feature("Small", 2), feature("Large", 30), feature("Middle", 9)],
+    });
+    const ids = [...rendered.matchAll(/\| (F\d+) \| (\w+)/g)].map((m) => [m[1], m[2]]);
+    expect(ids).toEqual([
+      ["F001", "Large"],
+      ["F002", "Middle"],
+      ["F003", "Small"],
+    ]);
+  });
+
+  it("names a capability's addresses and tables, not only how many", () => {
+    // "Billing — 32 endpoints" and not one path is what a rebuild team was given.
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 2, ["wcp_leave", "wcp_leave_detail"])],
+    });
+    expect(rendered).toContain("/leave/0");
+    expect(rendered).toContain("wcp_leave_detail");
+  });
+
+  it("counts every address it does not name", () => {
+    const rendered = render("prd-features", { features: [feature("Wide", 30)] });
+    const more = Number(/and (\d+) more/.exec(rendered)?.[1]);
+    const shown = [...rendered.matchAll(/\/wide\/\d+/g)].length;
+    expect(shown + more).toBe(30);
+  });
+
+  it("keeps two front ends apart and counts an address once", () => {
+    // Grouping on the path alone merged them and counted a shared path twice.
+    const rendered = render("prd-pages", {
+      screens: [screen("ui-a", "/login"), screen("ui-b", "/login")],
+    });
+    expect(rendered).toContain("ui-a");
+    expect(rendered).toContain("ui-b");
+    expect(rendered).not.toMatch(/\| \/login \| 2 \|/);
+  });
+
+  it("groups pages two segments deep, so an area is navigable", () => {
+    // One repository put 132 of 182 addresses under `/manage` and listed six.
+    const rendered = render("prd-pages", {
+      screens: [
+        screen("ui", "/manage/leave/list"),
+        screen("ui", "/manage/leave/:id"),
+        screen("ui", "/manage/employee/list"),
+      ],
+    });
+    expect(rendered).toContain("/manage/leave");
+    expect(rendered).toContain("/manage/employee");
+  });
+
+  it("accounts for every page, shown or summarised", () => {
+    const screens = Array.from({ length: 20 }, (_, n) => screen("ui", `/area/sub/page${n}`));
+    const rendered = render("prd-pages", { screens });
+    const more = Number(/and (\d+) more/.exec(rendered)?.[1] ?? 0);
+    const shown = [...rendered.matchAll(/\/area\/sub\/page\d+/g)].length;
+    expect(shown + more).toBe(20);
+    // And enough of each area to be worth reading. The accounting holds for any
+    // limit, including one, so the property is "several per area" rather than the
+    // constant's value — a section naming one page in seven is not a page map.
+    expect(shown).toBeGreaterThan(4);
+  });
+
+  it("survives a root address without rendering a doubled slash", () => {
+    expect(render("prd-pages", { screens: [screen("ui", "/")] })).not.toContain("//");
+  });
+
+  it("says when a rule fires and where it is, not only what it says", () => {
+    // A message alone cannot be reproduced, and cannot be gone and read either.
+    const rendered = render("prd-validation", {
+      guards: [guard("svc", "leave.go", "Not enough holiday.", "available < requested")],
+    });
+    expect(rendered).toContain("available < requested");
+    expect(rendered).toContain("svc/leave.go");
+  });
+
+  it("does not rank rules by how often their message repeats", () => {
+    // Ranking that way filled every row with a repeated message, hid 623 rules
+    // stated once each, and let a repeated CSS value outrank a real rule.
+    const many = Array.from({ length: 3 }, (_, n) =>
+      guard("svc", `dup${n}.go`, "zzz repeated everywhere", "x"),
+    );
+    const one = guard("svc", "a.go", "aaa stated once", "y");
+    const rendered = render("prd-validation", { guards: [...many, one] });
+    expect(rendered.indexOf("aaa stated once")).toBeLessThan(
+      rendered.indexOf("zzz repeated everywhere"),
+    );
+  });
+
+  it("keeps each repository's rules under its own heading", () => {
+    const rendered = render("prd-validation", {
+      guards: [guard("api", "a.go", "Api rejects this.", "x"), guard("ui", "b.tsx", "Ui rejects this.", "y")],
+    });
+    expect(rendered).toContain("api");
+    expect(rendered).toContain("ui");
+  });
+
+  it("labels how a rule was stated through the frame", () => {
+    const rendered = render("prd-validation", {
+      guards: [{ ...guard("svc", "a.go", "ErrNope", "x"), messageKind: "error-code" }],
+    });
+    expect(rendered).toContain(FRAME_EN["message-kind-error-code"]);
+    expect(rendered).not.toContain("error-code |");
+  });
 });
 
 describe("finding your way around a long report", () => {

@@ -46,8 +46,7 @@
       "fragment": "prd-pages",
       "requires": [
         "screens"
-      ],
-      "omitWhenEmpty": true
+      ]
     },
     {
       "id": "architecture",
@@ -81,6 +80,15 @@
       "fragment": "prd-validation",
       "requires": [
         "guards"
+      ]
+    },
+    {
+      "id": "flows",
+      "kind": "code",
+      "heading": "How Work Moves Through the System",
+      "fragment": "flow-coverage",
+      "requires": [
+        "flow-coverage"
       ],
       "omitWhenEmpty": true
     },
@@ -111,8 +119,7 @@
       "contract": {
         "maxWords": 500,
         "maxHeadingLevel": 3
-      },
-      "omitWhenEmpty": true
+      }
     },
     {
       "id": "integrations",

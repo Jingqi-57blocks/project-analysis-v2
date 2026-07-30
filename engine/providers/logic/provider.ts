@@ -173,6 +173,19 @@ const PLUMBING_TEST =
   /^(!?\w*(err|error)\w*)\s*(!=|==)\s*nil$|^!?ok$|^!?\w*ok$|(err|error)\s*(!=|==)\s*nil/i;
 
 /**
+ * Attributes whose value is presentation, never a statement.
+ *
+ * Named rather than inferred: a `title` or an `aria-label` on a rejected branch
+ * often *is* the rule, so the exclusion has to be this narrow.
+ */
+const STYLING_ATTRIBUTES = new Set(["className", "class", "style"]);
+
+function isStyling(attribute: SgNode): boolean {
+  const name = attribute.children()[0];
+  return name !== undefined && STYLING_ATTRIBUTES.has(name.text());
+}
+
+/**
  * The first string literal inside a node — the message a rejection states.
  *
  * Markup is skipped entirely. A component that returns an element is producing a
@@ -188,19 +201,24 @@ function firstMessage(node: SgNode): string | null {
   while (stack.length > 0) {
     const current = stack.shift()!;
     const kind = current.kind() as string;
-    // Markup is not a message. A component returning an element produces a
-    // value, and the first string inside that element is a prop or a label:
-    // `if (record.cancel_flag) return <Button className="py-0 lh-base
-    // text-nowrap">` had a CSS class list read as a business rule. Same
-    // reasoning `errorCodeName` already applies to a returned constant.
+    // A styling attribute is not a message. `if (record.cancel_flag) return
+    // <Button className="py-0 lh-base text-nowrap">` had a CSS class list read as
+    // a business rule, because the walk takes the first string in the returned
+    // subtree and a component's first string is usually a prop.
     //
-    // Excluding settings objects as well was tried and reverted. It removed the
-    // remaining noise — an IntersectionObserver's `rootMargin` — but a rejection
-    // in Express or Go commonly states its message *by* building a response body,
-    // so it also lost "Invalid Authorization header", "Missing Authorization
-    // header", "invalid client" and "redirect_uri mismatch". The noise and the
-    // rules live in the same shape, and one rule for both loses one of them.
-    if (kind.startsWith("jsx_")) continue;
+    // Only styling, though. Skipping markup wholesale was tried and it cost real
+    // rules: this browser application states several by the tooltip it renders —
+    // `if (durationDays >= 30) return <BSTooltip title="Exceeded the expect date
+    // by more than a month">` and `if (client.submitted) return <BSTooltip
+    // title="Client has filled out the review and cannot be removed">`. Neither
+    // is a literal comparison, so nothing else recovers them.
+    //
+    // Excluding settings objects was tried and reverted for the same reason: a
+    // rejection in Express or Go commonly states its message *by* building a
+    // response body, so it lost "Invalid Authorization header" and "invalid
+    // client". Noise and rules share that shape; styling attributes are the one
+    // place they do not.
+    if (kind === "jsx_attribute" && isStyling(current)) continue;
     if (kind.includes("string") && !kind.includes("template")) {
       const raw = current.text().replace(/^[`'"]|[`'"]$/g, "").trim();
       // A message, not a format verb, a key, or a single word like "id".
@@ -564,6 +582,7 @@ export function logicCapabilities(): ProviderCapabilities {
           "a named error must be the thrown expression or its first argument, and its parts must be capitalised — so `raise PermissionDenied`, `return ErrNotFound` and `throw new ForbiddenException()` are all missed, and a gate that rejects through one of those is absent rather than reported",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
           "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
+          "a styling attribute is never read as a message, so a rule stated only through a class name is missed — and one stated in a component's other props, or as element text, is read as though it were a rejection",
           "languages without a grammar in this run are not read at all",
         ],
       },

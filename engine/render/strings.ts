@@ -32,6 +32,10 @@ export const FRAME_EN: Glossary = {
   "col-steps-traced": "Steps established",
   "col-flow": "Flow",
   "col-id": "ID",
+  "col-tables": "Tables",
+  "col-when": "When",
+  "col-first-seen": "First seen",
+  "and-files": "{0} and {1} more file(s)",
   "col-endpoints": "Endpoints",
   "col-what-was-read": "What was read",
   "col-area": "Area",
@@ -55,19 +59,19 @@ export const FRAME_EN: Glossary = {
   "prd-validation-lead":
     "What the system refuses, quoted in the words it refuses with. Each row is a rule the code enforces; the message is the rule as the code states it, not an interpretation of what it means.",
   "prd-validation-note":
-    "Two gates stating the same message on different values read alike here. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear.",
+    "Each row is one distinct message; two gates stating the same message on different values collapse into one. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all — and a message a component states in its props is read as a rejection even where it is only a label.",
   "prd-no-validation": "No rejection with a stated message was read from this system.",
   "prd-absent-lead":
     "This specification was recovered from source. It states in mechanical detail what the system does, and the following cannot be recovered from code by any means — they are absent here because no codebase records them, not because the recovery fell short:",
   "prd-absent-goal": "**What the product is for.** No statement of purpose, problem or intended outcome survives in source.",
-  "prd-absent-users": "**Who uses it, and what for.** Roles the code enforces are recorded elsewhere in this document; who those roles are and what they are trying to achieve is not.",
+  "prd-absent-users": "**Who uses it, and what for.** What the code checks before it acts can be recovered; who the people behind those checks are, and what they are trying to achieve, cannot.",
   "prd-absent-metrics": "**What success means.** No target, threshold or measure of success exists in code.",
   "prd-absent-priority": "**What matters most.** No ranking of capabilities survives; every one below is stated at equal weight because that is all the evidence supports.",
   "prd-absent-risks": "**What the team was worried about.** Risks and assumptions are decisions and conversations, not artefacts.",
   "prd-absent-scope":
     "One section inverts. Read forwards, *out of scope* is a decision someone made; read backwards, everything in the code is in scope by definition. So the honest content of that section is not what anyone chose to leave out but what this analysis could not read — stated below and throughout, rather than omitted.",
   "prd-absent-counts":
-    "Of the files this analysis read, {0} yielded nothing about behaviour and a further {1} yielded nothing at all. Both are named in full elsewhere in this document, because a specification quietly smaller than its system is more dangerous than one visibly incomplete.",
+    "Of the files this analysis read, {0} yielded nothing about behaviour and a further {1} yielded nothing at all. Both are listed later in this document, largest first, with the remainder counted rather than named — because a specification quietly smaller than its system is more dangerous than one visibly incomplete.",
   "prd-absent-notes":
     "{0} standing limits of the readers that produced this document are listed with it. They are conditions on every statement here, and worth reading before relying on any single one.",
   "col-file": "File",
