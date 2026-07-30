@@ -47,10 +47,14 @@ Nothing new is written in this phase.
 - **57B-278** — committed on the wrong base. Rebase onto `feat` once 57B-268 is
   merged, then review it properly, then PR. It genuinely depends on 57B-268
   (`prd-not-recoverable` consumes both silence lists), so the order is real.
-- **Flow guard** — a `pnpm run flow` check that prints each issue branch's base,
-  PR and merge state and exits non-zero when a branch is based on another issue
-  branch or has commits with no PR. The mechanism that makes the above
-  unrepeatable. Its own issue, its own PR, following the eight steps.
+- **57B-300** — `pnpm run flow`, which prints how far behind the base each issue
+  branch is, what unlanded work it holds in common with another issue's branch, and
+  whether a pull request covers its commits; it exits non-zero when a branch holds
+  another issue's unlanded work or carries a commit naming a different issue. The
+  mechanism that makes the above unrepeatable, built after the rule was broken a
+  second time within the hour of writing it. It claims no base and calls no branch
+  merged, because neither is in the graph. **Run it before cutting a branch and
+  before step 6.**
 
 ## Phase 1 — make the knowledge base tell the truth about what it already read
 

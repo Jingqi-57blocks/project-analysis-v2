@@ -16,6 +16,11 @@ two issues came to share one branch with no PR and no Linear record. A change of
 priority changes what is worked on next; it never changes what is owed on work
 already in hand.
 
+**Run `pnpm run flow` before cutting a branch and before calling an issue done.**
+It prints where every issue branch stands and exits non-zero on the two states
+this paragraph is about. Writing the rule down did not prevent a second
+occurrence within the hour; the check is there because prose was not enough.
+
 ## Never change an analyzed project's content
 
 The rule is about the project's **own** files, and only those. Never edit,

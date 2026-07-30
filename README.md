@@ -82,7 +82,13 @@ Requires Node 22+ and pnpm 10+.
 pnpm install
 pnpm test
 pnpm run typecheck
+pnpm run flow        # where each issue branch stands, and what it still owes
 ```
+
+`flow` reads local branches named for an issue and fails when one shares unlanded
+commits with another issue's branch, or carries a commit for a different issue.
+Run it before cutting a branch and before calling an issue done. `PA_FLOW_BASE`
+names the branch to compare against, for when the integration branch changes.
 
 Conventions that are not obvious from the code — the read-only rule, the writer
 contract, git and commit format — are in [CLAUDE.md](CLAUDE.md).
