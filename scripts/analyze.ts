@@ -31,6 +31,9 @@ interface Args {
   readonly dbPath: string;
 }
 
+const USAGE =
+  "Usage: analyze <path...> [--include a,b] [--exclude c,d] [--db path] [--no-code-index]";
+
 function parseArgs(argv: readonly string[]): Args {
   const value = (flag: string): string | undefined => {
     const index = argv.indexOf(flag);
@@ -43,6 +46,7 @@ function parseArgs(argv: readonly string[]): Args {
       .filter(Boolean);
 
   const valueFlags = new Set(["--db", "--include", "--exclude"]);
+  const bareFlags = new Set(["--no-code-index"]);
   const paths: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
@@ -50,16 +54,28 @@ function parseArgs(argv: readonly string[]): Args {
       i++;
       continue;
     }
-    if (token.startsWith("--")) continue;
+    // `pnpm run analyze -- …` forwards the separator itself.
+    if (token === "--") continue;
+    if (bareFlags.has(token)) continue;
+    // An unrecognised flag is refused rather than ignored, because ignoring one
+    // does not stop at the flag: its value is not skipped either, so the next
+    // token becomes a path and a directory nobody named gets analyzed. Removing
+    // `--index-root` made that concrete — `--index-root /tmp/x` analyzed
+    // `/tmp/x`, silently, and reported two roots where the user asked for one.
+    if (token.startsWith("--")) {
+      throw new Error(
+        `Unknown option ${token}. ${USAGE}` +
+          (token === "--index-root"
+            ? "\n\n--index-root has been removed. The code index is built in the directory " +
+              "holding the analyzed roots, which is the only place it can go: the indexer " +
+              "stores its database inside whatever it indexes. Use --no-code-index to skip it."
+            : ""),
+      );
+    }
     paths.push(token);
   }
 
-  if (paths.length === 0) {
-    throw new Error(
-      "Usage: analyze <path...> [--include a,b] [--exclude c,d] [--db path] " +
-        "[--no-code-index]",
-    );
-  }
+  if (paths.length === 0) throw new Error(USAGE);
 
   const include = splitList("--include");
   const exclude = splitList("--exclude");

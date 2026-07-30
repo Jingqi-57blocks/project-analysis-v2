@@ -143,3 +143,58 @@ describe("status command", () => {
     expect(output).toContain("never analyzed");
   });
 });
+
+describe("unrecognised options", () => {
+  /** The command's exit is what matters here, so failures are caught rather than thrown. */
+  function failure(args: readonly string[]): string {
+    try {
+      runScript("analyze.ts", args);
+      return "";
+    } catch (error) {
+      const shape = error as { stderr?: string; stdout?: string; message?: string };
+      return `${shape.stderr ?? ""}${shape.stdout ?? ""}${shape.message ?? ""}`;
+    }
+  }
+
+  it("refuses an unknown flag rather than analyzing its value as a root", () => {
+    // Ignoring a flag does not stop at the flag: its value is not skipped
+    // either, so the next token becomes a path. Removing --index-root made this
+    // concrete — `--index-root /tmp/x` analyzed /tmp/x and reported two roots
+    // where one was asked for.
+    const output = failure([
+      join(workDir, "alpha"),
+      "--index-root",
+      join(workDir, "beta"),
+      "--db",
+      join(workDir, "kb.sqlite"),
+      "--no-code-index",
+    ]);
+
+    expect(output).toContain("Unknown option --index-root");
+    expect(output).toContain("has been removed");
+  });
+
+  it("names a mistyped flag instead of silently dropping it", () => {
+    const output = failure([
+      join(workDir, "alpha"),
+      "--no-cod-index",
+      "--db",
+      join(workDir, "kb.sqlite"),
+    ]);
+
+    expect(output).toContain("Unknown option --no-cod-index");
+  });
+
+  it("still accepts the separator pnpm forwards, and the flags that exist", () => {
+    const output = runScript("analyze.ts", [
+      "--",
+      join(workDir, "alpha"),
+      "--db",
+      join(workDir, "kb.sqlite"),
+      "--no-code-index",
+    ]);
+
+    expect(output).toContain("alpha:");
+    expect(output).not.toContain("beta:");
+  });
+});
