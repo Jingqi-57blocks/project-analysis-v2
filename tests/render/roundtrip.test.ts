@@ -593,6 +593,21 @@ describe("a format is a view, not a second document", () => {
     expect(section).toContain('href="../index.html#limits"');
   });
 
+  it("lands a sidebar link on a heading that contains an ampersand", () => {
+    // "Issues & Risks" rendered as "Issues &amp; Risks", was slugged with the
+    // entity, and every nav link to an "&" heading was dead.
+    const outDir = assembled("export-ampersand", false);
+    writeFileSync(
+      join(outDir, "report.md"),
+      "# T\n\n## Issues & Risks\n\nBody.\n",
+    );
+    exportDocument(outDir, "html", "T");
+    const html = readFileSync(join(outDir, "html", "report.html"), "utf8");
+    expect(html).toContain('id="issues-risks"');
+    expect(html).toContain('href="#issues-risks"');
+    expect(html).not.toContain("issues-amp-risks");
+  });
+
   it("puts the view in a named directory and nothing else beside it", () => {
     // A deliverable folder holds only HTML; the Markdown, tasks and manifest
     // stay in the working directory a rebuild needs.

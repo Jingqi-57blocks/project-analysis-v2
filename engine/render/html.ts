@@ -277,7 +277,11 @@ function anchored(html: string): string {
   return html.replaceAll(
     /<h([1-6])>(.*?)<\/h\1>/g,
     (_whole, level: string, inner: string) => {
-      const title = inner.replaceAll(/<[^>]+>/g, "");
+      // The inner text is entity-escaped ("Issues &amp; Risks"), while the
+      // sidebar and contents slug the raw Markdown ("Issues & Risks"). Slugged
+      // as-is the id became "issues-amp-risks" and every link to an "&"
+      // heading was dead. Un-escape before slugging so both sides agree.
+      const title = unescapeHtml(inner.replaceAll(/<[^>]+>/g, ""));
       return `<h${level} id="${escapeHtml(anchorFor(title, taken))}">${inner}</h${level}>`;
     },
   );
