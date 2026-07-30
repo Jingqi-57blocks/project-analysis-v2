@@ -7,17 +7,19 @@
  * mean is an `llm` section with a prompt someone can edit.
  */
 
-import type { KnowledgeBase, Coverage, EntityModel } from "../kb/query.js";
-import type { CoverageNote, FeatureFact, MapEdge, ModuleFact, RunContext } from "../kb/facts.js";
-import type { RouteRecord } from "../structural/boundaries.js";
-import type { BusinessRule } from "../semantics/rules.js";
-import type { ValueSet } from "../semantics/enums.js";
+import type { KnowledgeBase, Coverage } from "../kb/query.js";
+import type { CoverageNote, FeatureFact, MapEdge } from "../kb/facts.js";
+import { mapToMermaid } from "../flows/mermaid.js";
+import { isRealIntegration } from "../kb/hosts.js";
+import { FRAME_EN, t, type Glossary } from "./strings.js";
 
 export interface FragmentInput {
   /** Selector name → what it resolved to, in the order the section listed. */
   readonly data: Readonly<Record<string, unknown>>;
   readonly params: Readonly<Record<string, string>>;
   readonly kb: KnowledgeBase;
+  /** The report's frame words. English when a caller supplied no language. */
+  readonly frame?: Glossary;
 }
 
 export class FragmentError extends Error {
@@ -33,28 +35,6 @@ function pick<T>(input: FragmentInput, selector: string): T | undefined {
   return input.data[selector] as T | undefined;
 }
 
-/** The first of several selectors the section might have used. */
-function firstOf<T>(input: FragmentInput, selectors: readonly string[]): T | undefined {
-  for (const selector of selectors) {
-    const value = input.data[selector];
-    if (value !== undefined) return value as T;
-  }
-  return undefined;
-}
-
-interface FlowShape {
-  readonly method: string | null;
-  readonly path: string;
-  readonly diagram: string;
-  readonly partial: boolean;
-  readonly steps: readonly {
-    readonly kind: string;
-    readonly label: string;
-    readonly rootName: string | null;
-    readonly conditions: readonly string[];
-    readonly unresolvedReason: string | null;
-  }[];
-}
 
 function cell(text: unknown): string {
   return String(text ?? "—").replaceAll("|", "\\|").replaceAll("\n", " ");
@@ -116,42 +96,21 @@ function coverageLine(coverage: Coverage | undefined, subject: string): string {
 }
 
 const FRAGMENTS: Readonly<Record<string, Fragment>> = {
-  "project-summary": (input) => {
-    const context = pick<RunContext | null>(input, "run-context");
-    if (!context) return "No run context was recorded for this analysis.";
-
-    const parts: string[] = [];
-    if (context.description !== null) {
-      // Quoted, not inlined: the text is a README and carries its own
-      // headings, which inlined would outrank the document's structure. And
-      // attributed, because a multi-root workspace has no single README —
-      // presenting one part's as the whole project's misrepresents it, which
-      // is exactly why the knowledge base records where it came from.
-      const [text, from] = context.description.split("\n\n— ");
-      const quoted = text!
-        .trim()
-        .split("\n")
-        .map((line) => `> ${line.replace(/^#{1,6}\s+/, "")}`)
-        .join("\n");
-      parts.push(from === undefined ? quoted : `${quoted}\n>\n> — from ${from.trim()}`, "");
-    }
-    parts.push(
-      table(
-        ["Part", "Language", "Files analyzed", "Files excluded"],
-        context.roots.map((root) => [root.name, root.language, root.analyzed, root.excluded]),
-      ),
-    );
-    return parts.filter((part) => part !== "").join("\n\n");
-  },
 
   "project-map": (input) => {
-    const context = pick<RunContext | null>(input, "run-context");
-    const edges = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
-    const parts = [mermaid(context?.mapDiagram ?? "")];
+    const f = input.frame ?? FRAME_EN;
+    const all = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
+    // A localhost port or an unfilled `xxxx.xxx.com` template is not a system
+    // the platform talks to. Filtered here as well as at the KB's map so an
+    // older knowledge base, built before the filter, still draws a clean map.
+    const edges = all.filter(
+      (edge) => edge.kind !== "external" || isRealIntegration(edge.to),
+    );
+    const parts = [mermaid(mapToMermaid(edges))];
     if (edges.length > 0) {
       parts.push(
         table(
-          ["From", "To", "Kind", "Detail"],
+          [t(f, "col-from"), t(f, "col-to"), t(f, "col-kind"), t(f, "col-detail")],
           edges.map((edge) => [edge.from, edge.to, edge.kind, edge.detail]),
         ),
       );
@@ -159,235 +118,110 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     return parts.filter((part) => part !== "").join("\n\n");
   },
 
-  "features-table": (input) => {
-    const features = pick<readonly FeatureFact[]>(input, "features") ?? [];
-    if (features.length === 0) {
-      const coverage = pick<Coverage>(input, "coverage:route");
-      // A capability needs one term to appear in more than one kind of place.
-      // With entry points read and none forming one, the absence is about the
-      // grouping rather than about whether anything was looked at. The count
-      // comes from the records themselves; the coverage rows cannot be summed.
-      return anyRead(coverage)
-        ? `${input.kb.endpoints().length} entry points were read, but no term appeared in enough places to name a capability.`
-        : coverageLine(coverage, "entry points");
+
+
+
+
+
+
+
+
+
+
+
+  /** What the system talks to outside itself, minus what is not an integration. */
+  "external-systems": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const edges = pick<readonly MapEdge[]>(input, "map-edges") ?? [];
+    const external = edges.filter((edge) => edge.kind === "external");
+    if (external.length === 0) return "";
+
+    const real = new Map<string, Set<string>>();
+    let dropped = 0;
+    for (const edge of external) {
+      if (!isRealIntegration(edge.to)) {
+        dropped += 1;
+        continue;
+      }
+      const callers = real.get(edge.to) ?? new Set<string>();
+      callers.add(edge.from);
+      real.set(edge.to, callers);
     }
-    // Capped, and the weaker evidence counted rather than listed beside the
-    // stronger: forty table names in one cell is not something anyone reads,
-    // and most of them were observed near the handler rather than in it.
-    const named = (tables: readonly string[], limit: number): string =>
-      tables.length <= limit
-        ? tables.join(", ")
-        : `${tables.slice(0, limit).join(", ")}, +${tables.length - limit} more`;
 
-    return table(
-      ["Capability", "Parts", "Endpoints", "Flows", "Tables", "Evidence"],
-      features.map((feature) => [
-        feature.name,
-        feature.rootNames.join(", "),
-        feature.endpoints.length,
-        feature.partialFlowCount > 0
-          ? `${feature.flowCount} (${feature.partialFlowCount} partial)`
-          : feature.flowCount,
-        [
-          named(feature.tables, 6),
-          feature.tablesNearby.length === 0
-            ? ""
-            : `(${feature.tablesNearby.length} more seen in the handlers' packages)`,
-        ]
-          .filter((part) => part !== "")
-          .join(" "),
-        feature.signals.join(" · "),
-      ]),
-    );
-  },
+    const lines = [...real.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(
+        ([host, callers]) =>
+          `- **${host}** — ${t(f, "reached-from", [...callers].sort().join(", "))}`,
+      );
 
-  "screens-table": (input) => {
-    const screens = pick<readonly RouteRecord[]>(input, "screens") ?? [];
-    if (screens.length === 0) return coverageLine(pick<Coverage>(input, "coverage:route"), "screens");
-    return table(
-      ["Part", "Path", "Complete"],
-      screens.map((screen) => [
-        screen.rootName,
-        screen.path,
-        // A screen under a parent declared elsewhere has a path fragment, not
-        // the address a user visits.
-        screen.provenance.resolutionClass === "inferred" ? "partial path" : "yes",
-      ]),
-    );
-  },
-
-  "endpoints-table": (input) => {
-    const endpoints = pick<readonly RouteRecord[]>(input, "endpoints") ?? [];
-    if (endpoints.length === 0) {
-      return coverageLine(pick<Coverage>(input, "coverage:route"), "entry points");
+    if (dropped > 0) {
+      // Named rather than silently filtered: a reader deciding on this list
+      // should know it is not everything the code mentions.
+      lines.push("", t(f, dropped === 1 ? "address-left-out" : "addresses-left-out", dropped));
     }
-    return table(
-      ["Method", "Path", "Part", "Middleware"],
-      endpoints.map((route) => [
-        route.method ?? "ANY",
-        route.path,
-        route.rootName,
-        route.middleware.join(", "),
-      ]),
-    );
+    return lines.join("\n");
   },
 
-  "data-model": (input) => {
-    const models = (
-      firstOf<readonly (EntityModel | null)[]>(input, ["module-entities", "entity-models"]) ?? []
-    ).filter(
-      (model): model is EntityModel => model !== null,
-    );
-    if (models.length === 0) {
+  /** What one capability keeps, without naming a table. */
+  "capability-data": (input) => {
+    const f = input.frame ?? FRAME_EN;
+    const detail = pick<{ feature: FeatureFact } | null>(input, "feature-detail");
+    if (!detail) return "";
+
+    const tables = detail.feature.tables;
+    const nearby = detail.feature.tablesNearby;
+    if (tables.length === 0 && nearby.length === 0) {
       return coverageLine(pick<Coverage>(input, "coverage:entity"), "table declarations");
     }
 
-    return models
-      .map((model) => {
-        const heading = `**${model.entity.name}** — ${model.entity.rootName}`;
-        const columns = table(
-          ["Column", "Type", "Nullable", "Key", "Source"],
-          model.fields.map((field) => [
-            field.name,
-            field.declaredType,
-            field.nullable === null ? "—" : field.nullable ? "yes" : "no",
-            field.isPrimaryKey ? "primary" : "",
-            `${field.provenance.source.relPath}:${field.provenance.source.startLine}`,
-          ]),
-        );
-        const relations =
-          model.relations.length === 0
-            ? ""
-            : model.relations
-                .map(
-                  (relation) =>
-                    `- ${relation.fromField ?? "?"} → ${relation.toEntity}.${relation.toField ?? "?"} (${relation.kind})`,
-                )
-                .join("\n");
-        return [heading, columns, relations].filter((part) => part !== "").join("\n\n");
-      })
-      .join("\n\n");
-  },
+    const readable = (names: readonly string[]): string =>
+      [...new Set(names.map((name) => name.replace(/^[a-z]{2,4}_/i, "").replaceAll(/[_-]+/g, " ")))]
+        .sort()
+        .join(", ");
 
-  "rules-table": (input) => {
-    const rules =
-      pick<readonly BusinessRule[]>(input, "feature-rules") ??
-      pick<readonly BusinessRule[]>(input, "business-rules") ??
-      [];
-    if (rules.length === 0) return "";
-    return table(
-      ["Rule", "As written", "Fails the check", "Where"],
-      rules.map((rule) => [
-        rule.statement,
-        `\`${rule.text}\``,
-        rule.guarded === "rejects" ? "stops the request" : rule.guarded === "continues" ? "carries on" : "—",
-        `${rule.rootName}/${rule.relPath}:${rule.startLine}`,
-      ]),
-    );
-  },
-
-  "value-sets": (input) => {
-    const sets = pick<readonly ValueSet[]>(input, "value-sets") ?? [];
-    if (sets.length === 0) return "";
-    return sets
-      .map((set) =>
-        [
-          `**${set.name}** — ${set.rootName}/${set.relPath}:${set.startLine}`,
-          table(
-            ["Name", "Value"],
-            set.members.map((member) => [member.name, member.value]),
-          ),
-        ].join("\n\n"),
-      )
-      .join("\n\n");
-  },
-
-  flows: (input) => {
-    const flows = firstOf<readonly FlowShape[]>(input, ["module-flows", "feature-flows"]) ?? [];
-    if (flows.length === 0) return "";
-
-    return flows
-      .map((flow) =>
-        [
-          `**${flow.method ?? "ANY"} ${flow.path}**${flow.partial ? " — some hops could not be established" : ""}`,
-          mermaid(flow.diagram),
-          table(
-            ["Step", "What", "Part", "Conditions", "Not established"],
-            flow.steps.map((step) => [
-              step.kind,
-              step.label,
-              step.rootName,
-              step.conditions.join(", "),
-              step.unresolvedReason,
-            ]),
-          ),
-        ]
-          .filter((part) => part !== "")
-          .join("\n\n"),
-      )
-      .join("\n\n");
-  },
-
-  "findings-table": (input) => {
-    const structural =
-      pick<readonly { id: string; severity: string; title: string; finding: string; evidence: readonly string[] }[]>(
-        input,
-        "structural-findings",
-      ) ?? [];
-    const perFeature =
-      firstOf<readonly { featureName: string; severity: string; title: string; finding: string }[]>(
-        input,
-        ["module-findings", "feature-findings"],
-      ) ?? [];
-
-    const rows = [
-      ...structural.map((finding) => [finding.severity, "the architecture", finding.title, finding.finding]),
-      ...perFeature.map((finding) => [finding.severity, finding.featureName, finding.title, finding.finding]),
-    ];
-    if (rows.length === 0) {
-      // Not a clean bill of health: findings are derived from what was read,
-      // and a run that read little derives little.
-      return "No findings were derived. That is a statement about what this analysis looked for, not a verdict on the code.";
+    const parts: string[] = [];
+    if (tables.length > 0) {
+      parts.push(t(f, "own-handling", readable(tables)));
     }
-    return table(["Severity", "About", "Finding", "What was observed"], rows);
-  },
+    if (nearby.length > 0) {
+      // Weaker evidence, and saying which is which is the difference between
+      // "this capability touches forty things" and what was actually seen.
+      parts.push(t(f, "further-nearby", nearby.length, readable(nearby)));
+    }
 
-  "signals-table": (input) => {
-    const signals =
-      pick<readonly { id: string; severity: string; title: string; finding: string; value: number }[]>(
-        input,
-        "signals",
-      ) ?? [];
-    if (signals.length === 0) return "";
-    return table(
-      ["Severity", "Measure", "Value", "What it means"],
-      signals.map((signal) => [signal.severity, signal.title, signal.value, signal.finding]),
+    // The linkage a reader needs before changing this data: which of these
+    // records other capabilities also touch. Computed from the same tables
+    // the features already claim, so it introduces no new evidence — only
+    // the join nobody would do by hand.
+    const others = (pick<readonly FeatureFact[]>(input, "features") ?? []).filter(
+      (candidate) => candidate.id !== detail.feature.id,
     );
-  },
-
-  "module-surface": (input) => {
-    const detail = pick<{ module: ModuleFact } | null>(input, "module-detail:$module");
-    if (!detail) return "";
-    const module = detail.module;
-    return [
-      table(
-        ["Part", "Symbols", "Grouped by"],
-        [[module.rootNames.join(", "), module.symbolCount, module.groupingSignal]],
-      ),
-      table(
-        ["Method", "Path", "Part"],
-        module.endpoints.map((endpoint) => [
-          endpoint.method ?? "ANY",
-          endpoint.path,
-          endpoint.rootName,
-        ]),
-      ),
-    ]
-      .filter((part) => part !== "")
-      .join("\n\n");
+    if (others.length > 0 && tables.length > 0) {
+      const shared = tables
+        .map((table) => ({
+          table,
+          by: others
+            .filter((candidate) => candidate.tables.includes(table))
+            .map((candidate) => candidate.name)
+            .sort(),
+        }))
+        .filter((entry) => entry.by.length > 0);
+      if (shared.length > 0) {
+        const listed = shared
+          .slice(0, 8)
+          .map((entry) => `${readable([entry.table])} (${entry.by.join(", ")})`)
+          .join("; ");
+        const suffix =
+          shared.length > 8 ? `; ${t(f, "and-more", shared.length - 8)}` : "";
+        parts.push(t(f, "shared-tables", `${listed}${suffix}`));
+      }
+    }
+    return parts.join("\n\n");
   },
 
   limitations: (input) => {
+    const f = input.frame ?? FRAME_EN;
     const notes = pick<readonly CoverageNote[]>(input, "coverage-notes") ?? [];
     const failures =
       pick<readonly { providerId: string; scope: string; reason: string }[]>(
@@ -399,22 +233,50 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     if (notes.length > 0) {
       parts.push(
         table(
-          ["About", "What this analysis could not establish"],
+          [t(f, "col-about"), t(f, "col-cannot-establish")],
           notes.map((note) => [note.subject, note.note]),
         ),
       );
     }
     if (failures.length > 0) {
-      parts.push(
-        table(
-          ["Reader", "Where", "What went wrong"],
-          failures.slice(0, 50).map((failure) => [failure.providerId, failure.scope, failure.reason]),
-        ),
-      );
+      // The same limitation repeats once per file — forty screens each noting
+      // that their path mirrors a component. Grouped by what went wrong, a
+      // reader sees each kind once, with a count and a few examples, rather
+      // than a page of near-identical rows. The count keeps it honest: nothing
+      // is dropped, it is summarised.
+      const groups = new Map<
+        string,
+        { providerId: string; reason: string; where: string[] }
+      >();
+      // Most reasons open with the specific path they are about —
+      // `"/leaves" registers a mount…`, `"/auth/SignIn" mirrors a component…`.
+      // That path is already the row's location, so it is dropped for grouping
+      // and from the shown reason, leaving one line per kind of problem.
+      const generalise = (reason: string): string => reason.replace(/^"[^"]*"\s*/, "").trim();
+      for (const failure of failures) {
+        const reason = generalise(failure.reason);
+        const key = `${failure.providerId} ${reason}`;
+        const group = groups.get(key) ?? {
+          providerId: failure.providerId,
+          reason,
+          where: [],
+        };
+        group.where.push(failure.scope);
+        groups.set(key, group);
+      }
+      const rows = [...groups.values()]
+        .sort((a, b) => b.where.length - a.where.length)
+        .map((group) => {
+          const shown = group.where.slice(0, 3).join(", ");
+          const where =
+            group.where.length > 3
+              ? `${shown}, ${t(f, "and-more", group.where.length - 3)}`
+              : shown;
+          return [group.providerId, where, group.reason];
+        });
+      parts.push(table([t(f, "col-reader"), t(f, "col-where"), t(f, "col-went-wrong")], rows));
     }
-    return parts.length === 0
-      ? "This run recorded no limits on what it could read, which is itself worth doubting."
-      : parts.join("\n\n");
+    return parts.length === 0 ? t(f, "no-limits") : parts.join("\n\n");
   },
 };
 
@@ -431,3 +293,5 @@ export function renderFragment(name: string, input: FragmentInput): string {
   if (!hasFragment(name)) throw new FragmentError(name);
   return FRAGMENTS[name]!(input);
 }
+
+

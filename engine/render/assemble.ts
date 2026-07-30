@@ -50,6 +50,9 @@ export class UnansweredSectionsError extends Error {
 
 interface Manifest {
   readonly title?: string;
+  readonly language?: string;
+  /** The report's frame words, keyed by their English source. */
+  readonly frame?: Readonly<Record<string, string>>;
   readonly sections?: readonly {
     readonly id: string;
     readonly kind: string;
@@ -192,9 +195,14 @@ export function writeAssembled(
   const manifest = readManifest(runDir);
   const idFor = (title: string): string | undefined =>
     (manifest.sections ?? []).find((section) => section.heading === title)?.id;
+  // The contents label follows the report's language; the headings were
+  // already localised into the partial at prepare time.
+  const contentsLabel = manifest.frame?.contents;
 
   const written: string[] = [];
-  const document = withContents(result.markdown);
+  const document = withContents(result.markdown, {
+    ...(contentsLabel === undefined ? {} : { label: contentsLabel }),
+  });
 
   const path = join(runDir, "report.md");
   writeFileSync(path, `${document.trimEnd()}\n`, "utf8");
@@ -207,6 +215,7 @@ export function writeAssembled(
     const { index, parts } = splitDocument(result.markdown, {
       keepInIndex: ["limitations"],
       idFor,
+      ...(contentsLabel === undefined ? {} : { label: contentsLabel }),
     });
 
     const sectionsDir = join(runDir, "sections");

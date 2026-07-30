@@ -182,3 +182,60 @@ describe("two matches on one line", () => {
     );
   });
 });
+
+describe("scheduled work", () => {
+  it("finds a node scheduler registration and keeps its first literal", () => {
+    write(
+      "schedule.js",
+      "schedule.scheduleJob('Check-Mail', '30 * * * * *', function() { mail(); });\n",
+    );
+    const tasks = extract(["schedule.js"]).records["scheduled-task"];
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.mechanism).toBe("scheduleJob");
+    expect(tasks[0]!.schedule).toBe("Check-Mail");
+  });
+
+  it("finds a Go cron registration with its literal spec", () => {
+    write(
+      "cron.go",
+      'package cron\n\nfunc Init(c *cron.Cron) {\n\tc.AddFunc("@every 5m", syncExpired)\n}\n',
+    );
+    const tasks = extract(["cron.go"]).records["scheduled-task"];
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.schedule).toBe("@every 5m");
+  });
+
+  it("keeps a configured spec as null rather than inventing one", () => {
+    // The schedule lives in configuration; the source states no timing.
+    write("cron.go", "package cron\n\nfunc Init(c *cron.Cron) {\n\tc.AddFunc(cfg.Spec, run)\n}\n");
+    const tasks = extract(["cron.go"]).records["scheduled-task"];
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.schedule).toBeNull();
+  });
+});
+
+describe("notifications", () => {
+  it("finds a mail send and names its channel", () => {
+    write("mail.js", "await this.mailTransport.sendMail({ to, subject });\n");
+    const calls = extract(["mail.js"]).records["notification-call"];
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.channel).toBe("mail");
+  });
+
+  it("finds a push send through firebase messaging", () => {
+    write("push.js", "await admin.messaging().send(message);\n");
+    const calls = extract(["push.js"]).records["notification-call"];
+    expect(calls.map((call) => call.channel)).toContain("push");
+  });
+
+  it("marks a merely notification-named helper as weak evidence", () => {
+    // A caller of the sender matches by name alone; the record must say so.
+    write("svc.go", "package svc\n\nfunc F() {\n\tsendNotificationToLeader(ctx)\n}\n");
+    const calls = extract(["svc.go"]).records["notification-call"];
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.channel).toBe("unknown");
+    const provenance = calls[0]!.provenance;
+    expect(provenance.resolutionClass).toBe("inferred");
+    expect("confidence" in provenance && provenance.confidence).toBe("low");
+  });
+});

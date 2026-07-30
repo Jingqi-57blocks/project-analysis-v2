@@ -24,7 +24,13 @@ import type { SgNode } from "@ast-grep/napi";
 import { enclosingFunctionName, languageOf, parseSource } from "../../text/ast.js";
 import { inferred, resolved } from "../../structural/provenance.js";
 import { emptyRecords } from "../../structural/kinds.js";
-import type { ConditionRecord, DiscardedErrorRecord } from "../../structural/rules.js";
+import type {
+  ConditionRecord,
+  DecisionRecord,
+  DiscardedErrorRecord,
+  GuardRecord,
+} from "../../structural/rules.js";
+import { decisionsIn, MAX_BRANCHES, MAX_DEPTH } from "./decisions.js";
 import {
   ANY_LANGUAGE,
   declaredKinds,
@@ -134,6 +140,14 @@ function conditionsIn(
       literal: literal.value,
       literalKind: literal.kind,
       text: node.text().replaceAll(/\s+/g, " ").slice(0, 200),
+      // The whole test this comparison is one part of.
+      //
+      // `lv.Hours > 16 && flow == L1` is not a limit of sixteen hours; it is
+      // what happens to a request over sixteen hours *at the first approval
+      // step*. Recorded alone, the comparison reads as a standalone rule, and
+      // two tiers of one ladder read as two rules that contradict each other.
+      // Measured on a real target: they were published as exactly that.
+      fullTest: fullTestOf(node),
       enclosingFunction: enclosingFunctionName(node),
       guarded: guardedOutcome(node),
       source,
@@ -145,6 +159,96 @@ function conditionsIn(
 }
 
 const EXIT_KINDS = new Set<string>(["return_statement", "throw_statement"]);
+
+/**
+ * The tests that are plumbing, not rules — error propagation, mostly.
+ *
+ * `if err != nil { return err }` is the commonest guard in Go and says nothing
+ * about the domain; a nil-check or a bare `!ok` is the same. A guard whose test
+ * is only one of these is left out even when its rejection carries a message,
+ * because the message there describes a failure to do the work, not a rule the
+ * work must satisfy.
+ */
+const PLUMBING_TEST =
+  /^(!?\w*(err|error)\w*)\s*(!=|==)\s*nil$|^!?ok$|^!?\w*ok$|(err|error)\s*(!=|==)\s*nil/i;
+
+/** The first string literal inside a node — the message a rejection states. */
+function firstMessage(node: SgNode): string | null {
+  const stack: SgNode[] = [node];
+  while (stack.length > 0) {
+    const current = stack.shift()!;
+    const kind = current.kind() as string;
+    if (kind.includes("string") && !kind.includes("template")) {
+      const raw = current.text().replace(/^[`'"]|[`'"]$/g, "").trim();
+      // A message, not a format verb, a key, or a single word like "id".
+      if (raw.length >= 6 && /\s/.test(raw) && !/^%[svd]/.test(raw)) return raw.slice(0, 160);
+    }
+    for (const child of current.children()) stack.push(child);
+  }
+  return null;
+}
+
+/**
+ * The gates a capability enforces that are not literal comparisons.
+ *
+ * An `if` whose branch rejects with a message: the message is the rule in the
+ * code's own words. Plumbing guards (error propagation) are filtered by shape,
+ * and a rejection with no message is left out — without one there is nothing a
+ * reader could act on that `condition` and `decision` do not already carry.
+ */
+export function guardsIn(root: SgNode, rootName: string, relPath: string): GuardRecord[] {
+  const records: GuardRecord[] = [];
+  let nodes: SgNode[];
+  try {
+    nodes = root.findAll({ rule: { kind: "if_statement" as never } });
+  } catch {
+    return records;
+  }
+
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    const condition = node.field("condition");
+    const consequence =
+      node.field("consequence") ??
+      node.children().find((child) => (child.kind() as string).includes("block"));
+    if (condition === undefined || condition === null) continue;
+    if (consequence === undefined || consequence === null) continue;
+
+    const test = condition.text().replace(/^\((.*)\)$/s, "$1").replaceAll(/\s+/g, " ").trim();
+    if (test === "" || test.length > 200) continue;
+    if (PLUMBING_TEST.test(test)) continue;
+
+    // Only a branch that leaves the function with a message is a stated rule.
+    const exit = statementsOf(consequence).find((child) => EXIT_KINDS.has(child.kind() as string));
+    if (exit === undefined) continue;
+    const message = firstMessage(exit);
+    if (message === null) continue;
+
+    const range = node.range();
+    const key = `${relPath}:${range.start.line}:${message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const source = {
+      rootName,
+      relPath,
+      startLine: range.start.line + 1,
+      endLine: range.end.line + 1,
+      startColumn: range.start.column + 1,
+      endColumn: null,
+    };
+    records.push({
+      rootName,
+      test,
+      message,
+      enclosingFunction: enclosingFunctionName(node),
+      source,
+      provenance: resolved(source, "high"),
+    });
+  }
+
+  return records;
+}
 
 /**
  * Grammars that wrap a block's contents in one more node.
@@ -189,6 +293,33 @@ function guardedOutcome(node: SgNode): "rejects" | "continues" | null {
     current = current.parent();
   }
   return null;
+}
+
+const BOOLEAN_OPERATORS = new Set(["&&", "||", "and", "or"]);
+
+/**
+ * The outermost boolean expression this comparison belongs to.
+ *
+ * Null where the comparison is the whole test — most of the time — so a
+ * consumer can tell "this is the rule" from "this is one clause of the rule"
+ * rather than having to compare two strings.
+ */
+function fullTestOf(node: SgNode): string | null {
+  let current: SgNode | null = node.parent();
+  let outermost: SgNode | null = null;
+
+  for (let depth = 0; current !== null && depth < 6; depth++) {
+    const kind = current.kind() as string;
+    if (kind.includes("binary") || kind.includes("logical")) {
+      const operator = current.field("operator")?.text() ?? "";
+      if (BOOLEAN_OPERATORS.has(operator.trim())) outermost = current;
+    } else if (kind !== "parenthesized_expression") {
+      break;
+    }
+    current = current.parent();
+  }
+
+  return outermost === null ? null : outermost.text().replaceAll(/\s+/g, " ").slice(0, 400);
 }
 
 function flip(operator: string): string {
@@ -305,6 +436,17 @@ export function logicCapabilities(): ProviderCapabilities {
   return {
     declarations: [
       {
+        kind: "decision",
+        language: ANY_LANGUAGE,
+        support: "partial",
+        limits: [
+          "if/else chains and switch statements are read as trees; branching expressed another way — early returns in sequence, a lookup table, polymorphism — is not a decision this reports",
+          "a branch records where its body is, not what it does; tables and calls are joined from their own readers by line",
+          `nesting deeper than ${MAX_DEPTH} levels or wider than ${MAX_BRANCHES} branches is recorded as truncated rather than dropped`,
+          "languages without a grammar in this run are not read at all",
+        ],
+      },
+      {
         kind: "condition",
         language: ANY_LANGUAGE,
         support: "partial",
@@ -312,6 +454,17 @@ export function logicCapabilities(): ProviderCapabilities {
           "comparisons against a literal are read; a rule expressed through a named constant on both sides is not a condition this reports",
           "a rule spread across several statements, or decided by a function call, is out of reach",
           "counters and bounds checks are excluded by shape, so a genuine rule named like an index is missed",
+          "languages without a grammar in this run are not read at all",
+        ],
+      },
+      {
+        kind: "guard",
+        language: ANY_LANGUAGE,
+        support: "partial",
+        limits: [
+          "an `if` that rejects with a message is read as a rule; a gate that rejects with an error constant rather than a literal message is missed",
+          "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
+          "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
           "languages without a grammar in this run are not read at all",
         ],
       },
@@ -341,6 +494,8 @@ export function createLogicProvider(): StructuralProvider {
 
     extract(root: StructuralRootInput): StructuralContribution {
       const conditions: ConditionRecord[] = [];
+      const decisions: DecisionRecord[] = [];
+      const guards: GuardRecord[] = [];
       const discarded: DiscardedErrorRecord[] = [];
       const failures: ExtractionFailure[] = [];
 
@@ -362,6 +517,8 @@ export function createLogicProvider(): StructuralProvider {
           }
 
           conditions.push(...conditionsIn(parsed.root, root.name, relPath));
+          decisions.push(...decisionsIn(root.name, relPath, content));
+          guards.push(...guardsIn(parsed.root, root.name, relPath));
           discarded.push(...discardedErrorsIn(parsed.root, root.name, relPath, language));
         } catch (error) {
           failures.push({
@@ -375,7 +532,13 @@ export function createLogicProvider(): StructuralProvider {
         providerId: PROVIDER_ID,
         providerVersion: PROVIDER_VERSION,
         rootName: root.name,
-        records: { ...emptyRecords(), condition: conditions, "discarded-error": discarded },
+        records: {
+          ...emptyRecords(),
+          condition: conditions,
+          decision: decisions,
+          guard: guards,
+          "discarded-error": discarded,
+        },
         gaps: [],
         failures,
       };

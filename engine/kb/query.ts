@@ -16,7 +16,18 @@ import { readDerived, readDerivedFor, readDerivedOne, readLinks, readLinksTo } f
 import { derivedKey, type DerivedKind, type DerivedRecords } from "./kinds.js";
 import { readRecords } from "../structural/persist.js";
 import type { StructuralKind } from "../structural/kinds.js";
-import type { RouteRecord } from "../structural/boundaries.js";
+import type {
+  AuthAnnotationRecord,
+  DataAccessRecord,
+  OutboundCallRecord,
+  RouteRecord,
+} from "../structural/boundaries.js";
+import type { PackageDependencyRecord } from "../structural/dependencies.js";
+import type {
+  DiscardedErrorRecord,
+  ErrorHandlingRecord,
+  TransactionBoundaryRecord,
+} from "../structural/rules.js";
 import type {
   ConstraintRecord,
   DataRelationRecord,
@@ -24,7 +35,14 @@ import type {
   FieldRecord,
 } from "../datamodel/types.js";
 import type { BusinessRule } from "../semantics/rules.js";
+import type {
+  DecisionRecord,
+  GuardRecord,
+  NotificationCallRecord,
+  ScheduledTaskRecord,
+} from "../structural/rules.js";
 import { bestSetFor, type ValueSet } from "../semantics/enums.js";
+import { singular, words } from "../modules/features.js";
 import type {
   CoverageNote,
   FeatureFact,
@@ -150,6 +168,35 @@ export interface EntityModel {
   readonly constraints: readonly ConstraintRecord[];
 }
 
+export interface DataOwnership {
+  readonly table: string;
+  readonly writers: readonly string[];
+  /** Roots that read but were not seen to write — reading across a boundary. */
+  readonly readers: readonly string[];
+  readonly sharing: "single-owner" | "read-across-a-boundary" | "written-by-several";
+}
+
+export interface ReliabilitySignal {
+  readonly rootName: string;
+  readonly errorHandlingSites: number;
+  readonly transactionBoundaries: number;
+  readonly discardedErrors: number;
+}
+
+export interface TestPresence {
+  readonly rootName: string;
+  readonly testCount: number;
+  readonly sample: readonly string[];
+}
+
+export interface EndpointPermission {
+  readonly rootName: string;
+  readonly method: string | null;
+  readonly path: string;
+  /** The middleware declared on the route — auth checks, validation, and more. */
+  readonly middleware: readonly string[];
+}
+
 export interface FeatureDetail {
   readonly feature: FeatureFact;
   readonly flows: readonly FeatureFlowFact[];
@@ -246,44 +293,9 @@ export class KnowledgeBase {
     };
   }
 
-  /** Every flow through the capabilities a module serves. */
-  flowsForModule(moduleId: string): readonly FeatureFlowFact[] {
-    const detail = this.moduleDetail(moduleId);
-    return detail === null
-      ? []
-      : detail.features.flatMap((feature) => this.flowsForFeature(feature.id));
-  }
 
-  /** The entities the capabilities a module serves were observed to use. */
-  entitiesForModule(moduleId: string): readonly EntityModel[] {
-    const detail = this.moduleDetail(moduleId);
-    if (detail === null) return [];
 
-    const wanted = new Set([
-      ...detail.module.dataEntities,
-      ...detail.features.flatMap((feature) => [...feature.dataEntities, ...feature.tables]),
-    ]);
-    return this.entities()
-      .filter((entity) => wanted.has(entity.name))
-      .map((entity) => this.entityModel(entity.name, entity.rootName))
-      .filter((model): model is EntityModel => model !== null);
-  }
 
-  /** Findings about the capabilities a module serves, and no others. */
-  findingsForModule(moduleId: string): readonly FeatureFindingFact[] {
-    const detail = this.moduleDetail(moduleId);
-    if (detail === null) return [];
-    const ids = new Set(detail.features.map((feature) => feature.id));
-    return this.featureFindings().filter((finding) => ids.has(finding.featureId));
-  }
-
-  /** Every published rule of the capabilities a module serves. */
-  rulesForModule(moduleId: string): readonly BusinessRule[] {
-    const detail = this.moduleDetail(moduleId);
-    return detail === null
-      ? []
-      : detail.features.flatMap((feature) => this.rulesForFeature(feature.id));
-  }
 
   /** Which modules serve a capability. A capability can span several. */
   modulesForFeature(featureId: string): readonly ModuleFact[] {
@@ -301,6 +313,184 @@ export class KnowledgeBase {
 
   traces() {
     return this.derived("trace");
+  }
+
+  /** Every decision the code makes, as trees. */
+  decisions(): readonly DecisionRecord[] {
+    return this.structural("decision") as readonly DecisionRecord[];
+  }
+
+  /** Every gate — an `if` that rejects with a message — the code enforces. */
+  guards(): readonly GuardRecord[] {
+    return this.structural("guard") as readonly GuardRecord[];
+  }
+
+  /**
+   * The gates enforced in a capability's own files.
+   *
+   * The business rules that are not literal comparisons — an office check, a
+   * balance test, an attachment requirement — each stated by the message it
+   * rejects with. Scoped by file, the same way decisions are.
+   */
+  guardsForFeature(featureId: string): readonly GuardRecord[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const owned = new Set(feature.filePaths);
+    return this.guards().filter((guard) => owned.has(`${guard.rootName}/${guard.source.relPath}`));
+  }
+
+  /**
+   * The status sets a capability's records move through.
+   *
+   * A value set counts when its name says it is one — status, state, flow,
+   * stage — and it is named for this capability: the capability's term in the
+   * set's own name (`LeaveRequestStatus`) or in the file that declares it
+   * (`constant/leave.go`). Matching on shared member names was tried and
+   * over-matched badly — `Approved` and `Rejected` belong to every approval
+   * set in the project — so a status set named for something else that this
+   * capability nonetheless uses is missed, and that limit is stated to the
+   * section that reads this rather than papered over with a looser match.
+   */
+  statusSetsForFeature(featureId: string): readonly ValueSet[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const term = singular(feature.term.toLowerCase());
+
+    const LOOKS_LIKE_STATUS = /status|state|flow|stage|phase/i;
+    return this.valueSets().filter(
+      (set) =>
+        LOOKS_LIKE_STATUS.test(set.name) &&
+        set.members.length > 1 &&
+        (words(set.name).map(singular).includes(term) ||
+          words(set.relPath).map(singular).includes(term)),
+    );
+  }
+
+  /** Work the system runs on a timer: cron entries, scheduled jobs. */
+  scheduledTasks(): readonly ScheduledTaskRecord[] {
+    return this.structural("scheduled-task") as readonly ScheduledTaskRecord[];
+  }
+
+  /** Every place something is sent — mail, chat, push — as matched. */
+  notificationCalls(): readonly NotificationCallRecord[] {
+    return this.structural("notification-call") as readonly NotificationCallRecord[];
+  }
+
+  /**
+   * The scheduled work and the notifications in a capability's own files.
+   *
+   * Scoped by file, the same way guards and decisions are. A scheduler
+   * registered in shared infrastructure that *runs* this capability's work is
+   * not attributed here — the file it lives in belongs to no capability — and
+   * the section reading this is told so.
+   */
+  automationForFeature(featureId: string): {
+    readonly scheduled: readonly ScheduledTaskRecord[];
+    readonly notifications: readonly NotificationCallRecord[];
+  } {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return { scheduled: [], notifications: [] };
+    const owned = new Set(feature.filePaths);
+    const owns = (record: { rootName: string; source: { relPath: string } }): boolean =>
+      owned.has(`${record.rootName}/${record.source.relPath}`);
+    return {
+      scheduled: this.scheduledTasks().filter(owns),
+      notifications: this.notificationCalls().filter(owns),
+    };
+  }
+
+  /**
+   * Each of a capability's endpoints, with the access checks declared on it.
+   *
+   * The declared authorisation only — the middleware named on the route. A
+   * check written inside a handler is out of reach, so an endpoint with nothing
+   * here is one where no check was *declared*, not one that is provably open;
+   * and a capability whose endpoints show only a bare "signed in" enforces any
+   * finer permission (who may approve, say) inside the handler, not at the
+   * boundary. Stated so a reader draws the honest conclusion.
+   */
+  permissionsForFeature(featureId: string): readonly EndpointPermission[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const key = (route: { rootName: string; method: string | null; path: string }): string =>
+      `${route.rootName} ${route.method ?? "ANY"} ${route.path}`;
+    const routes = new Map(this.endpoints().map((route) => [key(route), route] as const));
+    return feature.endpoints.map((endpoint) => ({
+      rootName: endpoint.rootName,
+      method: endpoint.method,
+      path: endpoint.path,
+      middleware: routes.get(key(endpoint))?.middleware ?? [],
+    }));
+  }
+
+  /**
+   * The decisions made in a capability's own files.
+   *
+   * Scoped by file because that is how a capability owns code: a decision is
+   * in `leave/service.go`, and Leave owns that file. Nothing finer is
+   * available, and claiming otherwise would attribute a branch to a
+   * capability that never runs it.
+   */
+  decisionsForFeature(featureId: string): readonly DecisionRecord[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+
+    const owned = new Set(feature.filePaths);
+    return this.decisions()
+      .filter((decision) => owned.has(`${decision.rootName}/${decision.source.relPath}`))
+      .map((decision) => this.withEffects(decision));
+  }
+
+  /**
+   * What each branch of a decision was observed to do.
+   *
+   * The reader records where a branch is, not what happens inside it, so that
+   * one fact keeps one source. Joining by line is where the two meet: a data
+   * access recorded at line 88 of the same file belongs to the branch that
+   * spans lines 84 to 92.
+   *
+   * Without this a diagram shows three branches and nothing about where they
+   * lead, which invites a reader to assume the branches do not matter.
+   */
+  private withEffects(decision: DecisionRecord): DecisionRecord {
+    const file = `${decision.rootName}/${decision.source.relPath}`;
+    const accesses = this.dataAccessByFile().get(file) ?? [];
+
+    const attach = (branch: DecisionRecord["branches"][number]): DecisionRecord["branches"][number] => ({
+      ...branch,
+      touches: [
+        ...new Set(
+          accesses
+            .filter(
+              (access) =>
+                access.line >= branch.startLine &&
+                access.line <= branch.endLine &&
+                access.entity !== null,
+            )
+            .map((access) => access.entity!),
+        ),
+      ].sort(),
+      decisions: branch.decisions.map((inner) => this.withEffects(inner)),
+    });
+
+    return { ...decision, branches: decision.branches.map(attach) };
+  }
+
+  private accessCache: Map<string, { line: number; entity: string | null }[]> | null = null;
+
+  private dataAccessByFile(): ReadonlyMap<string, { line: number; entity: string | null }[]> {
+    if (this.accessCache !== null) return this.accessCache;
+
+    const byFile = new Map<string, { line: number; entity: string | null }[]>();
+    for (const record of this.structural("data-access") as readonly DataAccessRecord[]) {
+      const source = record.provenance.source;
+      const key = `${record.rootName}/${source.relPath}`;
+      const list = byFile.get(key) ?? [];
+      list.push({ line: source.startLine ?? 0, entity: record.entity });
+      byFile.set(key, list);
+    }
+    this.accessCache = byFile;
+    return byFile;
   }
 
   /** Findings about the architecture rather than about one capability. */
@@ -378,6 +568,27 @@ export class KnowledgeBase {
   screens(): readonly RouteRecord[] {
     return (this.structural("route") as readonly RouteRecord[]).filter(
       (route) => route.surface === "client",
+    );
+  }
+
+  /**
+   * The screens where a person meets this capability.
+   *
+   * Matched by the capability's own term appearing as a word of the screen's
+   * path — `/my/leave/create` names leave the same way the feature detector
+   * found it. That is how the applications here name their screens; a screen
+   * reached only through state or a modal carries no such path, so this is
+   * where the capability *can be found*, never a census of every surface that
+   * touches it.
+   */
+  screensForFeature(featureId: string): readonly RouteRecord[] {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return [];
+    const term = singular(feature.term.toLowerCase());
+    return this.screens().filter((screen) =>
+      screen.path
+        .split("/")
+        .some((segment) => words(segment).map(singular).includes(term)),
     );
   }
 
@@ -464,6 +675,126 @@ export class KnowledgeBase {
         recordCount: row.record_count,
       })),
     };
+  }
+
+  /** Every observed read or write of a store, as recorded. */
+  dataAccess(): readonly DataAccessRecord[] {
+    return this.structural("data-access") as readonly DataAccessRecord[];
+  }
+
+  /**
+   * Who writes and who reads each table, and how strong the sharing evidence is.
+   *
+   * A table one service writes and another only reads is a boundary crossed
+   * without an interface; a table two services both write is a rule enforced in
+   * two places. The distinction a reader needs is which of those it is, so it
+   * is computed here rather than left for prose to re-derive and get wrong.
+   *
+   * `entity` is null for a query built at runtime; those cannot be attributed
+   * to a table and are left out rather than bundled under a made-up name.
+   */
+  dataOwnership(): readonly DataOwnership[] {
+    const WRITES = new Set(["write", "update", "delete", "schema-change"]);
+    const byTable = new Map<string, { writers: Set<string>; readers: Set<string> }>();
+    for (const access of this.dataAccess()) {
+      if (access.entity === null || access.entity === "") continue;
+      const entry = byTable.get(access.entity) ?? { writers: new Set(), readers: new Set() };
+      if (WRITES.has(access.operation)) entry.writers.add(access.rootName);
+      else if (access.operation === "read") entry.readers.add(access.rootName);
+      else entry.readers.add(access.rootName);
+      byTable.set(access.entity, entry);
+    }
+
+    return [...byTable.entries()]
+      .map(([table, { writers, readers }]) => {
+        const readOnly = [...readers].filter((root) => !writers.has(root));
+        const sharing: DataOwnership["sharing"] =
+          writers.size > 1
+            ? "written-by-several"
+            : readOnly.length > 0 && writers.size >= 1
+              ? "read-across-a-boundary"
+              : "single-owner";
+        return {
+          table,
+          writers: [...writers].sort(),
+          readers: readOnly.sort(),
+          sharing,
+        };
+      })
+      .sort((a, b) => a.table.localeCompare(b.table));
+  }
+
+  /** Declared authentication and authorization requirements. */
+  authAnnotations(): readonly AuthAnnotationRecord[] {
+    return this.structural("auth-annotation") as readonly AuthAnnotationRecord[];
+  }
+
+  /** Calls leaving a service over a network boundary. */
+  outboundCalls(): readonly OutboundCallRecord[] {
+    return this.structural("outbound-call") as readonly OutboundCallRecord[];
+  }
+
+  /** Third-party packages each service declares it depends on. */
+  dependencies(): readonly PackageDependencyRecord[] {
+    return this.structural("package-dependency") as readonly PackageDependencyRecord[];
+  }
+
+  /**
+   * Signals about how the code copes with failure, per service.
+   *
+   * Counts, not verdicts: the presence of a catch says nothing about whether it
+   * swallows the error, and a reader is told exactly that. Grouped by service
+   * because "which part has no transactions" is the shape of the question.
+   */
+  reliability(): readonly ReliabilitySignal[] {
+    const errors = this.structural("error-handling") as readonly ErrorHandlingRecord[];
+    const transactions = this.structural("transaction-boundary") as readonly TransactionBoundaryRecord[];
+    const discarded = this.structural("discarded-error") as readonly DiscardedErrorRecord[];
+
+    const roots = new Set<string>([
+      ...errors.map((record) => record.rootName),
+      ...transactions.map((record) => record.rootName),
+      ...discarded.map((record) => record.rootName),
+    ]);
+    const count = (records: readonly { rootName: string }[], root: string): number =>
+      records.filter((record) => record.rootName === root).length;
+
+    return [...roots]
+      .sort()
+      .map((root) => ({
+        rootName: root,
+        errorHandlingSites: count(errors, root),
+        transactionBoundaries: count(transactions, root),
+        discardedErrors: count(discarded, root),
+      }));
+  }
+
+  /**
+   * How many tests name each service, and a sample of what they are named.
+   *
+   * A count of test *names*, not a coverage percentage: a service absent here
+   * had no test detected at all, and a service present may still test only its
+   * utilities. Both are stated so a reader draws the right, bounded conclusion
+   * rather than reading a number as a guarantee. Every analysed root is
+   * listed, including the ones with zero — silence about a service with no
+   * tests is the finding lost.
+   */
+  testPresence(): readonly TestPresence[] {
+    const names = this.evidence("test-name");
+    const byRoot = new Map<string, string[]>();
+    for (const root of this.runContext()?.roots ?? []) byRoot.set(root.name, []);
+    for (const entry of names) {
+      const existing = byRoot.get(entry.rootName) ?? [];
+      existing.push(entry.text);
+      byRoot.set(entry.rootName, existing);
+    }
+    return [...byRoot.entries()]
+      .map(([rootName, testNames]) => ({
+        rootName,
+        testCount: testNames.length,
+        sample: testNames.slice(0, 6),
+      }))
+      .sort((a, b) => b.testCount - a.testCount || a.rootName.localeCompare(b.rootName));
   }
 
   /** What broke without stopping the run. */

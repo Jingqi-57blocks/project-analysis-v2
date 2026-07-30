@@ -48,7 +48,10 @@ beforeAll(() => {
   write("go.mod", "module example.com/svc\n\nrequire github.com/gin-gonic/gin v1.9.1\n");
   write(
     "migrations/001_init.sql",
-    "CREATE TABLE leaves (id INT PRIMARY KEY, hours INT NOT NULL);\n",
+    [
+      "CREATE TABLE leaves (id INT PRIMARY KEY, hours INT NOT NULL);",
+      "CREATE TABLE leave_details (id INT PRIMARY KEY, leave_id INT NOT NULL);",
+    ].join("\n"),
   );
   write(
     "router.go",
@@ -77,6 +80,48 @@ beforeAll(() => {
       "\t\treturn",
       "\t}",
       '\tdb.Table("leaves").Create(&lv)',
+      "}",
+    ].join("\n"),
+  );
+
+  // A browser application declaring screens: two named for leave, one not.
+  write(
+    "package.json",
+    JSON.stringify({ name: "svc-ui", dependencies: { "react-router-dom": "^6.0.0" } }),
+  );
+  write(
+    "ui/src/App.tsx",
+    [
+      'import { Route, Routes } from "react-router-dom";',
+      "",
+      "export function App() {",
+      "  return (",
+      "    <Routes>",
+      '      <Route path="/my/leave/create" element={<CreateLeave />} />',
+      '      <Route path="/manage/approval/leave/list" element={<LeaveList />} />',
+      '      <Route path="/manage/billing" element={<Billing />} />',
+      "    </Routes>",
+      "  );",
+      "}",
+    ].join("\n"),
+  );
+
+  // Outside every capability's files: a decision that must not be scoped
+  // into one.
+  write(
+    "unrelated/audit.go",
+    [
+      "package audit",
+      "",
+      "func Sweep(kind int) string {",
+      "\tswitch kind {",
+      "\tcase 1:",
+      "\t\treturn \"a\"",
+      "\tcase 2:",
+      "\t\treturn \"b\"",
+      "\tdefault:",
+      "\t\treturn \"c\"",
+      "\t}",
       "}",
     ].join("\n"),
   );
@@ -130,8 +175,12 @@ describe("asking the knowledge base questions", () => {
   it("separates what the project serves from what it shows", () => {
     // An indexer reports both as routes. Listing them together would have
     // something rebuilding this project create an endpoint per screen.
-    expect(kb.endpoints().length).toBeGreaterThan(0);
-    expect(kb.screens()).toEqual([]);
+    const served = kb.endpoints().map((route) => route.path);
+    const shown = kb.screens().map((route) => route.path);
+    expect(served.length).toBeGreaterThan(0);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(served).not.toContain("/my/leave/create");
+    expect(shown).not.toContain("/v2/leaves");
   });
 
   it("returns a table with its columns rather than four lists to join", () => {
@@ -233,5 +282,63 @@ describe("more than one project in one file", () => {
     } finally {
       store2.close();
     }
+  });
+});
+
+
+describe("what belongs to a capability", () => {
+  it("keeps a capability's decisions to its own files", () => {
+    // A decision is in a file, and a capability owns files. Nothing finer is
+    // available, and claiming otherwise would attribute a branch to a
+    // capability that never runs it.
+    const features = kb.features();
+    expect(features.length, "the fixture must produce a capability to scope").toBeGreaterThan(0);
+
+    const all = kb.decisions();
+    expect(all.length, "the fixture must produce a decision to scope").toBeGreaterThan(0);
+
+    // The unrelated file holds a decision no capability owns. Without the
+    // filter it would appear under one, so removing the filter fails here
+    // rather than passing an assertion that restates the filter itself.
+    const stray = all.filter((decision) => decision.source.relPath === "unrelated/audit.go");
+    expect(stray.length, "the fixture must hold a decision outside any capability").toBe(1);
+
+    // Compared by where it is, not by value: the decisions handed out carry
+    // their branches' effects joined in, so a deep comparison against the
+    // unjoined record never matches and the check could never fail.
+    for (const feature of features) {
+      const paths = kb.decisionsForFeature(feature.id).map((decision) => decision.source.relPath);
+      expect(paths).not.toContain("unrelated/audit.go");
+    }
+  });
+
+  it("returns nothing for a capability that does not exist", () => {
+    expect(kb.decisionsForFeature("feat_nonexistent")).toEqual([]);
+  });
+
+  it("finds the screens whose address names the capability, and no others", () => {
+    const leave = kb.features().find((feature) => feature.term === "leave");
+    expect(leave, "the fixture must detect a leave capability").toBeDefined();
+
+    const paths = kb.screensForFeature(leave!.id).map((screen) => screen.path);
+    expect(paths).toContain("/my/leave/create");
+    expect(paths).toContain("/manage/approval/leave/list");
+    // A billing screen is not where leave is found.
+    expect(paths).not.toContain("/manage/billing");
+  });
+
+  it("finds the status sets named for the capability, and no others", () => {
+    const leave = kb.features().find((feature) => feature.term === "leave");
+    const sets = kb.statusSetsForFeature(leave!.id);
+    // The fixture declares LeaveStatusDraft/LeaveStatusApproved constants.
+    expect(sets.length, "the fixture's leave status constants must be found").toBeGreaterThan(0);
+    for (const set of sets) {
+      expect(`${set.name} ${set.relPath}`.toLowerCase()).toContain("leave");
+    }
+  });
+
+  it("returns no screens and no status sets for an unknown capability", () => {
+    expect(kb.screensForFeature("feat_nonexistent")).toEqual([]);
+    expect(kb.statusSetsForFeature("feat_nonexistent")).toEqual([]);
   });
 });

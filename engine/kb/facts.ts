@@ -87,7 +87,13 @@ export interface ModuleFact {
   readonly entryKeys: readonly string[];
   readonly endpoints: readonly EndpointRef[];
   readonly symbolCount: number;
+  /**
+   * Entities declared by the services this module belongs to — not ones its
+   * own handlers were seen to touch. A module is a part of a service, and
+   * nothing here narrows the service's schema to the part.
+   */
   readonly dataEntities: readonly string[];
+  /** Destinations those same services call. Also not narrowed to this module. */
   readonly outboundTargets: readonly string[];
   /** Which behavioural signal justified grouping these traces. */
   readonly groupingSignal: string;

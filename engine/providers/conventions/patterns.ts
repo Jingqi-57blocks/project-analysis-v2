@@ -19,7 +19,13 @@ export interface DeclarativePattern {
   /** Which model kind a match produces. */
   readonly kind: Extract<
     StructuralKind,
-    "validation-rule" | "transaction-boundary" | "error-handling" | "auth-annotation" | "data-access"
+    | "validation-rule"
+    | "transaction-boundary"
+    | "error-handling"
+    | "auth-annotation"
+    | "data-access"
+    | "scheduled-task"
+    | "notification-call"
   >;
   /** File extensions this applies to. Empty means any. */
   readonly extensions: readonly string[];
@@ -29,6 +35,8 @@ export interface DeclarativePattern {
   readonly confidence: Confidence;
   /** Which capture group holds the interesting detail, if any. */
   readonly detailGroup?: number;
+  /** For notification-call only: the channel the matched API implies. */
+  readonly channel?: "mail" | "chat" | "push" | "unknown";
 }
 
 /**
@@ -150,6 +158,109 @@ export const DECLARATIVE_PATTERNS: readonly DeclarativePattern[] = [
     label: "auth-middleware",
     confidence: "low",
     detailGroup: 1,
+  },
+
+  // ---- scheduled work ----
+  // Calibrated against the real targets: `schedule.scheduleJob('Check-Mail',
+  // '30 * * * * *', fn)` and robfig/cron's `c.AddFunc("@every 5m", fn)`.
+  // The detail keeps the first literal argument — a job name or a schedule —
+  // when one is written; a spec read from configuration stays null.
+  {
+    kind: "scheduled-task",
+    extensions: [".ts", ".js"],
+    pattern: /\.scheduleJob\s*\(\s*['"]([^'"]+)['"]/g,
+    label: "scheduleJob",
+    confidence: "high",
+    detailGroup: 1,
+  },
+  {
+    kind: "scheduled-task",
+    extensions: [".ts", ".js"],
+    pattern: /\bcron\.schedule\s*\(\s*['"]([^'"]+)['"]/g,
+    label: "cron.schedule",
+    confidence: "high",
+    detailGroup: 1,
+  },
+  {
+    kind: "scheduled-task",
+    extensions: [".ts", ".js"],
+    pattern: /new\s+CronJob\s*\(\s*['"]([^'"]+)['"]/g,
+    label: "CronJob",
+    confidence: "high",
+    detailGroup: 1,
+  },
+  {
+    kind: "scheduled-task",
+    extensions: [".go"],
+    pattern: /\.AddFunc\s*\(\s*(?:"([^"]+)")?/g,
+    label: "AddFunc",
+    confidence: "high",
+    detailGroup: 1,
+  },
+  {
+    kind: "scheduled-task",
+    extensions: [".java", ".kt"],
+    pattern: /@Scheduled\s*\(([^)]*)\)/g,
+    label: "@Scheduled",
+    confidence: "high",
+    detailGroup: 1,
+  },
+  {
+    kind: "scheduled-task",
+    extensions: [".ts", ".js"],
+    // Polling loops are scheduling too, but the interval is in milliseconds
+    // buried in an argument, and the same call drives UI animation. Weak.
+    pattern: /\bsetInterval\s*\(/g,
+    label: "setInterval",
+    confidence: "low",
+  },
+
+  // ---- notifications ----
+  {
+    kind: "notification-call",
+    extensions: [".ts", ".js"],
+    // nodemailer and its many wrappers.
+    pattern: /\.sendMail\s*\(/g,
+    label: "sendMail",
+    confidence: "high",
+    channel: "mail",
+  },
+  {
+    kind: "notification-call",
+    extensions: [".ts", ".js"],
+    // Firebase Cloud Messaging: `admin.messaging().send(...)`.
+    pattern: /\.messaging\s*\(\s*\)\s*\.\s*send\w*\s*\(/g,
+    label: "messaging().send",
+    confidence: "high",
+    channel: "push",
+  },
+  {
+    kind: "notification-call",
+    extensions: [".go"],
+    pattern: /\bsmtp\.SendMail\s*\(/g,
+    label: "smtp.SendMail",
+    confidence: "high",
+    channel: "mail",
+  },
+  {
+    kind: "notification-call",
+    extensions: [".go"],
+    // slack-go's client.
+    pattern: /\w+\.PostMessage\s*\(/g,
+    label: "PostMessage",
+    confidence: "medium",
+    channel: "chat",
+  },
+  {
+    kind: "notification-call",
+    extensions: [".go", ".ts", ".js"],
+    // Named-for-notification calls — a project's own mail/push helpers. Name
+    // alone cannot separate the sender from a caller of the sender, so this
+    // stays weak evidence, the same stance as the Go auth pattern above.
+    pattern: /\b\w*(?:SendEmail|SendSlackMessage|SendPush|sendNotification|notifyUser)\w*\s*\(/g,
+    label: "notify-helper",
+    confidence: "low",
+    channel: "unknown",
   },
 
   // ---- data access ----

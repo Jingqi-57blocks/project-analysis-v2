@@ -209,7 +209,7 @@ describe("what must never merge modules", () => {
       },
     ];
 
-    const modules = formModules(traces);
+    const { modules } = formModules(traces);
     expect(modules).toHaveLength(2);
     expect(modules.map((m) => m.name).sort()).toEqual(["billing", "orders"]);
   });
@@ -217,7 +217,7 @@ describe("what must never merge modules", () => {
   it("excludes infrastructure symbols from a module's membership", () => {
     const auth = sym("authMiddleware", "auth.go");
     const orders = sym("PlaceOrder", "orders.go");
-    const modules = formModules([
+    const { modules } = formModules([
       {
         entryKey: "svc:GET /orders",
         entryRoot: "svc",
@@ -252,13 +252,90 @@ describe("what must never merge modules", () => {
       partial: false,
     });
 
-    const modules = formModules([
+    const { modules } = formModules([
       make("/api/orders/:id"),
       make("/api/users/:id/profile"),
       make("/api/payments/charge"),
     ]);
 
     expect(modules.map((m) => m.name).sort()).toEqual(["orders", "payments", "users"]);
+  });
+
+  it("does not let a version prefix name a module", () => {
+    // A project mid-migration prefixes only the half that moved, so the shared
+    // prefix is empty and `v2` survived as an anchor — 401 of WCP's 721
+    // endpoints in one module, spanning three services, named after a version.
+    const make = (path: string): Trace => ({
+      entryKey: `svc:GET ${path}`,
+      entryRoot: "svc",
+      entryMethod: "GET",
+      entryPath: path,
+      steps: [],
+      truncation: "completed",
+      truncationDetail: null,
+      partial: false,
+    });
+
+    const { modules } = formModules([
+      make("/v2/leaves/apply"),
+      make("/v2/leaves/:id"),
+      make("/leaves/list"),
+      make("/api/worklogs"),
+    ]);
+
+    expect(modules.map((m) => m.name).sort()).toEqual(["leaves", "worklogs"]);
+    // And the version-prefixed routes are kept, not dropped with the segment.
+    expect(modules.find((m) => m.name === "leaves")!.entryKeys).toHaveLength(3);
+  });
+
+  it("puts an entry point that names no resource in no module, and says so", () => {
+    // A module named after a version is worse than an endpoint in none: the
+    // first is a claim about the project, the second is an admission.
+    const make = (path: string): Trace => ({
+      entryKey: `svc:GET ${path}`,
+      entryRoot: "svc",
+      entryMethod: "GET",
+      entryPath: path,
+      steps: [],
+      truncation: "completed",
+      truncationDetail: null,
+      partial: false,
+    });
+
+    const { modules, withoutResource } = formModules([
+      make("/api/v1"),
+      make("/orders/:id"),
+      make("/orders"),
+    ]);
+
+    expect(modules.map((m) => m.name)).toEqual(["orders"]);
+    expect(withoutResource).toEqual(["svc:GET /api/v1"]);
+  });
+
+  it("does not make two modules of one resource spelled two ways", () => {
+    // One service writes `/project/:id`, another `/projects`. Left alone that
+    // was two seventeen-endpoint modules describing the same thing.
+    const make = (path: string): Trace => ({
+      entryKey: `svc:GET ${path}`,
+      entryRoot: "svc",
+      entryMethod: "GET",
+      entryPath: path,
+      steps: [],
+      truncation: "completed",
+      truncationDetail: null,
+      partial: false,
+    });
+
+    const { modules } = formModules([
+      make("/projects"),
+      make("/projects/:id"),
+      make("/project/:id/members"),
+    ]);
+
+    expect(modules).toHaveLength(1);
+    // Named for the spelling most of its entry points use.
+    expect(modules[0]!.name).toBe("projects");
+    expect(modules[0]!.entryKeys).toHaveLength(3);
   });
 
   it("gives a module a stable id that survives a path change", () => {
@@ -275,11 +352,13 @@ describe("what must never merge modules", () => {
       partial: false,
     });
 
-    expect(formModules([make("/orders")])[0]!.id).toBe(formModules([make("/v2/orders")])[0]!.id);
+    expect(formModules([make("/orders")]).modules[0]!.id).toBe(
+      formModules([make("/v2/orders")]).modules[0]!.id,
+    );
   });
 
   it("states which signal justified the grouping", () => {
-    const modules = formModules([
+    const { modules } = formModules([
       {
         entryKey: "svc:GET /orders",
         entryRoot: "svc",

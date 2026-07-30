@@ -1,0 +1,56 @@
+{
+  "id": "coverage",
+  "title": "$project — coverage",
+  "params": [],
+  "sections": [
+    {
+      "id": "how-much-was-read",
+      "kind": "llm",
+      "heading": "Analysis Coverage",
+      "prompt": "prompts/how-much-was-read.md",
+      "requires": [
+        "run-context",
+        "signals",
+        "coverage-notes"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      }
+    },
+    {
+      "id": "map",
+      "kind": "code",
+      "heading": "Architecture",
+      "fragment": "project-map",
+      "requires": [
+        "map-edges"
+      ]
+    },
+    {
+      "id": "tests",
+      "kind": "llm",
+      "heading": "Test Coverage",
+      "prompt": "prompts/tests.md",
+      "requires": [
+        "test-presence",
+        "run-context",
+        "reliability"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      }
+    },
+    {
+      "id": "limitations",
+      "kind": "code",
+      "heading": "Analysis Limitations",
+      "fragment": "limitations",
+      "requires": [
+        "coverage-notes",
+        "extraction-failures"
+      ]
+    }
+  ]
+}

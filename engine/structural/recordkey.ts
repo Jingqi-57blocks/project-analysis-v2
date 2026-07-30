@@ -63,7 +63,26 @@ const KEY_BUILDERS: {
   // line differ by their text, and the column keeps them apart.
   condition: (r) =>
     joinKey([r.rootName, r.subject, r.operator, String(r.literal), location(r.source)]),
+  guard: (r) => joinKey([r.rootName, r.test, r.message, location(r.source)]),
+  "scheduled-task": (r) => joinKey([r.rootName, r.mechanism, r.schedule ?? "", location(r.source)]),
+  "notification-call": (r) => joinKey([r.rootName, r.mechanism, location(r.source)]),
   "discarded-error": (r) => joinKey([r.rootName, r.call, location(r.source)]),
+  // The span, not just the start: two decisions can begin on one line, and a
+  // decision is identified by the region of code it governs.
+  // The column and the branch count as well as the span: two decisions can
+  // begin and end on one line, and where neither names a subject the rest of
+  // the key is identical — so the second was stored as a duplicate of the
+  // first and silently lost.
+  decision: (r) =>
+    joinKey([
+      r.rootName,
+      r.source.relPath,
+      r.startLine,
+      r.endLine,
+      r.source.startColumn,
+      r.branches.length,
+      r.subject,
+    ]),
   "auth-annotation": (r) =>
     joinKey([r.rootName, r.symbolId, r.mechanism, r.requirement, location(r.source)]),
   "test-relation": (r) => joinKey([r.rootName, r.testSymbolId, r.targetSymbolId ?? r.targetName]),

@@ -14,6 +14,7 @@ import type { ModuleContainmentRecord, PackageDependencyRecord } from "../struct
 import type { SymbolRecord } from "../structural/code.js";
 import type { SymbolId } from "../structural/identity.js";
 import type { RouteRecord } from "../structural/boundaries.js";
+import { singular } from "./features.js";
 import type { Trace } from "./trace.js";
 
 /**
@@ -57,8 +58,23 @@ export interface DispositionCounts {
   readonly total: number;
 }
 
+/**
+ * Modules, and the entry points that could not be in one.
+ *
+ * Kept together because the second is only meaningful beside the first: "eight
+ * endpoints belong to no module" is an accounting statement, and dropping it
+ * would silently shrink the total a reader is shown.
+ */
+export interface ModuleFormation {
+  readonly modules: readonly ProductModule[];
+  /** Entry keys whose every path segment names a way in rather than a thing. */
+  readonly withoutResource: readonly string[];
+}
+
 export interface FormationResult {
   readonly modules: readonly ProductModule[];
+  /** Entry keys that named no resource to group by. */
+  readonly withoutResource: readonly string[];
   readonly components: readonly TechnicalComponent[];
   readonly dispositions: ReadonlyMap<string, PrimaryDisposition>;
   readonly counts: DispositionCounts;
@@ -146,14 +162,46 @@ export function sharedPrefixLength(traces: readonly Trace[]): number {
 }
 
 /**
+ * Segments that say how to reach something rather than what it is.
+ *
+ * `sharedPrefixLength` removes a prefix every entry point has; it cannot
+ * remove one that only half of them have. On a project mid-migration `/v2`
+ * prefixes exactly the half that moved, so `v2` survived as an anchor and
+ * became the largest module in the project — 401 of 721 endpoints across three
+ * services, named after a version.
+ *
+ * An excluded segment never removes the route. `/v2/leaves` still groups under
+ * `leaves`; only the segment stops being a candidate name.
+ */
+function namesAResource(segment: string): boolean {
+  const name = segment.toLowerCase();
+  if (/^v\d+$/.test(name)) return false;
+  return !NOT_A_RESOURCE.has(name);
+}
+
+const NOT_A_RESOURCE = new Set(["api", "apis", "rest", "graphql", "public", "internal"]);
+
+/**
  * The segment a trace is anchored on, past whatever prefix everything shares.
  *
  * Weak evidence on its own — used only to *name* a grouping, never to justify
- * one.
+ * one. Null where every segment names a way in rather than a thing: such an
+ * entry point belongs to no module, which is a fact worth stating rather than
+ * a reason to invent one.
  */
-function anchorOf(trace: Trace, skip: number): string {
+function anchorOf(trace: Trace, skip: number): string | null {
   const segments = pathSegments(trace);
-  return segments[skip] ?? segments[segments.length - 1] ?? "root";
+  const candidates = segments.slice(skip).length > 0 ? segments.slice(skip) : segments;
+  return candidates.find(namesAResource) ?? null;
+}
+
+/** The spelling most of the entry points actually use, ties broken by name. */
+function commonest(spellings: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const spelling of spellings) counts.set(spelling, (counts.get(spelling) ?? 0) + 1);
+  return [...counts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  )[0]![0];
 }
 
 /**
@@ -164,19 +212,30 @@ function anchorOf(trace: Trace, skip: number): string {
  * explicitly not a signal, which is what stops every authenticated route from
  * merging into one module.
  */
-export function formModules(traces: readonly Trace[]): readonly ProductModule[] {
-  const groups = new Map<string, Trace[]>();
+export function formModules(traces: readonly Trace[]): ModuleFormation {
+  const groups = new Map<string, { spellings: string[]; traces: Trace[] }>();
+  const withoutResource: string[] = [];
   const skip = sharedPrefixLength(traces);
 
   for (const trace of traces) {
     const anchor = anchorOf(trace, skip);
-    const existing = groups.get(anchor) ?? [];
-    existing.push(trace);
-    groups.set(anchor, existing);
+    if (anchor === null) {
+      withoutResource.push(trace.entryKey);
+      continue;
+    }
+    // One service writes `/project/:id`, another `/projects` — the same
+    // resource, and two modules of seventeen endpoints each unless the
+    // spelling is set aside for grouping.
+    const key = singular(anchor.toLowerCase());
+    const existing = groups.get(key) ?? { spellings: [], traces: [] };
+    existing.spellings.push(anchor);
+    existing.traces.push(trace);
+    groups.set(key, existing);
   }
 
-  return [...groups.entries()]
-    .map(([anchor, grouped]) => {
+  const modules = [...groups.values()]
+    .map(({ spellings, traces: grouped }) => {
+      const anchor = commonest(spellings);
       const entryKeys = grouped.map((trace) => trace.entryKey).sort();
       const symbolIds = [
         ...new Set(
@@ -196,6 +255,8 @@ export function formModules(traces: readonly Trace[]): readonly ProductModule[] 
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { modules, withoutResource: withoutResource.sort() };
 }
 
 /**
@@ -209,7 +270,7 @@ export function formModules(traces: readonly Trace[]): readonly ProductModule[] 
  * The grouping signal is the same one traces use: entry points sharing a
  * resource, past whatever prefix they all share.
  */
-export function formModulesFromRoutes(routes: readonly RouteRecord[]): readonly ProductModule[] {
+export function formModulesFromRoutes(routes: readonly RouteRecord[]): ModuleFormation {
   const asTraces: Trace[] = routes.map((route) => ({
     entryKey: `${route.rootName}:${route.method ?? "ANY"} ${route.path}`,
     entryRoot: route.rootName,
@@ -232,11 +293,15 @@ export function formModulesFromRoutes(routes: readonly RouteRecord[]): readonly 
   // real: a root is a deployable unit with a purpose. The grouping signal
   // records which was used, so a reader is never left guessing what a module
   // represents.
-  const averageEntries = byResource.length === 0 ? 0 : routes.length / byResource.length;
-  if (byResource.length <= MAX_RESOURCE_MODULES || averageEntries >= MIN_ENTRIES_PER_MODULE) {
+  const grouping = byResource.modules;
+  const averageEntries = grouping.length === 0 ? 0 : routes.length / grouping.length;
+  if (grouping.length <= MAX_RESOURCE_MODULES || averageEntries >= MIN_ENTRIES_PER_MODULE) {
     return byResource;
   }
 
+  // Grouping by service instead reaches every entry point, including the ones
+  // that named no resource — a version-prefixed route still belongs to the
+  // service that serves it.
   const byRoot = new Map<string, Trace[]>();
   for (const trace of asTraces) {
     const existing = byRoot.get(trace.entryRoot) ?? [];
@@ -244,7 +309,7 @@ export function formModulesFromRoutes(routes: readonly RouteRecord[]): readonly 
     byRoot.set(trace.entryRoot, existing);
   }
 
-  return [...byRoot.entries()]
+  const modules = [...byRoot.entries()]
     .map(([rootName, grouped]) => {
       const entryKeys = grouped.map((trace) => trace.entryKey).sort();
       return {
@@ -259,6 +324,8 @@ export function formModulesFromRoutes(routes: readonly RouteRecord[]): readonly 
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { modules, withoutResource: [] };
 }
 
 /** Above this many resource groups, the anchor is probably not a resource. */
@@ -408,8 +475,8 @@ export function formModel(
 ): FormationResult {
   const symbolsById = new Map(componentInput.symbols.map((symbol) => [symbol.id, symbol] as const));
   const components = formComponents(componentInput);
-  const modules = formModules(traces);
+  const { modules, withoutResource } = formModules(traces);
   const { dispositions, counts } = assignDispositions(allFiles, traces, symbolsById, components);
 
-  return { modules, components, dispositions, counts };
+  return { modules, withoutResource, components, dispositions, counts };
 }

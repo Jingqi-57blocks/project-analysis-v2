@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ import { prepare } from "../../engine/render/prepare.js";
 import { assemble, writeAssembled, UnansweredSectionsError } from "../../engine/render/assemble.js";
 import { resolveSelector, SelectorError } from "../../engine/render/selectors.js";
 import { exportDocument, retarget, UnknownFormatError } from "../../engine/render/export.js";
-import { hasFragment } from "../../engine/render/fragments.js";
+import { hasFragment, renderFragment } from "../../engine/render/fragments.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
 import { createSqlSchemaProvider } from "../../engine/datamodel/sql.js";
@@ -57,7 +57,7 @@ beforeAll(() => {
       title: "$project",
       params: [],
       sections: [
-        { id: "parts", kind: "code", heading: "Parts", fragment: "project-summary", requires: ["run-context"] },
+        { id: "parts", kind: "code", heading: "Parts", fragment: "project-map", requires: ["run-context", "map-edges"] },
         {
           id: "intro",
           kind: "llm",
@@ -119,7 +119,7 @@ describe("prepare", () => {
 
     expect(result.tasks.map((task) => task.sectionId)).toEqual(["intro"]);
     expect(partial).toContain("<!-- llm:intro:begin -->");
-    expect(partial).toContain("| Part | Language |");
+    expect(partial).toContain("flowchart");
     // The title takes the project's own name.
     expect(partial.split("\n")[0]).toBe("# svc");
   });
@@ -153,7 +153,53 @@ describe("prepare", () => {
     const prompt = readFileSync(join(outDir, "tasks", "intro", "prompt.md"), "utf8");
     expect(prompt).toContain("Write in Chinese");
     // Code sections are identifiers and numbers; they do not translate.
-    expect(readFileSync(join(outDir, "report.partial.md"), "utf8")).toContain("| Part |");
+    expect(readFileSync(join(outDir, "report.partial.md"), "utf8")).toContain("flowchart");
+  });
+
+  it("emits a frame-translation task for a non-English report, and none for English", () => {
+    const en = prepare({ template: loadTemplate(templateDir), kb, outDir: join(workDir, "out", "frame-en") });
+    expect(en.tasks.map((task) => task.sectionId)).not.toContain("_frame");
+
+    const zh = prepare({
+      template: loadTemplate(templateDir),
+      kb,
+      outDir: join(workDir, "out", "frame-zh"),
+      language: "zh-CN",
+    });
+    expect(zh.tasks.map((task) => task.sectionId)).toContain("_frame");
+    // The glossary carries the template's own headings, so a new document needs
+    // no change here to be translatable.
+    const data = JSON.parse(
+      readFileSync(join(workDir, "out", "frame-zh", "tasks", "_frame", "data.json"), "utf8"),
+    ) as Record<string, string>;
+    expect(data["heading:Parts"]).toBe("Parts");
+    expect(data["col-from"]).toBe("From");
+  });
+
+  it("applies a supplied frame translation to headings and code, keeping answers", () => {
+    const outDir = join(workDir, "out", "frame-apply");
+    prepare({ template: loadTemplate(templateDir), kb, outDir, language: "zh-CN" });
+
+    // The host answers the frame task and a prose section.
+    writeFileSync(
+      join(outDir, "tasks", "_frame", "answer.md"),
+      JSON.stringify({ "heading:Parts": "部件", "col-from": "来源", contents: "目录" }),
+    );
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "写在中文里的介绍。");
+
+    // The frame-only re-render: translated frame in, answers untouched.
+    prepare({ template: loadTemplate(templateDir), kb, outDir, language: "zh-CN", preserveAnswers: true });
+
+    const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
+    expect(partial).toContain("## 部件");
+    expect(partial).toContain("| 来源 |");
+    expect(existsSync(join(outDir, "tasks", "intro", "answer.md"))).toBe(true);
+
+    const assembled = assemble(outDir);
+    const written = writeAssembled(outDir, assembled, { split: false });
+    const document = readFileSync(written[0]!, "utf8");
+    expect(document).toContain("## 目录");
+    expect(document).toContain("写在中文里的介绍。");
   });
 
   it("refuses an unknown selector with the vocabulary, not an empty slice", () => {
@@ -168,12 +214,12 @@ describe("prepare", () => {
   it("refuses a template that needs a parameter it was not given", () => {
     expect(() =>
       prepareInto("no-param", {
-        params: ["module"],
+        params: ["capability"],
         sections: [
-          { id: "x", kind: "code", fragment: "module-surface", requires: ["module-detail:$module"] },
+          { id: "x", kind: "code", fragment: "capability-data", requires: ["feature-detail:$capability"] },
         ],
       }),
-    ).toThrow(/--param module=/);
+    ).toThrow(/--param capability=/);
   });
 });
 
@@ -188,7 +234,7 @@ describe("assemble", () => {
     const result = assemble(outDir);
 
     expect(result.markdown).toContain("A short answer about the service.");
-    expect(result.markdown).toContain("| Part | Language |");
+    expect(result.markdown).toContain("flowchart");
     expect(result.outcomes[0]!.filled).toBe(true);
   });
 
@@ -257,30 +303,29 @@ describe("what the review found", () => {
     // The section writes `module-flows:$module`; the fragment asks for
     // `module-flows`. Keyed only as written, every module document said
     // "nothing to show" over flows it had been given.
-    const modules = kb.modules();
-    if (modules.length === 0) return;
+    const features = kb.features();
+    if (features.length === 0) return;
 
     const outDir = join(workDir, "out", "param-key");
     prepare({
       template: parseTemplate(
         JSON.stringify({
           id: "m",
-          title: "$module",
-          params: ["module"],
+          title: "$capability",
+          params: ["capability"],
           sections: [
-            { id: "flows", kind: "code", heading: "Flows", fragment: "module-surface", requires: ["module-detail:$module"] },
+            { id: "data", kind: "code", heading: "Data", fragment: "capability-data", requires: ["feature-detail:$capability", "coverage:entity"] },
           ],
         }),
         templateDir,
       ),
       kb,
       outDir,
-      params: { module: modules[0]!.id },
+      params: { capability: features[0]!.id },
     });
 
     const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
     expect(partial).not.toContain("_Nothing to show here._");
-    expect(partial).toContain("| Part | Symbols |");
   });
 
   it("refuses a param that names nothing in this knowledge base", () => {
@@ -289,19 +334,19 @@ describe("what the review found", () => {
         template: parseTemplate(
           JSON.stringify({
             id: "m",
-            title: "$module",
-            params: ["module"],
+            title: "$capability",
+            params: ["capability"],
             sections: [
-              { id: "s", kind: "code", fragment: "module-surface", requires: ["module-detail:$module"] },
+              { id: "s", kind: "code", fragment: "capability-data", requires: ["feature-detail:$capability"] },
             ],
           }),
           templateDir,
         ),
         kb,
         outDir: join(workDir, "out", "ghost-module"),
-        params: { module: "mod_does_not_exist" },
+        params: { capability: "feat_does_not_exist" },
       }),
-    ).toThrow(/Nothing in this knowledge base matches module=mod_does_not_exist/);
+    ).toThrow(/Nothing in this knowledge base matches capability=feat_does_not_exist/);
   });
 
   it("keeps a section that asks only for what could not be established", () => {
@@ -382,37 +427,28 @@ describe("what the review found", () => {
     expect(hasFragment("toString")).toBe(false);
     expect(() => resolveSelector(kb, "toString", {})).toThrow(SelectorError);
   });
-});
 
-describe("quoting the project's own words", () => {
-  it("quotes a README rather than inlining its headings", () => {
-    // The description is markdown and carries its own `#`. Inlined, it
-    // outranked the document's structure — the overview had two H1s.
-    const outDir = join(workDir, "out", "quoted");
-    prepare({
-      template: parseTemplate(
-        JSON.stringify({
-          id: "q",
-          title: "T",
-          sections: [
-            { id: "parts", kind: "code", heading: "Parts", fragment: "project-summary", requires: ["run-context"] },
-          ],
-        }),
-        templateDir,
-      ),
+  it("states each kind of limitation once, with a count, not once per file", () => {
+    // 223 screens each noted that their path mirrors a component; the section
+    // listed all 223. One line, "and N more", says the same thing readably.
+    const failures = Array.from({ length: 40 }, (_, n) => ({
+      providerId: "codegraph",
+      scope: `src/pages/Screen${n}.tsx:1`,
+      reason: `"/Screen${n}" mirrors a component's file path rather than an address`,
+    }));
+    const rendered = renderFragment("limitations", {
       kb,
-      outDir,
+      params: {},
+      data: { "coverage-notes": [], "extraction-failures": failures },
     });
-
-    const partial = readFileSync(join(outDir, "report.partial.md"), "utf8");
-    const bodyHeadings = partial.split("\n").filter((line) => /^# /.test(line));
-    expect(bodyHeadings).toHaveLength(1);
-    expect(partial).toMatch(/^> \S/m);
-    // A multi-root workspace has no single README; saying whose it is keeps
-    // one part's description from standing in for the whole project's.
-    expect(partial).toContain("— from svc");
+    const rows = rendered.split("\n").filter((line) => line.startsWith("| codegraph"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("and 37 more");
+    // The per-file path is dropped from the reason, since it repeats the location.
+    expect(rows[0]).not.toContain('"/Screen0"');
   });
 });
+
 
 describe("finding your way around a long report", () => {
   function prepared(name: string) {
@@ -442,7 +478,7 @@ describe("finding your way around a long report", () => {
     expect(written.some((path) => path.endsWith("sections/parts.md"))).toBe(true);
     const part = readFileSync(join(outDir, "sections", "parts.md"), "utf8");
     // Moved, not rebuilt: the table is exactly the one in the whole document.
-    expect(part).toContain("| Part | Language |");
+    expect(part).toContain("flowchart");
     expect(result.markdown).toContain(part.split("\n")[2]!);
   });
 
@@ -513,6 +549,65 @@ describe("a format is a view, not a second document", () => {
     expect(result.files).toContain("html/report.html");
   });
 
+  it("draws mermaid as a diagram, not as its source", () => {
+    // The map fragment renders a `flowchart` block; a reader wants the picture.
+    const outDir = assembled("export-mermaid", false);
+    exportDocument(outDir, "html", "T");
+    const html = readFileSync(join(outDir, "html", "report.html"), "utf8");
+    expect(html).toContain('<pre class="mermaid">');
+    // Un-escaped so Mermaid can parse it, and the renderer is loaded.
+    expect(html).toContain("flowchart");
+    expect(html).toContain("mermaid.initialize");
+    expect(html).not.toContain('class="language-mermaid"');
+  });
+
+  it("carries a left sidebar built from the document's own headings", () => {
+    const outDir = assembled("export-nav", false);
+    exportDocument(outDir, "html", "T");
+    const html = readFileSync(join(outDir, "html", "report.html"), "utf8");
+    expect(html).toContain('<nav id="sidebar">');
+    // The sections appear as in-page links, and the scroll tracker is loaded.
+    expect(html).toContain('href="#parts"');
+    expect(html).toContain("getBoundingClientRect");
+  });
+
+  it("drops the inline contents from the page, keeping it in the Markdown", () => {
+    // The sidebar shows the same list; rendered as well it would open every
+    // page with a duplicate. The Markdown is the artifact and keeps its own.
+    const outDir = assembled("export-contents", false);
+    exportDocument(outDir, "html", "T");
+    expect(readFileSync(join(outDir, "report.md"), "utf8")).toContain("## Contents");
+    const html = readFileSync(join(outDir, "html", "report.html"), "utf8");
+    expect(html).not.toContain(">Contents</h2>");
+  });
+
+  it("gives every split page a sidebar reaching every sibling section", () => {
+    const outDir = assembled("export-split-nav");
+    exportDocument(outDir, "html", "T");
+
+    const section = readFileSync(join(outDir, "html", "sections", "parts.html"), "utf8");
+    // The current page is marked, and the index is one link away.
+    expect(section).toContain('aria-current="page"');
+    expect(section).toContain('href="../index.html"');
+    // Limitations stays in the index, so its entry points into the index page.
+    expect(section).toContain('href="../index.html#limits"');
+  });
+
+  it("puts the view in a named directory and nothing else beside it", () => {
+    // A deliverable folder holds only HTML; the Markdown, tasks and manifest
+    // stay in the working directory a rebuild needs.
+    const outDir = assembled("export-separate");
+    const viewDir = join(workDir, "out", "export-separate-view");
+    const result = exportDocument(outDir, "html", "T", viewDir);
+
+    expect(result.outDir).toBe(viewDir);
+    expect(existsSync(join(viewDir, "index.html"))).toBe(true);
+    const everything = readdirSync(viewDir, { recursive: true }) as string[];
+    expect(everything.filter((name) => name.endsWith(".md"))).toEqual([]);
+    // The working directory did not grow an html tree of its own.
+    expect(existsSync(join(outDir, "html"))).toBe(false);
+  });
+
   it("refuses a format it does not have", () => {
     const outDir = assembled("export-unknown");
     expect(() => exportDocument(outDir, "docx", "T")).toThrow(UnknownFormatError);
@@ -522,5 +617,70 @@ describe("a format is a view, not a second document", () => {
     const { outDir } = prepareInto("export-nothing");
     rmSync(join(outDir, "report.md"), { force: true });
     expect(() => exportDocument(outDir, "html", "T")).toThrow(/Run `render assemble` first/);
+  });
+});
+
+describe("rebuilding one section", () => {
+  it("clears that answer and leaves the others where they are", () => {
+    // A report with one bad section should cost one section to fix.
+    const { outDir } = prepareInto("only-one");
+    writeFileSync(join(outDir, "tasks", "intro", "answer.md"), "First answer.");
+
+    prepare({ template: loadTemplate(templateDir), kb, outDir, only: "intro" });
+    expect(existsSync(join(outDir, "tasks", "intro", "answer.md"))).toBe(false);
+  });
+
+  it("keeps another section's answer when rebuilding a different one", () => {
+    const two = parseTemplate(
+      JSON.stringify({
+        id: "two",
+        title: "T",
+        sections: [
+          { id: "a", kind: "llm", heading: "A", prompt: "prompts/intro.md", requires: [] },
+          { id: "b", kind: "llm", heading: "B", prompt: "prompts/intro.md", requires: [] },
+        ],
+      }),
+      templateDir,
+    );
+    const outDir = join(workDir, "out", "only-other");
+    prepare({ template: two, kb, outDir });
+    writeFileSync(join(outDir, "tasks", "a", "answer.md"), "Answer A.");
+    writeFileSync(join(outDir, "tasks", "b", "answer.md"), "Answer B.");
+
+    prepare({ template: two, kb, outDir, only: "a" });
+    expect(existsSync(join(outDir, "tasks", "a", "answer.md"))).toBe(false);
+    expect(readFileSync(join(outDir, "tasks", "b", "answer.md"), "utf8")).toBe("Answer B.");
+  });
+
+  it("refuses a section the template does not have, naming the ones it does", () => {
+    const { outDir } = prepareInto("only-unknown");
+    expect(() =>
+      prepare({ template: loadTemplate(templateDir), kb, outDir, only: "invented" }),
+    ).toThrow(/has no section "invented"/);
+  });
+
+  it("refuses to rebuild against a different analysis", () => {
+    // The other answers were written from one snapshot. A section rebuilt
+    // against another leaves the document describing two runs, and nothing
+    // in the file would say so.
+    const { outDir } = prepareInto("only-drifted");
+    const manifestPath = join(outDir, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, identity: "a-different-run" }));
+
+    expect(() =>
+      prepare({ template: loadTemplate(templateDir), kb, outDir, only: "intro" }),
+    ).toThrow(/describing two runs/);
+  });
+
+  it("refuses to rebuild a section of a document that was never prepared", () => {
+    expect(() =>
+      prepare({
+        template: loadTemplate(templateDir),
+        kb,
+        outDir: join(workDir, "out", "never-prepared"),
+        only: "intro",
+      }),
+    ).toThrow(/Prepare it once/);
   });
 });

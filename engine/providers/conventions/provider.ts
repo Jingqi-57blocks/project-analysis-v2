@@ -30,6 +30,8 @@ import type {
 } from "../../structural/boundaries.js";
 import type {
   ErrorHandlingRecord,
+  NotificationCallRecord,
+  ScheduledTaskRecord,
   TransactionBoundaryRecord,
   ValidationRuleRecord,
 } from "../../structural/rules.js";
@@ -67,6 +69,14 @@ export function conventionCapabilities(): ProviderCapabilities {
       "ORM method names are matched without resolving the receiver, so unrelated methods of the same name match",
       "the entity touched is not resolved and is always null",
     ],
+    "scheduled-task": [
+      "a scheduler wrapped in the project's own helper is not matched, so registrations behind such a wrapper are absent",
+      "a schedule read from configuration is recorded with no expression — what the configuration holds is a deployment fact the source does not state",
+    ],
+    "notification-call": [
+      "the recipient and the content are runtime values, so nothing here claims who is notified or with what",
+      "a helper merely named for notification matches too, so weak-confidence records may be callers of a sender rather than the sender",
+    ],
   };
 
   return {
@@ -85,6 +95,8 @@ interface Found {
   readonly errors: ErrorHandlingRecord[];
   readonly auth: AuthAnnotationRecord[];
   readonly data: DataAccessRecord[];
+  readonly scheduled: ScheduledTaskRecord[];
+  readonly notifications: NotificationCallRecord[];
   readonly failures: ExtractionFailure[];
 }
 
@@ -173,6 +185,24 @@ function scanFile(root: StructuralRootInput, relPath: string, content: string, f
             provenance,
           });
           break;
+        case "scheduled-task":
+          found.scheduled.push({
+            rootName: root.name,
+            mechanism: pattern.label,
+            schedule: detail,
+            source,
+            provenance,
+          });
+          break;
+        case "notification-call":
+          found.notifications.push({
+            rootName: root.name,
+            channel: pattern.channel ?? "unknown",
+            mechanism: pattern.label,
+            source,
+            provenance,
+          });
+          break;
         case "data-access":
           found.data.push({
             rootName: root.name,
@@ -213,6 +243,8 @@ export function createConventionsProvider(): StructuralProvider {
         errors: [],
         auth: [],
         data: [],
+        scheduled: [],
+        notifications: [],
         failures: [],
       };
 
@@ -244,6 +276,8 @@ export function createConventionsProvider(): StructuralProvider {
           "error-handling": found.errors,
           "auth-annotation": found.auth,
           "data-access": found.data,
+          "scheduled-task": found.scheduled,
+          "notification-call": found.notifications,
         },
         gaps: [],
         failures: found.failures,

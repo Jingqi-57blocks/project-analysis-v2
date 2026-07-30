@@ -1,90 +1,135 @@
 {
   "id": "overview",
-  "title": "$project — what it is and what is in it",
+  "title": "$project",
   "params": [],
   "sections": [
     {
-      "id": "introduction",
+      "id": "what-this-is",
       "kind": "llm",
-      "heading": "What this project is",
-      "prompt": "prompts/introduction.md",
-      "requires": ["run-context", "features", "map-edges", "evidence:readme-section"],
-      "contract": { "maxWords": 400, "maxHeadingLevel": 3 }
-    },
-    {
-      "id": "parts",
-      "kind": "code",
-      "heading": "The parts",
-      "fragment": "project-summary",
-      "requires": ["run-context"]
+      "heading": "Overview",
+      "prompt": "prompts/what-this-is.md",
+      "requires": [
+        "run-context",
+        "features",
+        "screens",
+        "map-edges",
+        "reliability",
+        "evidence:readme-section"
+      ],
+      "contract": {
+        "maxWords": 750,
+        "maxHeadingLevel": 3
+      }
     },
     {
       "id": "map",
       "kind": "code",
-      "heading": "How the parts fit together",
+      "heading": "Architecture",
       "fragment": "project-map",
-      "requires": ["run-context", "map-edges"]
-    },
-    {
-      "id": "screens",
-      "kind": "code",
-      "heading": "What the application shows",
-      "fragment": "screens-table",
-      "requires": ["screens", "coverage:route"],
-      "omitWhenEmpty": true
+      "requires": [
+        "map-edges"
+      ]
     },
     {
       "id": "capabilities",
-      "kind": "code",
-      "heading": "What it does",
-      "fragment": "features-table",
-      "requires": ["features", "coverage:route"]
-    },
-    {
-      "id": "capability-descriptions",
       "kind": "llm",
-      "heading": "Each capability, in a sentence",
-      "prompt": "prompts/capability-descriptions.md",
-      "requires": ["features"],
-      "contract": { "maxHeadingLevel": 3, "requiredHeadings": "one-per:features" },
+      "heading": "Capabilities",
+      "prompt": "prompts/capabilities.md",
+      "requires": [
+        "capability-index"
+      ],
+      "contract": {
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
-      "id": "data",
-      "kind": "code",
-      "heading": "What it stores",
-      "fragment": "data-model",
-      "requires": ["entity-models", "coverage:entity"]
-    },
-    {
-      "id": "vocabulary",
-      "kind": "code",
-      "heading": "The values it names",
-      "fragment": "value-sets",
-      "requires": ["value-sets"],
+      "id": "access",
+      "kind": "llm",
+      "heading": "Roles & Users",
+      "prompt": "prompts/access.md",
+      "requires": [
+        "screens",
+        "auth-annotations",
+        "endpoints",
+        "map-edges",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
-      "id": "findings",
-      "kind": "code",
-      "heading": "What is worth a second look",
-      "fragment": "findings-table",
-      "requires": ["structural-findings", "feature-findings"]
+      "id": "data-ownership",
+      "kind": "llm",
+      "heading": "Data Ownership",
+      "prompt": "prompts/data-ownership.md",
+      "requires": [
+        "data-ownership",
+        "entities",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 700,
+        "maxHeadingLevel": 3
+      },
+      "omitWhenEmpty": true
     },
     {
-      "id": "signals",
+      "id": "connections",
       "kind": "code",
-      "heading": "Measurements of this analysis",
-      "fragment": "signals-table",
-      "requires": ["signals"],
+      "heading": "External Systems",
+      "fragment": "external-systems",
+      "requires": [
+        "map-edges"
+      ],
       "omitWhenEmpty": true
+    },
+    {
+      "id": "operational",
+      "kind": "llm",
+      "heading": "Operations & Reliability",
+      "prompt": "prompts/operational.md",
+      "requires": [
+        "reliability",
+        "dependencies",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "issues",
+      "kind": "llm",
+      "heading": "Issues & Risks",
+      "prompt": "prompts/issues.md",
+      "requires": [
+        "structural-findings",
+        "signals",
+        "data-ownership",
+        "reliability",
+        "feature-findings",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 850,
+        "maxHeadingLevel": 3
+      }
     },
     {
       "id": "limitations",
       "kind": "code",
-      "heading": "What this report cannot tell you",
+      "heading": "Analysis Limitations",
       "fragment": "limitations",
-      "requires": ["coverage-notes", "extraction-failures"]
+      "requires": [
+        "coverage-notes",
+        "extraction-failures"
+      ]
     }
   ]
 }
