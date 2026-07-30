@@ -141,7 +141,10 @@ func F() error {
     expect(guards(source, "a.go")).toEqual([]);
   });
 
-  it("does not mistake an ordinary local or a short name for an error constant", () => {
+  it("does not mistake an ordinary local for an error constant", () => {
+    // Every one of these was read as a business rule at some point. The last
+    // is real: `found_level1` is a local in a vendored documentation script,
+    // and it reached a WCP report as a rule the project enforces.
     const source = `function f(order) {
   if (order.total < 0) {
     throw new Error(total);
@@ -149,10 +152,39 @@ func F() error {
   if (order.items.length === 0) {
     throw new Error(E_x);
   }
+  if (!content) {
+    return found_level1;
+  }
+  if (order.paid) {
+    return snake_case_local;
+  }
+  if (order.rows > 0) {
+    return REVENUE_CLIENT_ROW_HEIGHT;
+  }
 }
 `;
-    // `total` is lower-case with no word boundary; `E_x` is too short to be a
-    // rule anyone could act on.
     expect(guards(source, "b.js")).toEqual([]);
+  });
+
+  it("counts a named error only where the branch throws it", () => {
+    // A branch that returns a constant is returning a value, not refusing to
+    // work. `return DEFAULT_TITLE` and `return POSITIVE_INFINITY` were read as
+    // rules WCP's browser application enforces.
+    const returns = `function titleOf(page) {
+  if (!page.title) {
+    return DEFAULT_TITLE;
+  }
+  return page.title;
+}
+`;
+    expect(guards(returns, "c.js")).toEqual([]);
+
+    const throws = `function titleOf(page) {
+  if (!page.title) {
+    throw new BusinessError(ErrorCodes.CMN_Not_Found);
+  }
+}
+`;
+    expect(guards(throws, "d.js").map((guard) => guard.message)).toEqual(["CMN_Not_Found"]);
   });
 });

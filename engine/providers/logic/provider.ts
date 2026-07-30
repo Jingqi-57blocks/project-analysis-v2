@@ -200,10 +200,24 @@ function firstMessage(node: SgNode): string | null {
  * The constant's name is not the message a user sees; the text lives in a
  * catalogue this reader does not open. But `WKL_Forbidden` beside the test that
  * raises it is a rule a reader can act on, which is the bar for recording it.
- * Only names that carry a word boundary and an upper-case letter qualify, so a
- * bare `err` or a lower-case local is not mistaken for one.
+ *
+ * Only a `throw` counts. A branch that *returns* a named constant is usually
+ * returning a value, not refusing to work: `return DEFAULT_TITLE`,
+ * `return POSITIVE_INFINITY` and `return REVENUE_CLIENT_ROW_HEIGHT` all came
+ * back as business rules of WCP's browser application before this test looked
+ * at how the branch leaves.
+ *
+ * A name qualifies only if every underscore-separated part of it begins with a
+ * capital — `WKL_Forbidden`, `USER_Permission_Deny`, `TL_BTO_Hour_Error`. That
+ * is what tells a declared code apart from an ordinary local: `found_level1`,
+ * returned by a vendored documentation script, was read as a business rule
+ * until this test required the capitals.
+ *
+ * Shallowest first, so the name belongs to the rejection itself rather than to
+ * something nested in one of its arguments.
  */
 function errorCodeName(node: SgNode): string | null {
+  if ((node.kind() as string) !== "throw_statement") return null;
   const stack: SgNode[] = [node];
   while (stack.length > 0) {
     const current = stack.shift()!;
@@ -211,7 +225,12 @@ function errorCodeName(node: SgNode): string | null {
     if (kind.includes("identifier") || kind === "selector_expression" || kind === "member_expression") {
       // The last segment is the name; the qualifier is the catalogue it is in.
       const name = current.text().trim().split(".").pop() ?? "";
-      if (/^[A-Za-z]\w*[_A-Z]\w*$/.test(name) && /[_]/.test(name) && name.length >= 6) {
+      const parts = name.split("_");
+      if (
+        name.length >= 6 &&
+        parts.length >= 2 &&
+        parts.every((part) => /^[A-Z][A-Za-z0-9]*$/.test(part))
+      ) {
         return name.slice(0, 160);
       }
     }
