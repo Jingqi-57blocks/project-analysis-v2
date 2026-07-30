@@ -189,12 +189,68 @@ function firstMessage(node: SgNode): string | null {
 }
 
 /**
+ * The name of the error a rejection raises, where it raises a named one.
+ *
+ * Not every codebase writes its rejections as sentences. WCP's older service
+ * throws `new BusinessError(ErrorCodes.WKL_Forbidden)` — 150 times, over
+ * gates that are the real business rules of the capability — and looking only
+ * for string literals meant a report of that service described almost no
+ * rules at all while saying nothing about why.
+ *
+ * The constant's name is not the message a user sees; the text lives in a
+ * catalogue this reader does not open. But `WKL_Forbidden` beside the test that
+ * raises it is a rule a reader can act on, which is the bar for recording it.
+ *
+ * Only a `throw` counts. A branch that *returns* a named constant is usually
+ * returning a value, not refusing to work: `return DEFAULT_TITLE`,
+ * `return POSITIVE_INFINITY` and `return REVENUE_CLIENT_ROW_HEIGHT` all came
+ * back as business rules of WCP's browser application before this test looked
+ * at how the branch leaves.
+ *
+ * A name qualifies only if every underscore-separated part of it begins with a
+ * capital — `WKL_Forbidden`, `USER_Permission_Deny`, `TL_BTO_Hour_Error`. That
+ * is what tells a declared code apart from an ordinary local: `found_level1`,
+ * returned by a vendored documentation script, was read as a business rule
+ * until this test required the capitals.
+ *
+ * Shallowest first, so the name belongs to the rejection itself rather than to
+ * something nested in one of its arguments.
+ */
+function errorCodeName(node: SgNode): string | null {
+  if ((node.kind() as string) !== "throw_statement") return null;
+  const stack: SgNode[] = [node];
+  while (stack.length > 0) {
+    const current = stack.shift()!;
+    const kind = current.kind() as string;
+    if (kind.includes("identifier") || kind === "selector_expression" || kind === "member_expression") {
+      // The last segment is the name; the qualifier is the catalogue it is in.
+      const name = current.text().trim().split(".").pop() ?? "";
+      const parts = name.split("_");
+      if (
+        name.length >= 6 &&
+        parts.length >= 2 &&
+        parts.every((part) => /^[A-Z][A-Za-z0-9]*$/.test(part))
+      ) {
+        return name.slice(0, 160);
+      }
+    }
+    for (const child of current.children()) stack.push(child);
+  }
+  return null;
+}
+
+/**
  * The gates a capability enforces that are not literal comparisons.
  *
  * An `if` whose branch rejects with a message: the message is the rule in the
- * code's own words. Plumbing guards (error propagation) are filtered by shape,
- * and a rejection with no message is left out — without one there is nothing a
- * reader could act on that `condition` and `decision` do not already carry.
+ * code's own words. Where the rejection names an error constant instead, that
+ * name is recorded and marked as one, so a reader is never shown a symbol as
+ * though it were a sentence someone wrote for them.
+ *
+ * Plumbing guards (error propagation) are filtered by shape, and a rejection
+ * carrying neither a message nor a named error is left out — without one there
+ * is nothing a reader could act on that `condition` and `decision` do not
+ * already carry.
  */
 export function guardsIn(root: SgNode, rootName: string, relPath: string): GuardRecord[] {
   const records: GuardRecord[] = [];
@@ -221,7 +277,8 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
     // Only a branch that leaves the function with a message is a stated rule.
     const exit = statementsOf(consequence).find((child) => EXIT_KINDS.has(child.kind() as string));
     if (exit === undefined) continue;
-    const message = firstMessage(exit);
+    const stated = firstMessage(exit);
+    const message = stated ?? errorCodeName(exit);
     if (message === null) continue;
 
     const range = node.range();
@@ -241,6 +298,7 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
       rootName,
       test,
       message,
+      messageKind: stated === null ? "error-code" : "stated",
       enclosingFunction: enclosingFunctionName(node),
       source,
       provenance: resolved(source, "high"),
@@ -462,7 +520,7 @@ export function logicCapabilities(): ProviderCapabilities {
         language: ANY_LANGUAGE,
         support: "partial",
         limits: [
-          "an `if` that rejects with a message is read as a rule; a gate that rejects with an error constant rather than a literal message is missed",
+          "an `if` that rejects is read as a rule, by the message it states or by the name of the error constant it raises; the text behind such a constant lives in a message catalogue this run does not read, so the rule is named rather than quoted",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
           "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
           "languages without a grammar in this run are not read at all",

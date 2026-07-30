@@ -43,6 +43,15 @@ import type {
 } from "../structural/rules.js";
 import { bestSetFor, type ValueSet } from "../semantics/enums.js";
 import { singular, words } from "../modules/features.js";
+import {
+  flowCoverage,
+  repositoryProfiles,
+  type FeatureFlowCoverage,
+  type FileFacts,
+  type RepositoryProfile,
+} from "./profiles.js";
+import { STRUCTURAL_KINDS, isUniversalKind } from "../structural/kinds.js";
+import type { ImportRecord, SourceFileRecord } from "../structural/code.js";
 import type {
   CoverageNote,
   FeatureFact,
@@ -202,6 +211,29 @@ export interface FeatureDetail {
   readonly flows: readonly FeatureFlowFact[];
   readonly rules: readonly BusinessRule[];
   readonly findings: readonly FeatureFindingFact[];
+}
+
+/**
+ * What one kind of fact yielded, per repository.
+ *
+ * The dimensions of the analysis itself: which kinds of fact were looked for,
+ * where, and what came back. A kind with no records and no attempt is a
+ * different statement from one that was looked for and found nothing, and this
+ * is where a reader can tell them apart.
+ */
+export interface DimensionCoverage {
+  readonly kind: string;
+  /** True for kinds any codebase has — an empty one means something failed. */
+  readonly expected: boolean;
+  readonly records: number;
+  readonly attempted: boolean;
+  readonly byRoot: readonly {
+    readonly rootName: string;
+    readonly records: number;
+    readonly attempted: boolean;
+    /** Why nothing was found, where a reader said. */
+    readonly reason: string | null;
+  }[];
 }
 
 export interface ModuleDetail {
@@ -795,6 +827,178 @@ export class KnowledgeBase {
         sample: testNames.slice(0, 6),
       }))
       .sort((a, b) => b.testCount - a.testCount || a.rootName.localeCompare(b.rootName));
+  }
+
+  /**
+   * Code files per repository, and how many of them yielded a fact.
+   *
+   * The denominator is deliberately not every analyzed file: nothing can be
+   * extracted from a PNG or a lockfile, and counting those would report a low
+   * number as a failure of the analysis. Source and tests are the files whose
+   * behaviour a report describes.
+   *
+   * Migration scripts are counted apart. They declare a schema rather than
+   * behaviour, and WCP's older service has 290 of them against 121 source
+   * files — folded together, its coverage read as 63% when 81% of its code had
+   * been read.
+   *
+   * The numerator excludes the two kinds every analyzed file has by
+   * construction — its own source-file record and its folder containment —
+   * because counting them would make every repository read as fully covered.
+   * Evidence counts: a file whose only contribution was a comment or a test
+   * name did contribute one.
+   *
+   * Derived facts are not counted separately. They are conclusions drawn from
+   * the structural facts in these same files, so a file with a derived fact and
+   * no structural one does not exist in practice.
+   */
+  private fileFacts(): readonly FileFacts[] {
+    return this.store
+      .all<{
+        root_name: string;
+        code_files: number;
+        with_facts: number;
+        migrations: number;
+        migrations_with_facts: number;
+      }>(
+        `SELECT r.name AS root_name,
+                SUM(CASE WHEN f.classification IN ('source','test') THEN 1 ELSE 0 END) AS code_files,
+                SUM(CASE WHEN f.classification = 'schema-migration' THEN 1 ELSE 0 END) AS migrations,
+                SUM(CASE WHEN f.classification IN ('source','test') AND yielded THEN 1 ELSE 0 END)
+                  AS with_facts,
+                SUM(CASE WHEN f.classification = 'schema-migration' AND yielded THEN 1 ELSE 0 END)
+                  AS migrations_with_facts
+           FROM (SELECT f.*,
+                        (EXISTS (
+                           SELECT 1 FROM structural_records s
+                            WHERE s.snapshot_id = ? AND s.source_root_id = f.source_root_id
+                              AND s.rel_path = f.rel_path
+                              AND s.kind NOT IN ('source-file','module-containment'))
+                         OR EXISTS (
+                           SELECT 1 FROM evidence_items e
+                            WHERE e.snapshot_id = ? AND e.source_root_id = f.source_root_id
+                              AND e.rel_path = f.rel_path)) AS yielded
+                   FROM files f) f
+                JOIN source_roots r ON r.id = f.source_root_id
+          WHERE r.snapshot_id = ? AND f.disposition = 'analyzed'
+            AND f.classification IN ('source','test','schema-migration')
+          GROUP BY r.name`,
+        [this.snapshot.id, this.snapshot.id, this.snapshot.id],
+      )
+      .map((row) => ({
+        rootName: row.root_name,
+        codeFiles: row.code_files,
+        filesWithFacts: row.with_facts,
+        migrationFiles: row.migrations,
+        migrationsWithFacts: row.migrations_with_facts,
+      }));
+  }
+
+  /**
+   * What each repository is, what it is built with, and how much was read.
+   *
+   * The section a reader needs before any other: an overview that describes a
+   * system without saying which repositories it came from asks them to trust it
+   * on faith.
+   */
+  repositories(): readonly RepositoryProfile[] {
+    const scheduled = this.scheduledTasks();
+    const notifications = this.notificationCalls();
+
+    return repositoryProfiles({
+      roots: this.runContext()?.roots ?? [],
+      fileFacts: this.fileFacts(),
+      sourceFiles: this.structural("source-file") as readonly SourceFileRecord[],
+      endpoints: this.endpoints(),
+      screens: this.screens(),
+      entities: this.entities(),
+      tests: this.testPresence(),
+      dependencies: this.dependencies(),
+      imports: this.structural("import") as readonly ImportRecord[],
+      flows: this.derived("feature-flow"),
+      scheduledRoots: scheduled.map((task) => task.rootName),
+      notifyingRoots: notifications.map((call) => call.rootName),
+      dataAccessRoots: this.dataAccess().map((access) => access.rootName),
+    });
+  }
+
+  /** How much of each business flow was followed, per capability. */
+  flowCoverage(): readonly FeatureFlowCoverage[] {
+    return flowCoverage(this.derived("feature-flow"));
+  }
+
+  /** The same, for one capability. Null when it has no flows at all. */
+  flowCoverageForFeature(featureId: string): FeatureFlowCoverage | null {
+    return flowCoverage(this.flowsForFeature(featureId))[0] ?? null;
+  }
+
+  /**
+   * Which kinds of fact this run looked for, and what each yielded per
+   * repository.
+   *
+   * Record counts come from the stored records rather than from what providers
+   * reported finding: `capability_results` holds one row per provider *and*
+   * language, each carrying that provider's own count, so adding them up counts
+   * the same fact several times. What that table is authoritative about is
+   * whether anything was asked at all, and why it came back empty.
+   */
+  analysisDimensions(): readonly DimensionCoverage[] {
+    const counts = new Map<string, number>();
+    for (const row of this.store.all<{ kind: string; root_name: string; records: number }>(
+      `SELECT s.kind, r.name AS root_name, COUNT(*) AS records
+         FROM structural_records s JOIN source_roots r ON r.id = s.source_root_id
+        WHERE s.snapshot_id = ? GROUP BY s.kind, r.name`,
+      [this.snapshot.id],
+    )) {
+      counts.set(`${row.kind} ${row.root_name}`, row.records);
+    }
+
+    const attempts = new Map<string, { reason: string | null }>();
+    for (const row of this.store.all<{
+      kind: string;
+      root_name: string;
+      reason: string | null;
+    }>(
+      `SELECT c.kind, r.name AS root_name, c.reason
+         FROM capability_results c JOIN source_roots r ON r.id = c.source_root_id
+        WHERE c.snapshot_id = ? ORDER BY c.id`,
+      [this.snapshot.id],
+    )) {
+      // The first stated reason is kept: several providers can claim one kind,
+      // and the first that says why it found nothing is the answer a reader
+      // needs, not whichever row happened to be written last.
+      const key = `${row.kind} ${row.root_name}`;
+      const existing = attempts.get(key);
+      if (existing === undefined || existing.reason === null) {
+        attempts.set(key, { reason: existing?.reason ?? row.reason });
+      }
+    }
+
+    const roots = (this.runContext()?.roots ?? []).map((root) => root.name);
+
+    return STRUCTURAL_KINDS.map((kind) => {
+      const byRoot = roots.map((rootName) => {
+        const key = `${kind} ${rootName}`;
+        const attempt = attempts.get(key);
+        const records = counts.get(key) ?? 0;
+        return {
+          rootName,
+          records,
+          attempted: attempt !== undefined,
+          // A reader's standing limit explains an empty result and nothing
+          // else. Printed beside records that were supplied, it would read as
+          // a caveat on facts it is not about.
+          reason: records === 0 ? attempt?.reason ?? null : null,
+        };
+      });
+      return {
+        kind,
+        expected: isUniversalKind(kind),
+        records: byRoot.reduce((total, entry) => total + entry.records, 0),
+        attempted: byRoot.some((entry) => entry.attempted),
+        byRoot,
+      };
+    });
   }
 
   /** What broke without stopping the run. */

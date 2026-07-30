@@ -87,7 +87,11 @@ require (
 `,
     );
 
-    const deps = extract(["go.mod"]).records["package-dependency"];
+    // The `go` directive is the toolchain, recorded with scope `platform`, so
+    // the packages are the entries that are not it.
+    const deps = extract(["go.mod"]).records["package-dependency"].filter(
+      (d) => d.scope !== "platform",
+    );
     expect(deps.map((d) => [d.name, d.directness])).toEqual([
       ["github.com/gin-gonic/gin", "direct"],
       ["golang.org/x/sys", "transitive"],
@@ -101,7 +105,9 @@ require (
 
   it("ignores comments and the module line", () => {
     write("go.mod", "// a comment\nmodule example.com/x\n\ngo 1.21\n");
-    expect(extract(["go.mod"]).records["package-dependency"]).toEqual([]);
+    const records = extract(["go.mod"]).records["package-dependency"];
+    expect(records.filter((d) => d.scope !== "platform")).toEqual([]);
+    expect(records.map((d) => d.name)).toEqual(["go"]);
   });
 });
 

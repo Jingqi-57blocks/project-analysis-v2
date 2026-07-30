@@ -29,6 +29,14 @@ const CRITICAL_KINDS: readonly (readonly [StructuralKind, string])[] = [
   ["call-edge", "call relationships, so traces could not be followed"],
 ];
 
+/**
+ * How a note says it applies everywhere rather than naming five roots.
+ *
+ * Named so a report can render it in its own language: it is the one word in a
+ * note's subject that the engine writes rather than the project.
+ */
+export const EVERY_ROOT = "all parts";
+
 export interface CoverageInput {
   readonly providers: readonly StructuralProvider[];
   /** One per root, for the gaps each provider declared while running. */
@@ -73,7 +81,7 @@ export function coverageNotes(input: CoverageInput): readonly CoverageNote[] {
   }
   for (const [key, roots] of gapRoots) {
     const [kind, ...rest] = key.split(":");
-    const where = roots.size === input.rootCount ? "all parts" : [...roots].sort().join(", ");
+    const where = roots.size === input.rootCount ? EVERY_ROOT : [...roots].sort().join(", ");
     notes.push({ subject: `${kind} · ${where}`, note: rest.join(":") });
   }
 

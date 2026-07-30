@@ -14,6 +14,9 @@ const MINIMAL = {
   sections: [{ id: "a", kind: "code", fragment: "limitations", requires: ["coverage-notes"] }],
 };
 
+/** Every template this tool ships, so none of them drifts unchecked. */
+const SHIPPED = ["overview", "capability", "coverage"] as const;
+
 describe("reading a template", () => {
   it("reads sections in the order they are written", () => {
     const template = parseTemplate(
@@ -56,7 +59,7 @@ describe("reading a template", () => {
 });
 
 describe("the shipped templates", () => {
-  for (const id of ["overview", "capability"]) {
+  for (const id of SHIPPED) {
     it(`${id} names only selectors and fragments that exist`, () => {
       // A template naming something unknown fails at prepare time, in front of
       // a user, with a knowledge base already built.
@@ -83,7 +86,7 @@ describe("the shipped templates", () => {
 
   it("keeps every fragment reachable from some template", () => {
     const used = new Set(
-      ["overview", "capability"].flatMap((id) =>
+      SHIPPED.flatMap((id) =>
         loadTemplate(id)
           .sections.filter((section) => section.kind === "code")
           .map((section) => (section as { fragment: string }).fragment),
@@ -103,10 +106,14 @@ describe("a fragment gets what its section was told to require", () => {
     "project-map": ["map-edges"],
     "external-systems": ["map-edges"],
     "capability-data": ["feature-detail"],
+    repositories: ["repositories"],
+    "analysis-dimensions": ["analysis-dimensions"],
+    "flow-coverage": ["flow-coverage"],
+    "capability-flow-coverage": ["feature-flow-coverage"],
     limitations: ["coverage-notes", "extraction-failures"],
   };
 
-  for (const id of ["overview", "capability"]) {
+  for (const id of SHIPPED) {
     it(`${id} gives every code section a selector its fragment reads`, () => {
       for (const section of loadTemplate(id).sections) {
         if (section.kind !== "code") continue;

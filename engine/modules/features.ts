@@ -196,10 +196,24 @@ export function detectFeatures(input: FeatureInput): FeatureDetection {
     }
   }
 
+  // A file's own name counts, not only the directories above it. Two of the
+  // three services here group a capability into a folder — `handlers/worklog/`,
+  // `pages/worklog/` — but the third names the file and shares the folder:
+  // `routes/worklogs.js`, `services/worklogServices.js`. Reading directories
+  // alone attributed none of that service's code to the capability it serves,
+  // so every rule it enforces — and its gates are the real ones, since it is
+  // the service that answers all 18 of Worklog's endpoints — was scoped out of
+  // the capability's report while sitting in the knowledge base.
+  //
+  // The layer words that would swamp this (`service`, `routes`, `handler`,
+  // `component`) are already stopwords, which is what makes the filename safe
+  // to read as evidence.
   const directoryTerms = new Map<string, Set<string>>();
   for (const file of input.files) {
-    const segments = file.relPath.split("/").slice(0, -1);
-    for (const word of segments.flatMap(words).map(singular)) {
+    const segments = file.relPath.split("/");
+    const directories = segments.slice(0, -1);
+    const basename = (segments[segments.length - 1] ?? "").replace(/\.[^./]+$/, "");
+    for (const word of [...directories, basename].flatMap(words).map(singular)) {
       if (STOPWORDS.has(word)) continue;
       const existing = directoryTerms.get(word) ?? new Set<string>();
       existing.add(`${file.rootName}/${file.relPath}`);

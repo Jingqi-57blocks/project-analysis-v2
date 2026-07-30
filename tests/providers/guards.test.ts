@@ -96,3 +96,95 @@ func F(id int) error {
     expect(found[0]!.message).toBe("Please upload a doctor's note for sick leave over a day");
   });
 });
+
+describe("a rejection that names an error instead of stating a message", () => {
+  it("records the constant's name, marked as a name rather than a sentence", () => {
+    // WCP's older service throws `BusinessError(ErrorCodes.WKL_Forbidden)` 150
+    // times, over the gates that are its real business rules. Reading only
+    // string literals described that service as having almost no rules.
+    const source = `function update(req, res) {
+  if (worklog.userId !== req.user.id) {
+    throw new BusinessError(ErrorCodes.WKL_Forbidden);
+  }
+  save(worklog);
+}
+`;
+    const guard = guards(source, "worklogs.js")[0]!;
+    expect(guard.message).toBe("WKL_Forbidden");
+    expect(guard.messageKind).toBe("error-code");
+    expect(guard.test).toBe("worklog.userId !== req.user.id");
+  });
+
+  it("prefers a stated message where the code states one", () => {
+    const source = `function apply(req) {
+  if (req.hours > 8) {
+    throw new BusinessError(ErrorCodes.WKL_Forbidden, "Sick leave over one day needs a note");
+  }
+}
+`;
+    const guard = guards(source, "a.js")[0]!;
+    expect(guard.message).toBe("Sick leave over one day needs a note");
+    expect(guard.messageKind).toBe("stated");
+  });
+
+  it("still leaves error propagation out, however the error is named", () => {
+    // `if err != nil { return ErrSomething_Bad }` is plumbing whichever
+    // constant it returns.
+    const source = `package svc
+func F() error {
+	if err != nil {
+		return Err_Not_Found
+	}
+	return nil
+}
+`;
+    expect(guards(source, "a.go")).toEqual([]);
+  });
+
+  it("does not mistake an ordinary local for an error constant", () => {
+    // Every one of these was read as a business rule at some point. The last
+    // is real: `found_level1` is a local in a vendored documentation script,
+    // and it reached a WCP report as a rule the project enforces.
+    const source = `function f(order) {
+  if (order.total < 0) {
+    throw new Error(total);
+  }
+  if (order.items.length === 0) {
+    throw new Error(E_x);
+  }
+  if (!content) {
+    return found_level1;
+  }
+  if (order.paid) {
+    return snake_case_local;
+  }
+  if (order.rows > 0) {
+    return REVENUE_CLIENT_ROW_HEIGHT;
+  }
+}
+`;
+    expect(guards(source, "b.js")).toEqual([]);
+  });
+
+  it("counts a named error only where the branch throws it", () => {
+    // A branch that returns a constant is returning a value, not refusing to
+    // work. `return DEFAULT_TITLE` and `return POSITIVE_INFINITY` were read as
+    // rules WCP's browser application enforces.
+    const returns = `function titleOf(page) {
+  if (!page.title) {
+    return DEFAULT_TITLE;
+  }
+  return page.title;
+}
+`;
+    expect(guards(returns, "c.js")).toEqual([]);
+
+    const throws = `function titleOf(page) {
+  if (!page.title) {
+    throw new BusinessError(ErrorCodes.CMN_Not_Found);
+  }
+}
+`;
+    expect(guards(throws, "d.js").map((guard) => guard.message)).toEqual(["CMN_Not_Found"]);
+  });
+});

@@ -279,6 +279,49 @@ describe("detectFeatures", () => {
     expect(features[0]!.entities).toEqual(["app_leave", "app_leave_detail"]);
   });
 
+  it("attributes a file by its own name, not only by the folders above it", () => {
+    // Two of WCP's services group a capability into a folder —
+    // `handlers/worklog/`, `pages/worklog/` — but the third names the file and
+    // shares the folder: `routes/worklogs.js`, `services/worklogServices.js`.
+    // Reading directories alone attributed none of that service's code to the
+    // capability it serves, so every gate it enforces was scoped out of the
+    // capability's report while sitting in the knowledge base.
+    const { features } = detectFeatures({
+      entityNames: ["app_worklog", "app_worklog_detail", "app_user", "app_invoice"],
+      routes: Array.from({ length: 6 }, (_, index) =>
+        route({ path: `/worklogs/${index}`, method: "GET" }),
+      ),
+      files: [
+        { rootName: "svc", relPath: "routes/worklogs.js" },
+        { rootName: "svc", relPath: "services/worklogServices.js" },
+        { rootName: "ui", relPath: "src/pages/worklog/Worklog.tsx" },
+      ],
+    });
+
+    const worklog = features.find((feature) => feature.term === "worklog")!;
+    expect(worklog.filePaths).toEqual([
+      "svc/routes/worklogs.js",
+      "svc/services/worklogServices.js",
+      "ui/src/pages/worklog/Worklog.tsx",
+    ]);
+  });
+
+  it("does not turn the layer a file belongs to into a capability", () => {
+    // `leaveService.js` names leave; it does not make a "service" capability.
+    const { features } = detectFeatures({
+      entityNames: ["app_leave", "app_leave_detail", "app_user", "app_invoice"],
+      routes: Array.from({ length: 6 }, (_, index) =>
+        route({ path: `/leaves/${index}`, method: "GET" }),
+      ),
+      files: [{ rootName: "svc", relPath: "services/leaveService.js" }],
+    });
+
+    expect(features.map((feature) => feature.term)).not.toContain("service");
+    expect(features.find((feature) => feature.term === "leave")!.filePaths).toEqual([
+      "svc/services/leaveService.js",
+    ]);
+  });
+
   it("refuses a term that appears in only one kind of place", () => {
     // One table nobody else mentions is a table, not a feature.
     const { features } = detectFeatures({

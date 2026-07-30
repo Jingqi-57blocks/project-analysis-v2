@@ -21,6 +21,8 @@ import {
   applyGlossary,
   frameFor,
   heading as localizeHeading,
+  noteKey,
+  reasonWithoutPath,
   needsTranslation,
   t,
   type Glossary,
@@ -116,6 +118,28 @@ function collect(
   return { slice, lookup, unresolved };
 }
 
+/**
+ * Every sentence this run wrote about its own reach.
+ *
+ * Deliberately from the knowledge base rather than from a section's slice: the
+ * same notes appear in every document, so translating them once per report
+ * keeps the wording consistent across the set.
+ */
+function analysisSentences(kb: KnowledgeBase): readonly string[] {
+  return [
+    ...new Set([
+      ...kb.coverageNotes().map((note) => note.note),
+      ...kb.extractionFailures().map((failure) => reasonWithoutPath(failure.reason)),
+      // A reader's stated reason for finding nothing of a kind, which the
+      // dimensions table prints beside that kind.
+      ...kb
+        .analysisDimensions()
+        .flatMap((dimension) => dimension.byRoot.map((entry) => entry.reason))
+        .filter((reason): reason is string => reason !== null),
+    ]),
+  ];
+}
+
 export function prepare(options: PrepareOptions): PrepareResult {
   const { template, kb } = options;
   const params = options.params ?? {};
@@ -149,7 +173,14 @@ export function prepare(options: PrepareOptions): PrepareResult {
   const headings = template.sections
     .map((section) => section.heading)
     .filter((value): value is string => value !== null);
-  const frame = withTranslation(frameFor(headings), tasksDir, options.language);
+  // What this analysis says about itself travels with the frame. Those
+  // sentences are stored as facts — they are composed with counts, so they
+  // cannot be fixed keys — but they are the engine's words, and left
+  // untranslated they made the whole "Analysis Limitations" section of a
+  // Chinese report English.
+  const english: Record<string, string> = { ...frameFor(headings) };
+  for (const stored of analysisSentences(kb)) english[noteKey(stored)] = stored;
+  const frame = withTranslation(english, tasksDir, options.language);
 
   const lines: string[] = [`# ${title(template, params, kb)}`, ""];
   const tasks: PreparedTask[] = [];
@@ -238,7 +269,7 @@ export function prepare(options: PrepareOptions): PrepareResult {
   // Emitted only when the language is not English, and only for a full prepare
   // — rebuilding one section must not disturb a translation already given.
   if (needsTranslation(options.language) && options.only === undefined) {
-    const frameTask = emitFrameTask(tasksDir, frameFor(headings), options.language!);
+    const frameTask = emitFrameTask(tasksDir, english, options.language!);
     if (!existsSync(join(tasksDir, FRAME_TASK, "answer.md"))) tasks.unshift(frameTask);
   }
 
@@ -258,7 +289,15 @@ export function prepare(options: PrepareOptions): PrepareResult {
         sections: template.sections.map((section) => ({
           id: section.id,
           kind: section.kind,
-          heading: section.heading,
+          // The heading as the document renders it, not as the template
+          // declares it. Everything downstream matches a rendered heading
+          // against this: a split document names its files by looking a
+          // heading up here, and a sidebar labels itself from it. With the
+          // English heading stored, a translated report split into pages named
+          // every file after its Chinese heading while every link pointed at
+          // the section id, so no link in it resolved — and its navigation was
+          // in English.
+          heading: section.heading === null ? null : localizeHeading(frame, section.heading),
           optional: section.kind === "llm" && section.optional === true,
           omitted: omitted.includes(section.id),
         })),

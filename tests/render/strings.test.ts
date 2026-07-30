@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyGlossary,
   FRAME_EN,
+  stopReason,
   frameFor,
   heading,
   headingKey,
@@ -53,5 +54,26 @@ describe("the report's frame words", () => {
     expect(needsTranslation("English")).toBe(false);
     expect(needsTranslation("zh-CN")).toBe(true);
     expect(needsTranslation("ja")).toBe(true);
+  });
+});
+
+describe("why a trace stopped, in the report's language", () => {
+  it("translates a reason the engine wrote when the frame has one", () => {
+    // These sentences are stored with the flow as facts, in English. Rendered
+    // as stored into a Chinese report, the one column a reader consults about
+    // trust was in a language they may not read.
+    const frame = applyGlossary(FRAME_EN, { "stop-no-caller": "没有发现任何调用方" });
+    expect(
+      stopReason(
+        frame,
+        "no call in the analyzed roots resolves to this endpoint; it may be called by something outside the workspace",
+      ),
+    ).toBe("没有发现任何调用方");
+  });
+
+  it("shows a reason it does not know as stored, rather than as a blank", () => {
+    expect(stopReason(FRAME_EN, "something nobody has a key for")).toBe(
+      "something nobody has a key for",
+    );
   });
 });

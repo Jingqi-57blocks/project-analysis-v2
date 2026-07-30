@@ -36,6 +36,14 @@ export interface RenderOptions {
   readonly contentsLabel?: string;
   /** Where the sidebar's title links — a split page points it at the index. */
   readonly homeHref?: string;
+  /**
+   * The language the report is written in, for the page's own `lang`.
+   *
+   * A Chinese report served as English is read aloud in English by a screen
+   * reader and hyphenated by English rules. Defaults to English because that
+   * is what a document with no stated language is.
+   */
+  readonly language?: string;
 }
 
 /**
@@ -185,7 +193,7 @@ export function renderHtml(markdown: string, title: string, options: RenderOptio
   const nav = navHtml(options.nav ?? ownNav(body), title, options.homeHref ?? "#");
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHtml(options.language ?? "en")}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

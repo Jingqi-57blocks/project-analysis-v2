@@ -19,9 +19,13 @@ import { createConventionsProvider } from "../../engine/providers/conventions/pr
 import { createSqlSchemaProvider } from "../../engine/datamodel/sql.js";
 import { createDataUsageProvider } from "../../engine/datamodel/usage.js";
 import { createDocumentationCollector } from "../../engine/collectors/documentation.js";
+import { createSourceFileProvider } from "../../engine/providers/sourcefiles/provider.js";
+import { createManifestProvider } from "../../engine/providers/manifests/provider.js";
 
 const READERS = {
   structural: [
+    createSourceFileProvider(),
+    createManifestProvider(),
     createFrameworkRoutesProvider(),
     createLogicProvider(),
     createConventionsProvider(),
@@ -87,8 +91,14 @@ beforeAll(() => {
   // A browser application declaring screens: two named for leave, one not.
   write(
     "package.json",
-    JSON.stringify({ name: "svc-ui", dependencies: { "react-router-dom": "^6.0.0" } }),
+    JSON.stringify({
+      name: "svc-ui",
+      engines: { node: ">=20" },
+      dependencies: { "react-router-dom": "^6.0.0" },
+    }),
   );
+  // The lockfile beside it, so the exact version is available to be read.
+  write("yarn.lock", ['react-router-dom@^6.0.0:', '  version "6.22.3"'].join("\n"));
   write(
     "ui/src/App.tsx",
     [
@@ -340,5 +350,70 @@ describe("what belongs to a capability", () => {
   it("returns no screens and no status sets for an unknown capability", () => {
     expect(kb.screensForFeature("feat_nonexistent")).toEqual([]);
     expect(kb.statusSetsForFeature("feat_nonexistent")).toEqual([]);
+  });
+});
+
+describe("what was analyzed, and how much of it was read", () => {
+  it("profiles every repository the run read", () => {
+    const profiles = kb.repositories();
+    expect(profiles.map((profile) => profile.rootName)).toEqual(["svc"]);
+
+    const svc = profiles[0]!;
+    expect(svc.languages.map((language) => language.name)).toContain("go");
+    // The fixture serves endpoints and shows screens from the one root.
+    expect(svc.roles).toContain("serves-http");
+    expect(svc.roles).toContain("shows-screens");
+  });
+
+  it("counts the code files that yielded a fact against the code files there are", () => {
+    const svc = kb.repositories()[0]!;
+    expect(svc.codeFiles).toBeGreaterThan(0);
+    expect(svc.filesWithFacts).toBeGreaterThan(0);
+    // A file cannot contribute a fact without being counted as a file.
+    expect(svc.filesWithFacts).toBeLessThanOrEqual(svc.codeFiles);
+    // The denominator is code, not every analyzed file: a lockfile and a
+    // README are analyzed and nothing can be extracted from them.
+    expect(svc.codeFiles).toBeLessThanOrEqual(svc.analyzedFiles);
+  });
+
+  it("states the version the lockfile pins, and the runtime the manifest declares", () => {
+    const svc = kb.repositories()[0]!;
+    const router = svc.stack.find((entry) => entry.name === "react-router-dom");
+    expect(router?.version).toBe("6.22.3");
+    expect(router?.resolved).toBe(true);
+    expect(svc.platforms.map((entry) => [entry.name, entry.version])).toEqual([["node", ">=20"]]);
+  });
+
+  it("says of every fact kind whether it was looked for, and what it yielded", () => {
+    const dimensions = kb.analysisDimensions();
+
+    const routes = dimensions.find((dimension) => dimension.kind === "route")!;
+    expect(routes.attempted).toBe(true);
+    expect(routes.records).toBeGreaterThan(0);
+    // Records were supplied, so no reader's standing limit explains them.
+    expect(routes.byRoot.every((entry) => entry.reason === null)).toBe(true);
+
+    // No reader in this set supplies test relations, which is a fact about the
+    // run rather than about the project.
+    const tests = dimensions.find((dimension) => dimension.kind === "test-relation")!;
+    expect(tests.attempted).toBe(false);
+    expect(tests.records).toBe(0);
+  });
+
+  it("measures each business flow against the steps it has", () => {
+    const leave = kb.features().find((feature) => feature.term === "leave")!;
+    const coverage = kb.flowCoverageForFeature(leave.id);
+
+    expect(coverage?.featureName).toBe("Leave");
+    expect(coverage!.flowCount).toBeGreaterThan(0);
+    expect(coverage!.steps).toBeGreaterThan(0);
+    expect(coverage!.resolvedSteps).toBeLessThanOrEqual(coverage!.steps);
+    for (const flow of coverage!.flows) {
+      expect(flow.resolvedSteps).toBeLessThanOrEqual(flow.steps);
+    }
+  });
+
+  it("has nothing to say about the flows of a capability that does not exist", () => {
+    expect(kb.flowCoverageForFeature("feat_nonexistent")).toBeNull();
   });
 });

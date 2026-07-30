@@ -121,6 +121,16 @@ export interface GuardRecord {
   readonly test: string;
   /** The message the rejection states — the rule in the code's own words. */
   readonly message: string;
+  /**
+   * Whether that message is text someone wrote, or the name of an error
+   * constant the rejection raises.
+   *
+   * A codebase that rejects with `BusinessError(ErrorCodes.WKL_Forbidden)` says
+   * what its rule is by that name, but the sentence a user sees lives in a
+   * catalogue this reader does not open. Keeping the two apart stops a symbol
+   * being quoted to a reader as though it were a sentence.
+   */
+  readonly messageKind: "stated" | "error-code";
   readonly enclosingFunction: string | null;
   readonly source: SourceRef;
   readonly provenance: Provenance;
