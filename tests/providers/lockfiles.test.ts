@@ -88,6 +88,56 @@ describe("reading an exact version out of a lockfile", () => {
     expect(versions.get("react")).toBe("18.3.1");
   });
 
+  it("states no version for a dependency that does not come from a registry", () => {
+    // A git or tarball dependency's `version` field is whatever the package
+    // happens to declare — commonly `0.0.0` — so publishing it as the
+    // installed version states something false rather than leaving a gap.
+    const versions = read(
+      "yarn.lock",
+      [
+        '"tool@https://github.com/a/b.git#v1.2.3":',
+        '  version "0.0.0"',
+        "",
+        '"local@file:../local":',
+        '  version "1.0.0"',
+        "",
+        '"real@^2.0.0":',
+        '  version "2.1.0"',
+      ].join("\n"),
+    );
+    expect(versions.has("tool")).toBe(false);
+    expect(versions.has("local")).toBe(false);
+    // And the registry dependency beside them is still read.
+    expect(versions.get("real")).toBe("2.1.0");
+  });
+
+  it("resolves an aliased dependency under the name that asks for it", () => {
+    const versions = read(
+      "yarn.lock",
+      ['"left-pad@npm:@scope/other@^1.2.3":', '  version "1.2.3"'].join("\n"),
+    );
+    expect(versions.get("left-pad")).toBe("1.2.3");
+  });
+
+  it("does not read a workspace's own directory as a package", () => {
+    // Its key is a path, not an install path, and reading it put
+    // "packages/app" where a package name belongs.
+    const versions = read(
+      "package-lock.json",
+      JSON.stringify({
+        packages: {
+          "": { name: "root" },
+          "packages/app": { name: "app", version: "1.0.0" },
+          "node_modules/lodash": { version: "4.17.21" },
+          // A nested copy at another version does not displace the hoisted one.
+          "packages/app/node_modules/lodash": { version: "3.10.1" },
+        },
+      }),
+    );
+    expect([...versions.keys()]).toEqual(["lodash"]);
+    expect(versions.get("lodash")).toBe("4.17.21");
+  });
+
   it("reads pnpm's keys in both the v6 and v9 spellings, dropping peer suffixes", () => {
     const versions = read(
       "pnpm-lock.yaml",

@@ -37,6 +37,10 @@ function npmLock(content: string): ResolvedVersions {
   // the last `node_modules/`. A workspace's own package sits at "" and has no
   // version worth reporting as a dependency's.
   for (const [path, value] of Object.entries(asObject(record["packages"]))) {
+    // Only an install path names a package. A workspace's own entry is a
+    // directory ("packages/app"), and reading it as a dependency put a path
+    // where a package name belongs.
+    if (!path.includes("node_modules/")) continue;
     const name = path.split("node_modules/").pop();
     const version = asObject(value)["version"];
     if (name === undefined || name === "" || typeof version !== "string") continue;
@@ -70,7 +74,8 @@ function asObject(value: unknown): Record<string, unknown> {
  *
  * An entry heads a block with one or more `name@range` descriptors and states
  * `version "1.2.3"` inside it. Scoped names carry a second `@`, so the name is
- * everything before the last one.
+ * everything before the last one — see `nameOfDescriptor` for the sources it
+ * refuses.
  */
 function yarnLock(content: string): ResolvedVersions {
   const versions = new Map<string, string>();
@@ -97,10 +102,23 @@ function yarnLock(content: string): ResolvedVersions {
   return versions;
 }
 
-/** `@scope/pkg@^1.2.3` → `@scope/pkg`; `pkg@npm:other@1` keeps the asking name. */
+/**
+ * The package a descriptor asks for: `@scope/pkg@^1.2.3` → `@scope/pkg`.
+ *
+ * An alias (`pkg@npm:other@1.2.3`) keeps the asking name, since that is the
+ * name the manifest depends on and the version resolved is what it gets.
+ *
+ * A dependency from anywhere but a registry — a git URL, a tarball, a local
+ * path — is refused. Its `version` field is whatever the package happens to
+ * declare, commonly `0.0.0`, and publishing that as the installed version
+ * states something false rather than leaving a gap.
+ */
 function nameOfDescriptor(descriptor: string): string | null {
-  const at = descriptor.lastIndexOf("@");
+  const alias = descriptor.indexOf("@npm:");
+  const at = alias > 0 ? alias : descriptor.lastIndexOf("@");
   if (at <= 0) return descriptor === "" ? null : descriptor;
+  const range = descriptor.slice(at + 1);
+  if (/:\/\/|^git|^file:|^link:|^portal:|\.tgz/.test(range.replace(/^npm:/, ""))) return null;
   return descriptor.slice(0, at);
 }
 
