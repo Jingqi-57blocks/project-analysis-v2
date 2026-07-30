@@ -14,7 +14,8 @@ import { languageOf } from "../text/ast.js";
 import { createOutboundProvider } from "../providers/outbound/provider.js";
 import { createConventionsProvider } from "../providers/conventions/provider.js";
 import { createCodeGraphProvider } from "../providers/codegraph/provider.js";
-import { isIndexed, sharedIndexRoot } from "../providers/codegraph/cli.js";
+import { INDEX_DIRECTORY, isIndexed, sharedIndexRoot } from "../providers/codegraph/cli.js";
+import { join } from "node:path";
 import { createFrameworkRoutesProvider } from "../providers/frameworkroutes/provider.js";
 import { createUiCallsProvider } from "../providers/uicalls/provider.js";
 import { createLogicProvider } from "../providers/logic/provider.js";
@@ -108,29 +109,34 @@ export function codeIndexLocation(
 }
 
 /**
- * Whether a usable index is at the place a run meant to put one.
+ * Whether an index is at the place a run meant to put one.
  *
  * `codeIndexLocation` states an intention, computed before anything runs, and it
- * cannot know whether the indexer was installed, or crashed, or timed out.
+ * cannot know whether the indexer was installed, or crashed, or built nothing.
  * Reporting that intention as an accomplished write put a false claim about the
- * filesystem into the knowledge base and onto the terminal — measured with the
- * indexer absent, both said an index had been written to a directory that held
- * nothing.
+ * filesystem into the knowledge base and onto the terminal.
  *
- * **The directory existing is not the answer**, which is the part that caught us
- * out. CodeGraph creates `.codegraph/` before it decides whether it will index,
- * so a refused, crashed or killed run leaves a shell holding only telemetry —
- * and `~/.codegraph` is where the tool installs itself, so a home directory
- * always looks indexed. Either way `ensureIndexed` then takes its `index -q`
- * branch forever, because the directory is there.
+ * Answered by `isIndexed`, which looks for the store rather than the directory —
+ * see the reasoning there. Asking the *reader* instead was the previous attempt
+ * and it failed in both directions: a benign truncation counts as a failure while
+ * the index sits there holding a hundred thousand symbols, and a shell plus a
+ * working indexer produces no failure at all.
  *
- * So the reader's own outcome decides: a directory, and no failure from the
- * provider that would have filled it. A run reusing an index built earlier still
- * answers true, which is honest — one is there, and it supplied the symbols.
+ * Presence, not freshness. A run reusing an index built earlier answers true,
+ * which is what the note claims; whether this run refreshed it is a separate
+ * question, and the extraction failures are where that lives.
  */
-export function codeIndexPresent(
-  path: string | null | undefined,
-  indexerFailed: boolean,
-): boolean {
-  return path !== null && path !== undefined && !indexerFailed && isIndexed(path);
+export function codeIndexPresent(path: string | null | undefined): boolean {
+  return path !== null && path !== undefined && isIndexed(path);
+}
+
+/**
+ * The path a run discloses, spelled once.
+ *
+ * The note and the terminal both name the index directory, and both used to build
+ * that string themselves — two copies of the vendor's directory name sitting two
+ * lines from a claim of a vendor boundary.
+ */
+export function codeIndexArtifact(parent: string): string {
+  return join(parent, INDEX_DIRECTORY);
 }

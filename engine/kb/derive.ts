@@ -25,6 +25,7 @@ import { computeStructuralFindings } from "../health/structure.js";
 import { stateRule, type BusinessRule } from "../semantics/rules.js";
 import type { StructuralProvider } from "../structural/provider.js";
 import type { RouteRecord } from "../structural/boundaries.js";
+import { codeIndexArtifact } from "./build.js";
 import { coverageNotes, dataCoverageNotes } from "./coverage.js";
 import { buildFeatureFacts } from "./features.js";
 import { derivedKey, emptyDerived, type DerivedLink, type DerivedRecords } from "./kinds.js";
@@ -128,8 +129,8 @@ export function derive(input: DeriveInput): Derived {
       subject: "code-index",
       note:
         input.codeIndexWritten === false
-          ? `no code index is present at ${input.codeIndexPath}/.codegraph, which is where this run would have built one — the indexer did not produce it, and the extraction failures say why. Nothing was written near the project`
-          : `a code index is present at ${input.codeIndexPath}/.codegraph, the directory holding the analyzed roots — the only thing this analysis writes anywhere near the project. Its location is not configurable: the indexer stores its database inside whatever it indexes, so an index of this code can only live in a directory containing it. --no-code-index skips it entirely`,
+          ? `no code index is present at ${codeIndexArtifact(input.codeIndexPath)}, which is where this run would have built one — the indexer did not produce it, and the extraction failures say why. Nothing was written near the project`
+          : `a code index is present at ${codeIndexArtifact(input.codeIndexPath)}, the directory holding the analyzed roots — the only thing this analysis writes anywhere near the project. Its location is not configurable: the indexer stores its database inside whatever it indexes, so an index of this code can only live in a directory containing it. --no-code-index skips it entirely`,
     });
   } else if (input.codeIndexPath === null) {
     // Refusing the write is supported, and on a project whose frameworks the
