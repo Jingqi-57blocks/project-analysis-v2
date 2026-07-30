@@ -218,25 +218,42 @@ function firstMessage(node: SgNode): string | null {
  */
 function errorCodeName(node: SgNode): string | null {
   if ((node.kind() as string) !== "throw_statement") return null;
-  const stack: SgNode[] = [node];
-  while (stack.length > 0) {
-    const current = stack.shift()!;
-    const kind = current.kind() as string;
-    if (kind.includes("identifier") || kind === "selector_expression" || kind === "member_expression") {
-      // The last segment is the name; the qualifier is the catalogue it is in.
-      const name = current.text().trim().split(".").pop() ?? "";
-      const parts = name.split("_");
-      if (
-        name.length >= 6 &&
-        parts.length >= 2 &&
-        parts.every((part) => /^[A-Z][A-Za-z0-9]*$/.test(part))
-      ) {
-        return name.slice(0, 160);
-      }
-    }
-    for (const child of current.children()) stack.push(child);
-  }
-  return null;
+
+  // The thrown expression, then — for `new BusinessError(X)` or `reject(X)` —
+  // its first argument. Nothing deeper: searching the whole subtree took a
+  // constant from wherever it appeared, so `new LimitError(compare(n, MAX_ROWS))`
+  // reported MAX_ROWS as the rule, and `HTTP_STATUS.forbidden` reported the
+  // container HTTP_STATUS because the member itself failed the shape test.
+  const thrown = node.children().find((child) => !SYNTAX_KINDS.has(child.kind() as string));
+  if (thrown === undefined) return null;
+  const argument = firstArgumentOf(thrown) ?? thrown;
+
+  const name = argument.text().trim().split(".").pop() ?? "";
+  const parts = name.split("_");
+  const named =
+    name.length >= 6 &&
+    parts.length >= 2 &&
+    parts.every((part) => /^[A-Z][A-Za-z0-9]*$/.test(part));
+  return named ? name.slice(0, 160) : null;
+}
+
+/** Tokens a grammar keeps as children of a statement: `throw`, `;`, comments. */
+const SYNTAX_KINDS = new Set<string>(["throw", ";", "comment", "raise"]);
+
+/**
+ * The first argument of a call or construction, or null when it is neither.
+ *
+ * `new BusinessError(ErrorCodes.X)` names the rule in its first argument; a
+ * bare `throw SomeError` names it outright. A second argument is a message or a
+ * cause, and reading past the first is how an unrelated constant got in.
+ */
+function firstArgumentOf(node: SgNode): SgNode | null {
+  const list = node.children().find((child) => (child.kind() as string).includes("argument"));
+  if (list === undefined) return null;
+  return (
+    list.children().find((child) => !["(", ")", ",", "comment"].includes(child.kind() as string)) ??
+    null
+  );
 }
 
 /**
@@ -520,7 +537,8 @@ export function logicCapabilities(): ProviderCapabilities {
         language: ANY_LANGUAGE,
         support: "partial",
         limits: [
-          "an `if` that rejects is read as a rule, by the message it states or by the name of the error constant it raises; the text behind such a constant lives in a message catalogue this run does not read, so the rule is named rather than quoted",
+          "an `if` that rejects is read as a rule, by the message it states or by the name of the error constant it *throws*; the text behind such a constant lives in a message catalogue this run does not read, so the rule is named rather than quoted",
+          "a named error must be the thrown expression or its first argument, and its parts must be capitalised — so `raise PermissionDenied`, `return ErrNotFound` and `throw new ForbiddenException()` are all missed, and a gate that rejects through one of those is absent rather than reported",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
           "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
           "languages without a grammar in this run are not read at all",

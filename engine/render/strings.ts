@@ -42,14 +42,26 @@ export const FRAME_EN: Glossary = {
 
   "of-total": "{0} of {1}",
   "of-total-percent": "{0} of {1} ({2}%)",
-  "stack-line": "**{0}** — {1}",
-  "stack-and-more": "{0} direct dependencies in all, {1} of them pinned to an exact version",
+  "col-runtime": "Runtime",
+  "col-built-with": "Most-used libraries",
+  "col-dependencies": "Dependencies pinned",
+  "stack-note":
+    "_The {0} libraries each repository imports in the most files, with the version installed. They are the ones its code leans on, which is not the same as the ones an architect would name — nothing in the code says which of its packages is a framework and which is a helper._",
   "range-marked":
     "_A version marked ✱ is what the manifest declares as acceptable — a range, or a minimum. No lockfile in this run settled which version is actually installed._",
+  /** What separates items joined into one cell or sentence. */
+  join: "; ",
+  "all-reports": "All reports",
+  "all-reports-lead": "The reports produced from this analysis.",
+  "col-no-caller": "No caller found",
+  "no-caller-note":
+    "_\"No caller found\" means the endpoint's own code was followed but nothing in the workspace was seen to ask for it — ordinary for a report, an export, or anything a system outside this workspace calls._",
   "migrations-read":
     "_Beside its code, **{0}** holds schema-migration scripts: {1} of them yielded a fact. They declare a schema rather than behaviour, so they are counted apart._",
   "not-looked-for": "**Not looked for in this run.** Nothing below says whether the project has any:",
   "looked-found-none": "**Looked for and not found:**",
+  "empty-in-some-root":
+    "**Found elsewhere, but not in every repository.** Where a reader said why, it says so here:",
   "dimensions-note":
     "_Counts are distinct records. A fact two readers agree on is one record, not two._",
   "no-flows-traced": "_No flow of this capability was followed end to end; the table says where each stops._",
@@ -62,6 +74,7 @@ export const FRAME_EN: Glossary = {
     "the code behind the endpoint could not be identified, so what it touches was not followed",
   "stop-ambiguous-handler":
     "the endpoint names a handler that matches more than one function, so none was chosen",
+  "stop-truncated": "more of this step was established than is shown here",
   "stop-no-data-access":
     "no data access was observed in the handler's own code; access from elsewhere is not followed",
 
@@ -116,7 +129,10 @@ const STOP_REASONS: readonly (readonly [string, string])[] = [
   ["inline function", "stop-inline-handler"],
   ["handler was not resolved", "stop-unresolved-handler"],
   ["no data access was observed", "stop-no-data-access"],
-  ["could not be resolved to a unique symbol", "stop-ambiguous-handler"],
+  // As the linking layer writes it: `2 symbols named "Apply" match; refusing to
+  // pick one`. The earlier marker here matched only a coverage note's wording,
+  // so the reason a reader actually meets stayed English.
+  ["refusing to pick one", "stop-ambiguous-handler"],
 ];
 
 /** One stored reason in the report's language, or as stored if it is unknown. */

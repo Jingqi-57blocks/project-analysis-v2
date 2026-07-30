@@ -188,3 +188,51 @@ func F() error {
     expect(guards(throws, "d.js").map((guard) => guard.message)).toEqual(["CMN_Not_Found"]);
   });
 });
+
+describe("which symbol a named rejection is read as", () => {
+  it("reads the error the throw names, not a constant nested in an argument", () => {
+    // Searching the whole subtree took a SCREAMING_SNAKE identifier from
+    // wherever it appeared, so an unrelated bound became the rule.
+    const source = `function f(rows) {
+  if (rows > 100) {
+    throw new LimitError(compare(rows, MAX_ROWS));
+  }
+}
+`;
+    expect(guards(source, "a.js")).toEqual([]);
+  });
+
+  it("does not fall back to the object a member expression belongs to", () => {
+    // `HTTP_STATUS.forbidden` names a status, not a rule; reporting the
+    // container HTTP_STATUS as the rule is worse than reporting nothing.
+    const source = `function f(user) {
+  if (!user.admin) {
+    throw new HttpError(HTTP_STATUS.forbidden);
+  }
+  if (!user.name) {
+    throw new Error(ERROR_MESSAGES[code]);
+  }
+  if (!user.active) {
+    throw new Error(t(I18N_KEYS.inactive));
+  }
+}
+`;
+    expect(guards(source, "b.js")).toEqual([]);
+  });
+
+  it("still reads the error code a rejection does name", () => {
+    const source = `function f(worklog, user) {
+  if (worklog.userId !== user.id) {
+    throw new BusinessError(ErrorCodes.WKL_Forbidden);
+  }
+  if (!user.active) {
+    throw USER_Permission_Deny;
+  }
+}
+`;
+    expect(guards(source, "c.js").map((guard) => guard.message)).toEqual([
+      "WKL_Forbidden",
+      "USER_Permission_Deny",
+    ]);
+  });
+});

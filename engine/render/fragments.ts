@@ -108,11 +108,17 @@ function coverageLine(coverage: Coverage | undefined, subject: string): string {
         reasons.map((reason) => `- ${reason}`).join("\n");
 }
 
-/** `6 of 8 (75%)`, or `0 of 0` where a percentage would divide by nothing. */
+/**
+ * `6 of 8 (75%)`, or `0 of 0` where a percentage would divide by nothing.
+ *
+ * Rounded down short of the whole: `Math.round` prints "(100%)" for 199 of 200,
+ * and a reader who sees 100% stops looking for the one that is missing.
+ */
 function share(frame: Glossary, part: number, whole: number): string {
-  return whole === 0
-    ? t(frame, "of-total", part, whole)
-    : t(frame, "of-total-percent", part, whole, Math.round((part / whole) * 100));
+  if (whole === 0) return t(frame, "of-total", part, whole);
+  const exact = (part / whole) * 100;
+  const percent = part < whole ? Math.min(Math.floor(exact), 99) : Math.round(exact);
+  return t(frame, "of-total-percent", part, whole, percent);
 }
 
 /**
@@ -121,6 +127,17 @@ function share(frame: Glossary, part: number, whole: number): string {
  * The mark rather than a word per entry: a stack line carries a dozen of
  * these, and a parenthesis on each would bury the versions themselves.
  */
+/**
+ * How many of a repository's libraries to name.
+ *
+ * Nothing in the data tells a framework from a general-purpose helper — tested
+ * on WCP, `lodash` is imported by 376 files against React's 519, exposes more
+ * distinct names, and sits in the same kinds of file, so no usage signal
+ * separates them. Rather than guess with a curated list, the most-imported few
+ * are named and the note beside the table says that is what they are.
+ */
+const STACK_SHOWN = 6;
+
 function versionOf(entry: StackEntry): string {
   if (entry.version === null) return entry.name;
   return `${entry.name} ${entry.version}${entry.resolved ? "" : "✱"}`;
@@ -153,6 +170,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       profile.endpointCount === 0
         ? null
         : share(f, profile.tracedEndpointCount, profile.endpointCount),
+      profile.endpointsWithoutCaller === 0 ? null : profile.endpointsWithoutCaller,
       profile.screenCount === 0 ? null : profile.screenCount,
       profile.testCount === 0 ? null : profile.testCount,
     ]);
@@ -165,6 +183,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
           t(f, "col-languages"),
           t(f, "col-files-read"),
           t(f, "col-endpoints-traced"),
+          t(f, "col-no-caller"),
           t(f, "col-screens"),
           t(f, "col-tests"),
         ],
@@ -172,19 +191,34 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       ),
     ];
 
-    const stacks = profiles
-      .filter((profile) => profile.platforms.length > 0 || profile.stack.length > 0)
-      .map((profile) => {
-        const named = [...profile.platforms, ...profile.stack].map(versionOf).join(" · ");
-        const counted = t(
-          f,
-          "stack-and-more",
-          profile.directDependencies,
-          profile.dependenciesWithExactVersion,
-        );
-        return `- ${t(f, "stack-line", profile.rootName, `${named} (${counted})`)}`;
-      });
-    if (stacks.length > 0) parts.push(stacks.join("\n"));
+    // The stack as a table a reader can scan down, rather than one long line
+    // per repository. Six entries is what fits before a reader stops reading;
+    // the rest are counted, because a dozen names in a row is the thing that
+    // made this unreadable.
+    const withStack = profiles.filter(
+      (profile) => profile.platforms.length > 0 || profile.stack.length > 0,
+    );
+    if (withStack.length > 0) {
+      parts.push(
+        table(
+          [t(f, "col-repository"), t(f, "col-runtime"), t(f, "col-built-with"), t(f, "col-dependencies")],
+          withStack.map((profile) => [
+            profile.rootName,
+            profile.platforms.length === 0
+              ? null
+              : profile.platforms.map(versionOf).join(", "),
+            profile.stack.slice(0, STACK_SHOWN).map(versionOf).join(", "),
+            t(
+              f,
+              "of-total",
+              profile.dependenciesWithExactVersion,
+              profile.directDependencies,
+            ),
+          ]),
+        ),
+        t(f, "stack-note", STACK_SHOWN),
+      );
+    }
 
     // Migrations are counted apart from code, so a repository that has them
     // says so rather than having them silently left out of both numbers.
@@ -199,6 +233,12 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         ),
       );
     if (migrations.length > 0) parts.push(migrations.join("\n\n"));
+
+    // A column, not a paragraph per repository: five of those recreated the
+    // wall of text this section was rewritten to avoid.
+    if (profiles.some((profile) => profile.endpointsWithoutCaller > 0)) {
+      parts.push(t(f, "no-caller-note"));
+    }
 
     const anyRange = profiles.some((profile) =>
       [...profile.platforms, ...profile.stack].some(
@@ -247,6 +287,21 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       );
     }
 
+    // A kind with records in one repository and none in another: the reason it
+    // found nothing *there* was collected but never shown, because this list
+    // only considered kinds empty everywhere. On WCP that lost the reason
+    // imports were not read in the older service.
+    const emptyInSomeRoot = dimensions
+      .filter((dimension) => dimension.records > 0)
+      .flatMap((dimension) =>
+        dimension.byRoot
+          .filter((entry) => entry.records === 0 && entry.reason !== null)
+          .map((entry) => `- ${dimension.kind} · ${entry.rootName} — ${localizeNote(f, entry.reason!)}`),
+      );
+    if (emptyInSomeRoot.length > 0) {
+      parts.push(`${t(f, "empty-in-some-root")}\n\n${emptyInSomeRoot.join("\n")}`);
+    }
+
     // Looked for and empty is a third state, and the reason a reader needs is
     // the one its readers already stated.
     const emptyWithReason = dimensions
@@ -268,7 +323,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             .map((entry) =>
               entry.reasons.length === 0
                 ? `- ${entry.kind}`
-                : `- ${entry.kind} — ${entry.reasons.map((reason) => localizeNote(f, reason)).join("；")}`,
+                : `- ${entry.kind} — ${entry.reasons.map((reason) => localizeNote(f, reason)).join(t(f, "join"))}`,
             )
             .join("\n"),
       );
@@ -314,7 +369,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
           share(f, flow.resolvedSteps, flow.steps),
           flow.unresolvedReasons.length === 0
             ? null
-            : flow.unresolvedReasons.map((reason) => stopReason(f, reason)).join("；"),
+            : flow.unresolvedReasons.map((reason) => stopReason(f, reason)).join(t(f, "join")),
         ]),
       ),
     ];

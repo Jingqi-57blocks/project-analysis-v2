@@ -916,6 +916,10 @@ export class KnowledgeBase {
       dependencies: this.dependencies(),
       imports: this.structural("import") as readonly ImportRecord[],
       flows: this.derived("feature-flow"),
+      completedTraces: this.derived("trace").map((trace) => ({
+        entryKey: trace.entryKey,
+        partial: trace.partial,
+      })),
       scheduledRoots: scheduled.map((task) => task.rootName),
       notifyingRoots: notifications.map((call) => call.rootName),
       dataAccessRoots: this.dataAccess().map((access) => access.rootName),

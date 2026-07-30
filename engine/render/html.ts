@@ -37,6 +37,13 @@ export interface RenderOptions {
   /** Where the sidebar's title links — a split page points it at the index. */
   readonly homeHref?: string;
   /**
+   * A link out to the page listing every report of this run.
+   *
+   * A reader given four documents had to open each one's own index to find out
+   * which it was; from any page, one link now goes back to all of them.
+   */
+  readonly home?: { readonly href: string; readonly label: string };
+  /**
    * The language the report is written in, for the page's own `lang`.
    *
    * A Chinese report served as English is read aloud in English by a screen
@@ -138,6 +145,11 @@ body {
   width: 264px; flex: none; position: sticky; top: 0; height: 100vh; overflow-y: auto;
   background: var(--nav-bg); border-right: 1px solid var(--line); padding: 1.1rem 0.9rem 2rem;
 }
+#sidebar .home {
+  display: block; font-size: 0.84rem; color: var(--muted); text-decoration: none;
+  padding: 0.1rem 0.6rem 0.5rem;
+}
+#sidebar .home:hover { color: var(--accent); }
 #sidebar .doc-title {
   display: block; font-weight: 700; font-size: 1.02rem; line-height: 1.3;
   color: var(--fg); text-decoration: none; padding: 0.25rem 0.6rem 0.9rem;
@@ -154,7 +166,36 @@ body {
 #sidebar a.active, #sidebar a[aria-current] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 
 main { flex: 1; min-width: 0; padding: 2.2rem clamp(1.25rem, 4vw, 3.5rem) 6rem; }
-main > * { max-width: 54rem; }
+/* The column is centred in whatever space is left of the sidebar; the cap is
+   what keeps a line readable on a wide monitor. */
+#doc { max-width: 54rem; margin: 0 auto; }
+
+/* A paragraph or list item that opens with a bold run reads as a heading and
+   its body, which is how these sections are written. Rendered inline it was a
+   wall of text whose first few words happened to be bold. */
+#doc p > strong:first-child, #doc li > strong:first-child {
+  display: block; margin-bottom: 0.15rem; color: var(--fg);
+}
+#doc li { margin-bottom: 0.5rem; }
+
+/* A header line and its body read as one block: the body is set off the way a
+   quotation is, so the eye can tell where each item starts and stops. */
+#doc p:has(> strong:first-child) {
+  border-left: 3px solid var(--line); padding: 0.1rem 0 0.1rem 0.9rem;
+  margin: 1rem 0;
+}
+#doc li:has(> strong:first-child) {
+  border-left: 3px solid var(--line); padding-left: 0.9rem; list-style: none;
+  margin-left: -0.4rem;
+}
+#doc p:has(> strong:first-child) > strong:first-child,
+#doc li:has(> strong:first-child) > strong:first-child { color: var(--accent); }
+
+/* Two-column tables are a subject and an explanation. Left to itself the
+   browser gave them half each, so every explanation wrapped while the subject
+   beside it held two words. */
+#doc table.pair col.subject { width: 30%; }
+#doc table.pair col.detail { width: 70%; }
 h1, h2, h3 { line-height: 1.25; scroll-margin-top: 4.5rem; }
 h1 { font-size: 1.9rem; margin: 0 0 1rem; }
 h2 { font-size: 1.4rem; margin-top: 3rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--line); }
@@ -169,6 +210,18 @@ pre code { background: none; padding: 0; }
 blockquote { margin: 1rem 0; padding-left: 1rem; border-left: 3px solid var(--line); color: var(--muted); }
 pre.mermaid { background: none; padding: 1rem 0; text-align: center; }
 pre.mermaid:not([data-processed]) { font-size: 0.85em; text-align: left; opacity: 0.8; }
+
+/* The run's listing page: one link per report. */
+#doc ul.reports { list-style: none; padding: 0; margin: 1.5rem 0; }
+#doc ul.reports li { margin: 0 0 0.6rem; }
+#doc ul.reports a {
+  display: block; padding: 0.85rem 1.1rem; border: 1px solid var(--line);
+  border-radius: 10px; text-decoration: none; font-weight: 600; background: var(--nav-bg);
+}
+#doc ul.reports a:hover { border-color: var(--accent); }
+#doc ul.reports .where {
+  display: block; font-weight: 400; font-size: 0.84rem; color: var(--muted); margin-top: 0.2rem;
+}
 
 #nav-toggle {
   display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 20;
@@ -189,8 +242,15 @@ pre.mermaid:not([data-processed]) { font-size: 0.85em; text-align: left; opacity
 
 export function renderHtml(markdown: string, title: string, options: RenderOptions = {}): string {
   const body = withoutContentsSection(markdown, options.contentsLabel ?? "Contents");
-  const rendered = withDiagrams(anchored(marked.parse(body, { async: false, gfm: true })));
-  const nav = navHtml(options.nav ?? ownNav(body), title, options.homeHref ?? "#");
+  const rendered = withColumnWidths(
+    withDiagrams(anchored(marked.parse(body, { async: false, gfm: true }))),
+  );
+  const nav = navHtml(
+    options.nav ?? ownNav(body),
+    title,
+    options.homeHref ?? "#",
+    options.home,
+  );
 
   return `<!doctype html>
 <html lang="${escapeHtml(options.language ?? "en")}">
@@ -205,7 +265,9 @@ export function renderHtml(markdown: string, title: string, options: RenderOptio
 <div id="layout">
 ${nav}
 <main>
+<div id="doc">
 ${rendered}
+</div>
 </main>
 </div>
 ${NAV_SCRIPT}
@@ -216,19 +278,25 @@ ${MERMAID_SCRIPT}
 }
 
 /** This page's own h2s, with their h3s nested — the whole-document sidebar. */
+/**
+ * One entry per section, and nothing nested under it.
+ *
+ * Sub-headings were listed too, which every document in this set is short
+ * enough not to need: the sidebar became a second table of contents that had
+ * to be scrolled past to find the sections themselves.
+ */
 function ownNav(markdown: string): NavEntry[] {
-  const nav: { title: string; href: string; children: NavEntry[] }[] = [];
-  for (const heading of readHeadings(markdown)) {
-    if (heading.level === 2) {
-      nav.push({ title: heading.title, href: `#${heading.anchor}`, children: [] });
-    } else if (heading.level === 3 && nav.length > 0) {
-      nav[nav.length - 1]!.children.push({ title: heading.title, href: `#${heading.anchor}` });
-    }
-  }
-  return nav;
+  return readHeadings(markdown)
+    .filter((heading) => heading.level === 2)
+    .map((heading) => ({ title: heading.title, href: `#${heading.anchor}` }));
 }
 
-function navHtml(entries: readonly NavEntry[], title: string, homeHref: string): string {
+function navHtml(
+  entries: readonly NavEntry[],
+  title: string,
+  homeHref: string,
+  home?: { readonly href: string; readonly label: string },
+): string {
   const item = (entry: NavEntry): string => {
     const current = entry.current === true ? ' aria-current="page"' : "";
     const link = `<a href="${escapeHtml(entry.href)}"${current}>${escapeHtml(entry.title)}</a>`;
@@ -239,6 +307,11 @@ function navHtml(entries: readonly NavEntry[], title: string, homeHref: string):
     return `<li${children === "" ? "" : ' data-group=""'}>${link}${children}</li>`;
   };
   return `<nav id="sidebar">
+${
+    home === undefined
+      ? ""
+      : `<a class="home" href="${escapeHtml(home.href)}">← ${escapeHtml(home.label)}</a>`
+  }
 <a class="doc-title" href="${escapeHtml(homeHref)}">${escapeHtml(title)}</a>
 <ul>${entries.map(item).join("\n")}</ul>
 </nav>`;
@@ -317,4 +390,24 @@ function unescapeHtml(text: string): string {
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")
     .replaceAll("&amp;", "&");
+}
+
+/**
+ * Gives a two-column table its proportions.
+ *
+ * These are a subject and an explanation — "about" and "what could not be
+ * established" — and a browser splitting the width evenly wrapped every
+ * explanation while the subject beside it held two words. Marked by column
+ * count rather than by section, so any such table is treated alike; a table
+ * with more columns is left to the browser, which handles those well.
+ */
+function withColumnWidths(html: string): string {
+  return html.replaceAll(/<table>\s*<thead>\s*<tr>([\s\S]*?)<\/tr>/g, (whole, headRow: string) => {
+    const columns = [...headRow.matchAll(/<th[^>]*>/g)].length;
+    if (columns !== 2) return whole;
+    return whole.replace(
+      "<table>",
+      '<table class="pair"><colgroup><col class="subject"><col class="detail"></colgroup>',
+    );
+  });
 }

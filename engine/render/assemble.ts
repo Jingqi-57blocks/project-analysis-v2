@@ -209,11 +209,17 @@ export function writeAssembled(
   written.push(path);
 
   if (options.split === true) {
-    // The limitations stay in the index. A reader who opens one section of a
-    // split document and never meets what the analysis could not establish
-    // has been handed its most confident-looking part on its own.
+    // The document's first section stays in the index, so the landing page
+    // opens with what the analysis found. It used to keep the limitations
+    // instead — sound reasoning about a reader who opens one section in
+    // isolation, but it made "what this could not establish" the first thing
+    // anyone read. The limitations are a page of their own now, linked from
+    // the index like every other section.
+    const firstSection = (manifest.sections ?? []).find(
+      (section) => section.heading !== null && section.omitted !== true,
+    );
     const { index, parts } = splitDocument(result.markdown, {
-      keepInIndex: ["limitations"],
+      keepInIndex: firstSection === undefined ? [] : [firstSection.id],
       idFor,
       ...(contentsLabel === undefined ? {} : { label: contentsLabel }),
     });
