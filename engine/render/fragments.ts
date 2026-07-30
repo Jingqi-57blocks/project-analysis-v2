@@ -16,7 +16,14 @@ import type {
 } from "../kb/profiles.js";
 import { mapToMermaid } from "../flows/mermaid.js";
 import { isRealIntegration } from "../kb/hosts.js";
-import { FRAME_EN, stopReason, t, type Glossary } from "./strings.js";
+import {
+  FRAME_EN,
+  note as localizeNote,
+  reasonWithoutPath,
+  stopReason,
+  t,
+  type Glossary,
+} from "./strings.js";
 
 export interface FragmentInput {
   /** Selector name → what it resolved to, in the order the section listed. */
@@ -246,7 +253,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             .map((entry) =>
               entry.reasons.length === 0
                 ? `- ${entry.kind}`
-                : `- ${entry.kind} — ${entry.reasons.join("; ")}`,
+                : `- ${entry.kind} — ${entry.reasons.map((reason) => localizeNote(f, reason)).join("；")}`,
             )
             .join("\n"),
       );
@@ -442,7 +449,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       parts.push(
         table(
           [t(f, "col-about"), t(f, "col-cannot-establish")],
-          notes.map((note) => [note.subject, note.note]),
+          notes.map((entry) => [entry.subject, localizeNote(f, entry.note)]),
         ),
       );
     }
@@ -460,9 +467,8 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       // `"/leaves" registers a mount…`, `"/auth/SignIn" mirrors a component…`.
       // That path is already the row's location, so it is dropped for grouping
       // and from the shown reason, leaving one line per kind of problem.
-      const generalise = (reason: string): string => reason.replace(/^"[^"]*"\s*/, "").trim();
       for (const failure of failures) {
-        const reason = generalise(failure.reason);
+        const reason = reasonWithoutPath(failure.reason);
         const key = `${failure.providerId} ${reason}`;
         const group = groups.get(key) ?? {
           providerId: failure.providerId,
@@ -480,7 +486,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             group.where.length > 3
               ? `${shown}, ${t(f, "and-more", group.where.length - 3)}`
               : shown;
-          return [group.providerId, where, group.reason];
+          return [group.providerId, where, localizeNote(f, group.reason)];
         });
       parts.push(table([t(f, "col-reader"), t(f, "col-where"), t(f, "col-went-wrong")], rows));
     }

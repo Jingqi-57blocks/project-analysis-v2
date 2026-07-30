@@ -128,6 +128,42 @@ export function headingKey(heading: string): string {
 }
 
 /**
+ * A sentence this analysis wrote about itself — a limit, a reader's stated
+ * reason, a note about what could not be established.
+ *
+ * These are stored with the facts because a limitation only its author can see
+ * is a limitation nobody sees, and they are composed with counts, so they
+ * cannot be fixed keys. They are still the engine's words rather than the
+ * project's, which is what makes them translatable: the whole "Analysis
+ * Limitations" section of a Chinese report was English until they were.
+ *
+ * Keyed by the English text itself, so a note that changes wording gets a new
+ * key and falls back to English rather than showing an old translation of
+ * something else.
+ */
+export function noteKey(text: string): string {
+  return `note:${text}`;
+}
+
+/** One stored note in the report's language, or as stored if untranslated. */
+export function note(frame: Glossary, text: string): string {
+  return frame[noteKey(text)] ?? text;
+}
+
+/**
+ * A failure's reason without the path it opens with.
+ *
+ * Most read `"/leaves" registers a mount…` — the path is already the row's
+ * location, and dropping it is what lets forty near-identical failures group
+ * into one line. Shared with whoever collects these for translation, because a
+ * translation keyed on the full sentence would never match the shortened one a
+ * reader is shown.
+ */
+export function reasonWithoutPath(reason: string): string {
+  return reason.replace(/^"[^"]*"\s*/, "").trim();
+}
+
+/**
  * The frame for a report: English, plus every heading its template declares.
  *
  * Headings are added here rather than hard-coded so a template written for a
