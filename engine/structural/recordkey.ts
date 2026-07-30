@@ -64,6 +64,8 @@ const KEY_BUILDERS: {
   condition: (r) =>
     joinKey([r.rootName, r.subject, r.operator, String(r.literal), location(r.source)]),
   guard: (r) => joinKey([r.rootName, r.test, r.message, location(r.source)]),
+  "scheduled-task": (r) => joinKey([r.rootName, r.mechanism, r.schedule ?? "", location(r.source)]),
+  "notification-call": (r) => joinKey([r.rootName, r.mechanism, location(r.source)]),
   "discarded-error": (r) => joinKey([r.rootName, r.call, location(r.source)]),
   // The span, not just the start: two decisions can begin on one line, and a
   // decision is identified by the region of code it governs.

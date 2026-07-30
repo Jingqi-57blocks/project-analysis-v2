@@ -72,6 +72,10 @@ const SELECTORS: Readonly<Record<string, Resolver>> = {
   "feature-permissions": (kb, id) => (id === null ? [] : kb.permissionsForFeature(id)),
   "feature-screens": (kb, id) => (id === null ? [] : kb.screensForFeature(id)),
   "feature-status-sets": (kb, id) => (id === null ? [] : kb.statusSetsForFeature(id)),
+  "feature-scheduled": (kb, id) => (id === null ? [] : kb.automationForFeature(id).scheduled),
+  "feature-notifications": (kb, id) =>
+    id === null ? [] : kb.automationForFeature(id).notifications,
+  "scheduled-tasks": (kb) => kb.scheduledTasks(),
   guards: (kb) => kb.guards(),
   "structural-findings": (kb, severity) => kb.structuralFindings(severity ?? undefined),
   "feature-findings": (kb, severity) => kb.featureFindings(severity ?? undefined),

@@ -82,6 +82,15 @@
       "omitWhenEmpty": true
     },
     {
+      "id": "automatic",
+      "kind": "llm",
+      "heading": "What happens automatically",
+      "prompt": "prompts/automatic.md",
+      "requires": ["feature-scheduled:$capability", "feature-notifications:$capability"],
+      "contract": { "maxWords": 500, "maxHeadingLevel": 3 },
+      "omitWhenEmpty": true
+    },
+    {
       "id": "data",
       "kind": "code",
       "heading": "What it remembers",

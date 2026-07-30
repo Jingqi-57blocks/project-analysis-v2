@@ -127,6 +127,41 @@ export interface GuardRecord {
 }
 
 /**
+ * Work the system runs on a timer rather than on a request.
+ *
+ * A scheduler registration — a cron entry, a scheduled job. The schedule
+ * expression is kept when the call states it literally (`@every 5m`,
+ * `30 * * * * *`); a spec read from configuration is null, because what the
+ * configuration holds is a deployment fact the source does not state.
+ */
+export interface ScheduledTaskRecord {
+  readonly rootName: string;
+  /** The registration API matched: `scheduleJob`, `AddFunc`, `CronJob`. */
+  readonly mechanism: string;
+  /** The literal schedule or job name at the call site, where one is written. */
+  readonly schedule: string | null;
+  readonly source: SourceRef;
+  readonly provenance: Provenance;
+}
+
+/**
+ * A place the system sends something to a person or another system —
+ * an email, a chat message, a push notification.
+ *
+ * The channel is read from the API matched; the recipient and the content are
+ * runtime values no pattern can know, so nothing here claims them.
+ */
+export interface NotificationCallRecord {
+  readonly rootName: string;
+  /** The channel the API implies: `mail`, `chat`, `push`. */
+  readonly channel: string;
+  /** The call as matched: `sendMail`, `PostMessage`, `messaging().send`. */
+  readonly mechanism: string;
+  readonly source: SourceRef;
+  readonly provenance: Provenance;
+}
+
+/**
  * A call whose failure nobody can observe.
  *
  * Distinct from an absence of error handling: here the result carrying the

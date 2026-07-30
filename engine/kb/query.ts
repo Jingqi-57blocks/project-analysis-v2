@@ -35,7 +35,12 @@ import type {
   FieldRecord,
 } from "../datamodel/types.js";
 import type { BusinessRule } from "../semantics/rules.js";
-import type { DecisionRecord, GuardRecord } from "../structural/rules.js";
+import type {
+  DecisionRecord,
+  GuardRecord,
+  NotificationCallRecord,
+  ScheduledTaskRecord,
+} from "../structural/rules.js";
 import { bestSetFor, type ValueSet } from "../semantics/enums.js";
 import { singular, words } from "../modules/features.js";
 import type {
@@ -359,6 +364,39 @@ export class KnowledgeBase {
         (words(set.name).map(singular).includes(term) ||
           words(set.relPath).map(singular).includes(term)),
     );
+  }
+
+  /** Work the system runs on a timer: cron entries, scheduled jobs. */
+  scheduledTasks(): readonly ScheduledTaskRecord[] {
+    return this.structural("scheduled-task") as readonly ScheduledTaskRecord[];
+  }
+
+  /** Every place something is sent — mail, chat, push — as matched. */
+  notificationCalls(): readonly NotificationCallRecord[] {
+    return this.structural("notification-call") as readonly NotificationCallRecord[];
+  }
+
+  /**
+   * The scheduled work and the notifications in a capability's own files.
+   *
+   * Scoped by file, the same way guards and decisions are. A scheduler
+   * registered in shared infrastructure that *runs* this capability's work is
+   * not attributed here — the file it lives in belongs to no capability — and
+   * the section reading this is told so.
+   */
+  automationForFeature(featureId: string): {
+    readonly scheduled: readonly ScheduledTaskRecord[];
+    readonly notifications: readonly NotificationCallRecord[];
+  } {
+    const feature = this.features().find((entry) => entry.id === featureId);
+    if (feature === undefined) return { scheduled: [], notifications: [] };
+    const owned = new Set(feature.filePaths);
+    const owns = (record: { rootName: string; source: { relPath: string } }): boolean =>
+      owned.has(`${record.rootName}/${record.source.relPath}`);
+    return {
+      scheduled: this.scheduledTasks().filter(owns),
+      notifications: this.notificationCalls().filter(owns),
+    };
   }
 
   /**
