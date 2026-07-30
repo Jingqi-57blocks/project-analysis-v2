@@ -37,6 +37,13 @@ export interface RenderOptions {
   /** Where the sidebar's title links — a split page points it at the index. */
   readonly homeHref?: string;
   /**
+   * A link out to the page listing every report of this run.
+   *
+   * A reader given four documents had to open each one's own index to find out
+   * which it was; from any page, one link now goes back to all of them.
+   */
+  readonly home?: { readonly href: string; readonly label: string };
+  /**
    * The language the report is written in, for the page's own `lang`.
    *
    * A Chinese report served as English is read aloud in English by a screen
@@ -138,6 +145,11 @@ body {
   width: 264px; flex: none; position: sticky; top: 0; height: 100vh; overflow-y: auto;
   background: var(--nav-bg); border-right: 1px solid var(--line); padding: 1.1rem 0.9rem 2rem;
 }
+#sidebar .home {
+  display: block; font-size: 0.84rem; color: var(--muted); text-decoration: none;
+  padding: 0.1rem 0.6rem 0.5rem;
+}
+#sidebar .home:hover { color: var(--accent); }
 #sidebar .doc-title {
   display: block; font-weight: 700; font-size: 1.02rem; line-height: 1.3;
   color: var(--fg); text-decoration: none; padding: 0.25rem 0.6rem 0.9rem;
@@ -166,6 +178,19 @@ main { flex: 1; min-width: 0; padding: 2.2rem clamp(1.25rem, 4vw, 3.5rem) 6rem; 
 }
 #doc li { margin-bottom: 0.5rem; }
 
+/* A header line and its body read as one block: the body is set off the way a
+   quotation is, so the eye can tell where each item starts and stops. */
+#doc p:has(> strong:first-child) {
+  border-left: 3px solid var(--line); padding: 0.1rem 0 0.1rem 0.9rem;
+  margin: 1rem 0;
+}
+#doc li:has(> strong:first-child) {
+  border-left: 3px solid var(--line); padding-left: 0.9rem; list-style: none;
+  margin-left: -0.4rem;
+}
+#doc p:has(> strong:first-child) > strong:first-child,
+#doc li:has(> strong:first-child) > strong:first-child { color: var(--accent); }
+
 /* Two-column tables are a subject and an explanation. Left to itself the
    browser gave them half each, so every explanation wrapped while the subject
    beside it held two words. */
@@ -185,6 +210,18 @@ pre code { background: none; padding: 0; }
 blockquote { margin: 1rem 0; padding-left: 1rem; border-left: 3px solid var(--line); color: var(--muted); }
 pre.mermaid { background: none; padding: 1rem 0; text-align: center; }
 pre.mermaid:not([data-processed]) { font-size: 0.85em; text-align: left; opacity: 0.8; }
+
+/* The run's listing page: one link per report. */
+#doc ul.reports { list-style: none; padding: 0; margin: 1.5rem 0; }
+#doc ul.reports li { margin: 0 0 0.6rem; }
+#doc ul.reports a {
+  display: block; padding: 0.85rem 1.1rem; border: 1px solid var(--line);
+  border-radius: 10px; text-decoration: none; font-weight: 600; background: var(--nav-bg);
+}
+#doc ul.reports a:hover { border-color: var(--accent); }
+#doc ul.reports .where {
+  display: block; font-weight: 400; font-size: 0.84rem; color: var(--muted); margin-top: 0.2rem;
+}
 
 #nav-toggle {
   display: none; position: fixed; top: 0.7rem; left: 0.7rem; z-index: 20;
@@ -208,7 +245,12 @@ export function renderHtml(markdown: string, title: string, options: RenderOptio
   const rendered = withColumnWidths(
     withDiagrams(anchored(marked.parse(body, { async: false, gfm: true }))),
   );
-  const nav = navHtml(options.nav ?? ownNav(body), title, options.homeHref ?? "#");
+  const nav = navHtml(
+    options.nav ?? ownNav(body),
+    title,
+    options.homeHref ?? "#",
+    options.home,
+  );
 
   return `<!doctype html>
 <html lang="${escapeHtml(options.language ?? "en")}">
@@ -249,7 +291,12 @@ function ownNav(markdown: string): NavEntry[] {
     .map((heading) => ({ title: heading.title, href: `#${heading.anchor}` }));
 }
 
-function navHtml(entries: readonly NavEntry[], title: string, homeHref: string): string {
+function navHtml(
+  entries: readonly NavEntry[],
+  title: string,
+  homeHref: string,
+  home?: { readonly href: string; readonly label: string },
+): string {
   const item = (entry: NavEntry): string => {
     const current = entry.current === true ? ' aria-current="page"' : "";
     const link = `<a href="${escapeHtml(entry.href)}"${current}>${escapeHtml(entry.title)}</a>`;
@@ -260,6 +307,11 @@ function navHtml(entries: readonly NavEntry[], title: string, homeHref: string):
     return `<li${children === "" ? "" : ' data-group=""'}>${link}${children}</li>`;
   };
   return `<nav id="sidebar">
+${
+    home === undefined
+      ? ""
+      : `<a class="home" href="${escapeHtml(home.href)}">← ${escapeHtml(home.label)}</a>`
+  }
 <a class="doc-title" href="${escapeHtml(homeHref)}">${escapeHtml(title)}</a>
 <ul>${entries.map(item).join("\n")}</ul>
 </nav>`;

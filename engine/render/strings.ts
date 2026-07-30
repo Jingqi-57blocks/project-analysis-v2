@@ -51,6 +51,8 @@ export const FRAME_EN: Glossary = {
     "_A version marked ✱ is what the manifest declares as acceptable — a range, or a minimum. No lockfile in this run settled which version is actually installed._",
   /** What separates items joined into one cell or sentence. */
   join: "; ",
+  "all-reports": "All reports",
+  "all-reports-lead": "The reports produced from this analysis.",
   "col-no-caller": "No caller found",
   "no-caller-note":
     "_\"No caller found\" means the endpoint's own code was followed but nothing in the workspace was seen to ask for it — ordinary for a report, an export, or anything a system outside this workspace calls._",

@@ -19,7 +19,7 @@
  * starts the document again from scratch.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,7 +30,7 @@ import { assertOutsideRoots } from "../engine/run/analyze.js";
 import { loadTemplate } from "../engine/render/template.js";
 import { prepare, FRAME_TASK } from "../engine/render/prepare.js";
 import { assemble, writeAssembled } from "../engine/render/assemble.js";
-import { exportDocument } from "../engine/render/export.js";
+import { exportDocument, writeRunIndex } from "../engine/render/export.js";
 
 const DEFAULT_DB_PATH = "./.analysis/kb.sqlite";
 
@@ -90,6 +90,28 @@ function exportJson(kb: KnowledgeBase, argv: readonly string[], store: ReturnTyp
   console.log(`  ${kb.features().length} capabilities, ${kb.modules().length} modules`);
   console.log(`  ${outPath}`);
   return 0;
+}
+
+
+/** The run's own name for its listing page: the project, and which run it was. */
+function runHeading(kb: KnowledgeBase): string {
+  const context = kb.runContext();
+  const project = context?.projectName ?? "Analysis";
+  return context?.runId === undefined || context.runId === null
+    ? project
+    : `${project} · ${context.runId}`;
+}
+
+/** One frame word from a prepared document, for text the listing page needs. */
+function frameWord(workDir: string, key: string, fallback: string): string {
+  try {
+    const manifest = JSON.parse(readFileSync(join(workDir, "manifest.json"), "utf8")) as {
+      frame?: Record<string, string>;
+    };
+    return manifest.frame?.[key] ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function exportDocumentType(
@@ -176,6 +198,16 @@ function exportDocumentType(
     );
     assertSafeOutput(kb, target, store);
     const view = exportDocument(workDir, format, template.title, target);
+    // The run's own listing, refreshed so it covers whatever has been exported
+    // beside this document.
+    if (format === "html") {
+      const listing = writeRunIndex(
+        dirname(target),
+        runHeading(kb),
+        frameWord(workDir, "all-reports-lead", "The reports produced from this analysis."),
+      );
+      if (listing !== null) console.log(`  ${listing}`);
+    }
     console.log(`  ${view.files.length} ${view.format} file(s) in ${view.outDir}`);
   } else if (out !== undefined) {
     console.log(`  --out was given without --format; pass --format html or --format md to write ${out}`);
