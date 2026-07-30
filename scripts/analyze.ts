@@ -2,16 +2,18 @@
  * Runs one full analysis over a workspace and persists it to a knowledge base.
  *
  *   pnpm run analyze -- <path...> [--include a,b] [--exclude c,d] [--db path]
- *                                [--index-root dir] [--no-code-index]
+ *                                [--no-code-index]
  *
  * The knowledge base defaults to `./.analysis/kb.sqlite`, gitignored — never
  * point `--db` inside an analyzed target; targets stay read-only.
  *
- * One exception, reported when the run finishes and recorded in the knowledge
- * base so every report states it too: the code indexer writes a cache into the
- * directory it is pointed at. `--index-root` chooses a different directory, at
- * the cost of indexing only what is under it; `--no-code-index` skips it and
- * declares the missing symbols as a gap.
+ * The project's own files are never changed. The code indexer does create a
+ * `.codegraph/` directory of its own, in the folder holding the analyzed roots
+ * and never inside one — reported when the run finishes and recorded in the
+ * knowledge base, so every report states it too. Where it goes is not
+ * configurable: the indexer stores its database inside whatever it indexes, so
+ * only a directory containing the code can hold an index of it.
+ * `--no-code-index` skips it and declares the missing symbols as a gap.
  */
 
 import { resolve } from "node:path";
@@ -25,7 +27,6 @@ interface Args {
   readonly paths: readonly string[];
   readonly include?: readonly string[];
   readonly exclude?: readonly string[];
-  readonly indexRoot?: string;
   readonly noCodeIndex?: boolean;
   readonly dbPath: string;
 }
@@ -41,7 +42,7 @@ function parseArgs(argv: readonly string[]): Args {
       .map((s) => s.trim())
       .filter(Boolean);
 
-  const valueFlags = new Set(["--db", "--include", "--exclude", "--index-root"]);
+  const valueFlags = new Set(["--db", "--include", "--exclude"]);
   const paths: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
@@ -56,20 +57,18 @@ function parseArgs(argv: readonly string[]): Args {
   if (paths.length === 0) {
     throw new Error(
       "Usage: analyze <path...> [--include a,b] [--exclude c,d] [--db path] " +
-        "[--index-root dir] [--no-code-index]",
+        "[--no-code-index]",
     );
   }
 
   const include = splitList("--include");
   const exclude = splitList("--exclude");
 
-  const indexRoot = value("--index-root");
 
   return {
     paths,
     ...(include ? { include } : {}),
     ...(exclude ? { exclude } : {}),
-    ...(indexRoot ? { indexRoot: resolve(indexRoot) } : {}),
     ...(argv.includes("--no-code-index") ? { noCodeIndex: true } : {}),
     dbPath: resolve(value("--db") ?? DEFAULT_DB_PATH),
   };
@@ -81,7 +80,6 @@ function main(argv: readonly string[]): number {
     paths: args.paths,
     ...(args.include ? { include: args.include } : {}),
     ...(args.exclude ? { exclude: args.exclude } : {}),
-    ...(args.indexRoot ? { indexRoot: args.indexRoot } : {}),
     ...(args.noCodeIndex ? { noCodeIndex: true } : {}),
     dbPath: args.dbPath,
   });
@@ -100,7 +98,9 @@ function main(argv: readonly string[]): number {
   console.log(
     result.codeIndexPath === null
       ? "  code index: none written"
-      : `  code index: ${result.codeIndexPath}/.codegraph — the only thing written near the source`,
+      : result.codeIndexPresent
+        ? `  code index: ${result.codeIndexPath}/.codegraph — the only thing written near the source`
+        : `  code index: none at ${result.codeIndexPath}/.codegraph — the indexer did not produce one; nothing was written near the source`,
   );
 
   return 0;

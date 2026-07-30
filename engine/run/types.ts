@@ -18,7 +18,6 @@ export interface AnalyzeOptions {
    */
   readonly readers?: ReaderSet;
   /** Where the code index may be written, or that it may not be written at all. */
-  readonly indexRoot?: string;
   readonly noCodeIndex?: boolean;
   /** Preflighted providers. Defaults to the readers above. */
   readonly providers?: readonly Provider[];
@@ -47,6 +46,14 @@ export interface AnalysisResult {
   readonly providerReport: PreflightReport;
   /** Where this run wrote a code index, or null if it wrote none. */
   readonly codeIndexPath: string | null;
+  /**
+   * Whether an index is actually there, so a caller reporting it need not guess.
+   *
+   * `codeIndexPath` is where a run intends to build one; this is what the
+   * filesystem says afterwards. Printing the first as though it were the second
+   * is how the terminal came to announce writes that never happened.
+   */
+  readonly codeIndexPresent: boolean;
 }
 
 /** One phase's cost. `items`/`bytes` are omitted, never forced, when a phase has no natural volume. */

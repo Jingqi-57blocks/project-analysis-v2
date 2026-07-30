@@ -9,6 +9,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 /** The version this adapter was written and verified against. */
@@ -102,7 +103,8 @@ export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
   if (rootPaths.length === 0) return null;
   if (rootPaths.length === 1) {
     const parent = dirname(resolve(rootPaths[0]!));
-    return parent === sep || parent === resolve(rootPaths[0]!) ? null : parent;
+    if (parent === sep || parent === resolve(rootPaths[0]!)) return null;
+    return tooBroad(parent) ? null : parent;
   }
 
   const segments = rootPaths.map((path) => resolve(path).split(sep).filter((part) => part !== ""));
@@ -116,7 +118,25 @@ export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
   // Every root must sit below the parent, not be the parent.
   if (common === 0 || segments.some((parts) => parts.length === common)) return null;
   const parent = `${sep}${segments[0]!.slice(0, common).join(sep)}`;
-  return parent === sep ? null : parent;
+  if (parent === sep) return null;
+  return tooBroad(parent) ? null : parent;
+}
+
+/**
+ * Directories no run may index, however the arithmetic arrives at them.
+ *
+ * A filesystem root walks the whole disk, and a home directory is not much
+ * better: analyzing one repository that happens to sit directly in `~` puts its
+ * nearest parent at `~`, and indexing there reads every unrelated project,
+ * download and cache the user owns. CodeGraph itself refuses both without
+ * `--force`, so a run that asked would fail anyway — declaring the gap instead
+ * says why, and leaves the project's own code unindexed rather than the disk
+ * indexed.
+ */
+function tooBroad(directory: string): boolean {
+  if (directory === sep) return true;
+  const home = homedir();
+  return home !== "" && resolve(directory) === resolve(home);
 }
 
 export function isIndexed(rootPath: string): boolean {
@@ -124,9 +144,10 @@ export function isIndexed(rootPath: string): boolean {
 }
 
 /**
- * Writes `.codegraph/` inside the directory it is pointed at, which CodeGraph
- * offers no flag to relocate. Callers point it at the directory *containing*
- * the analyzed roots for exactly that reason — see `sharedIndexRoot`.
+ * Creates `.codegraph/` inside the directory it is pointed at, which CodeGraph
+ * offers no flag to relocate: `index [path]` both reads and stores at `path`.
+ * Callers point it at the directory *containing* the analyzed roots for exactly
+ * that reason — see `sharedIndexRoot`.
  */
 export function ensureIndexed(rootPath: string): void {
   run(isIndexed(rootPath) ? ["index", "-q", rootPath] : ["init", rootPath]);
