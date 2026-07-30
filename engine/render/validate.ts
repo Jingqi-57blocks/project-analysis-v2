@@ -94,6 +94,14 @@ export function validateAnswer(
     }
   }
 
+  for (const line of undrawableDiagramLines(answer)) {
+    // A diagram that does not draw is worse than none: the page shows its
+    // source where a reader expects the picture the section is about.
+    refuse(
+      `a diagram label carries a quote inside a quoted label, which ends the label early and stops the diagram drawing: ${line}`,
+    );
+  }
+
   const cited = new Set([...answer.matchAll(CITATION)].map((match) => match[1]!));
   if (cited.size > 0) {
     const known = new Set<string>();
@@ -118,4 +126,47 @@ function expectedCount(rule: string, data: unknown): number | null {
   if (match === null) return null;
   const value = (data as Record<string, unknown> | null)?.[match[1]!];
   return Array.isArray(value) ? value.length : null;
+}
+
+/**
+ * Diagram lines a renderer will refuse.
+ *
+ * A quoted Mermaid label ends at its first `"`, so a label containing one is
+ * cut short and the rest becomes syntax the parser cannot place. Found in a
+ * Chinese report where a writer wrote `包含"今天"？` inside a label: the whole
+ * flow rendered as source text.
+ *
+ * Detected by what follows a closing quote. After a label ends, only a shape's
+ * own punctuation may follow — `}`, `]`, `)`, `|`, a comma, an arrow. Anything
+ * else means the quote that looked like the end was not.
+ */
+export function undrawableDiagramLines(answer: string): readonly string[] {
+  const offending: string[] = [];
+  let inDiagram = false;
+
+  for (const raw of answer.split("\n")) {
+    if (/^\s*```/.test(raw)) {
+      inDiagram = /^\s*```mermaid/.test(raw);
+      continue;
+    }
+    if (!inDiagram || !raw.includes('"')) continue;
+
+    const quotes = [...raw].reduce((count, char) => (char === '"' ? count + 1 : count), 0);
+    if (quotes % 2 !== 0) {
+      offending.push(raw.trim());
+      continue;
+    }
+    // Walk the quoted runs; what comes after each closing quote decides.
+    const pattern = /"[^"]*"/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(raw)) !== null) {
+      const after = raw.slice(match.index + match[0].length).trimStart();
+      if (after !== "" && !/^[}\])|,;:>-]/.test(after)) {
+        offending.push(raw.trim());
+        break;
+      }
+    }
+  }
+
+  return offending;
 }

@@ -42,8 +42,11 @@ export const FRAME_EN: Glossary = {
 
   "of-total": "{0} of {1}",
   "of-total-percent": "{0} of {1} ({2}%)",
-  "stack-line": "**{0}** — {1}",
-  "stack-and-more": "{0} direct dependencies in all, {1} of them pinned to an exact version",
+  "col-runtime": "Runtime",
+  "col-built-with": "Most-used libraries",
+  "col-dependencies": "Dependencies pinned",
+  "stack-note":
+    "_The {0} libraries each repository imports in the most files, with the version installed. They are the ones its code leans on, which is not the same as the ones an architect would name — nothing in the code says which of its packages is a framework and which is a helper._",
   "range-marked":
     "_A version marked ✱ is what the manifest declares as acceptable — a range, or a minimum. No lockfile in this run settled which version is actually installed._",
   /** What separates items joined into one cell or sentence. */

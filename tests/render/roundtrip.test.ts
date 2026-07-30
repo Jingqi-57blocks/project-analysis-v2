@@ -13,6 +13,7 @@ import { assemble, writeAssembled, UnansweredSectionsError } from "../../engine/
 import { resolveSelector, SelectorError } from "../../engine/render/selectors.js";
 import { exportDocument, retarget, UnknownFormatError } from "../../engine/render/export.js";
 import { hasFragment, renderFragment } from "../../engine/render/fragments.js";
+import { undrawableDiagramLines } from "../../engine/render/validate.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { createLogicProvider } from "../../engine/providers/logic/provider.js";
 import { createSqlSchemaProvider } from "../../engine/datamodel/sql.js";
@@ -482,22 +483,25 @@ describe("finding your way around a long report", () => {
     const result = assemble(outDir);
     const written = writeAssembled(outDir, result, { split: true });
 
-    expect(written.some((path) => path.endsWith("sections/parts.md"))).toBe(true);
-    const part = readFileSync(join(outDir, "sections", "parts.md"), "utf8");
-    // Moved, not rebuilt: the table is exactly the one in the whole document.
-    expect(part).toContain("flowchart");
+    expect(written.some((path) => path.endsWith("sections/intro.md"))).toBe(true);
+    const part = readFileSync(join(outDir, "sections", "intro.md"), "utf8");
+    // Moved, not rebuilt: the body is exactly the one in the whole document.
     expect(result.markdown).toContain(part.split("\n")[2]!);
   });
 
-  it("keeps the limitations in the index rather than as one file among many", () => {
-    // A reader who opens one section and never meets what the analysis could
-    // not establish has been handed its most confident part on its own.
-    const outDir = prepared("split-limits");
+  it("opens the index with the document's first section", () => {
+    // It kept the limitations instead — sound about a reader who opens one
+    // section in isolation, but it made "what this could not establish" the
+    // first thing anyone read on the landing page.
+    const outDir = prepared("split-first");
     writeAssembled(outDir, assemble(outDir), { split: true });
 
     const index = readFileSync(join(outDir, "index.md"), "utf8");
-    expect(index).toContain("## Limits");
-    expect(existsSync(join(outDir, "sections", "limitations.md"))).toBe(false);
+    expect(index).toContain("## Parts");
+    expect(existsSync(join(outDir, "sections", "parts.md"))).toBe(false);
+    // And the limitations are a page like any other, reachable from the index.
+    expect(existsSync(join(outDir, "sections", "limitations.md"))).toBe(true);
+    expect(index).toContain("sections/limitations.md");
   });
 
   it("does not list a heading that is only an example inside a code block", () => {
@@ -527,9 +531,9 @@ describe("a format is a view, not a second document", () => {
 
     expect(result.outDir).toBe(join(outDir, "html"));
     expect(existsSync(join(outDir, "html", "index.html"))).toBe(true);
-    expect(existsSync(join(outDir, "html", "sections", "parts.html"))).toBe(true);
+    expect(existsSync(join(outDir, "html", "sections", "intro.html"))).toBe(true);
     // The Markdown tree stays exactly what assemble wrote.
-    expect(existsSync(join(outDir, "sections", "parts.html"))).toBe(false);
+    expect(existsSync(join(outDir, "sections", "intro.html"))).toBe(false);
   });
 
   it("points the document's own links at the format being rendered", () => {
@@ -539,8 +543,8 @@ describe("a format is a view, not a second document", () => {
     exportDocument(outDir, "html", "T");
 
     const index = readFileSync(join(outDir, "html", "index.html"), "utf8");
-    expect(index).toContain('href="sections/parts.html"');
-    expect(index).not.toContain('href="sections/parts.md"');
+    expect(index).toContain('href="sections/intro.html"');
+    expect(index).not.toContain('href="sections/intro.md"');
   });
 
   it("keeps a translated document's pages and its navigation in agreement", () => {
@@ -627,12 +631,14 @@ describe("a format is a view, not a second document", () => {
     const outDir = assembled("export-split-nav");
     exportDocument(outDir, "html", "T");
 
-    const section = readFileSync(join(outDir, "html", "sections", "parts.html"), "utf8");
+    const section = readFileSync(join(outDir, "html", "sections", "intro.html"), "utf8");
     // The current page is marked, and the index is one link away.
     expect(section).toContain('aria-current="page"');
     expect(section).toContain('href="../index.html"');
-    // Limitations stays in the index, so its entry points into the index page.
-    expect(section).toContain('href="../index.html#limits"');
+    // The first section stays in the index, so its entry points into that page
+    // while every other section is a sibling file.
+    expect(section).toContain('href="../index.html#parts"');
+    expect(section).toContain('href="limitations.html"');
   });
 
   it("lands a sidebar link on a heading that contains an ampersand", () => {
@@ -815,10 +821,14 @@ describe("what was analyzed reaches the report", () => {
     // The fixture's go.mod pins exactly, and nothing else here has a lockfile,
     // so both states must be distinguishable in one report.
     const report = coverageDoc("versions");
-    const stack = report.split("\n").find((line) => line.startsWith("- **svc**"));
-    expect(stack, "the repository's stack line must be written").toBeDefined();
-    expect(stack).toContain("github.com/gin-gonic/gin v1.9.1");
-    expect(stack).not.toContain("v1.9.1✱");
+    // The stack is a table row per repository now, not a line of prose. Two
+    // tables carry a row per repository, so this is the one naming libraries.
+    const row = report
+      .split("\n")
+      .find((line) => line.startsWith("| svc |") && line.includes("gin-gonic"));
+    expect(row, "the repository's stack row must be written").toBeDefined();
+    expect(row).toContain("github.com/gin-gonic/gin v1.9.1");
+    expect(row).not.toContain("v1.9.1✱");
   });
 
   it("carries the new labels into a translated report", () => {
@@ -853,5 +863,42 @@ describe("what was analyzed reaches the report", () => {
     ) as Record<string, string>;
     expect(Object.keys(frame)).toContain("col-repository");
     expect(Object.keys(frame)).toContain("role-serves-http");
+  });
+});
+
+describe("a diagram that would not draw", () => {
+  it("refuses a label carrying a quote inside a quoted label", () => {
+    // Found in a Chinese report: `包含"今天"？` ended the label early, and the
+    // whole flow rendered as source text where the picture should be.
+    const problems = undrawableDiagramLines(
+      [
+        "```mermaid",
+        "flowchart TD",
+        '  a{"日期包含"今天"？"}',
+        '  b["fine label"]',
+        "```",
+      ].join("\n"),
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("今天");
+  });
+
+  it("leaves an ordinary label alone, including punctuation and breaks", () => {
+    expect(
+      undrawableDiagramLines(
+        [
+          "```mermaid",
+          "flowchart TD",
+          '  s(["员工填报工时<br/>（我的 → 工时）"])',
+          '  s -->|"是"| t["拒绝（WKL_Forbidden）"]',
+          '  t --> u{"内容为空？<br/>或超过 60000 字符？"}',
+          "```",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("says nothing about quotes outside a diagram", () => {
+    expect(undrawableDiagramLines('A sentence with "quoted words" in it.')).toEqual([]);
   });
 });

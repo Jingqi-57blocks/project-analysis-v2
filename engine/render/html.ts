@@ -154,7 +154,23 @@ body {
 #sidebar a.active, #sidebar a[aria-current] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 
 main { flex: 1; min-width: 0; padding: 2.2rem clamp(1.25rem, 4vw, 3.5rem) 6rem; }
-main > * { max-width: 54rem; }
+/* The column is centred in whatever space is left of the sidebar; the cap is
+   what keeps a line readable on a wide monitor. */
+#doc { max-width: 54rem; margin: 0 auto; }
+
+/* A paragraph or list item that opens with a bold run reads as a heading and
+   its body, which is how these sections are written. Rendered inline it was a
+   wall of text whose first few words happened to be bold. */
+#doc p > strong:first-child, #doc li > strong:first-child {
+  display: block; margin-bottom: 0.15rem; color: var(--fg);
+}
+#doc li { margin-bottom: 0.5rem; }
+
+/* Two-column tables are a subject and an explanation. Left to itself the
+   browser gave them half each, so every explanation wrapped while the subject
+   beside it held two words. */
+#doc table.pair col.subject { width: 30%; }
+#doc table.pair col.detail { width: 70%; }
 h1, h2, h3 { line-height: 1.25; scroll-margin-top: 4.5rem; }
 h1 { font-size: 1.9rem; margin: 0 0 1rem; }
 h2 { font-size: 1.4rem; margin-top: 3rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--line); }
@@ -189,7 +205,9 @@ pre.mermaid:not([data-processed]) { font-size: 0.85em; text-align: left; opacity
 
 export function renderHtml(markdown: string, title: string, options: RenderOptions = {}): string {
   const body = withoutContentsSection(markdown, options.contentsLabel ?? "Contents");
-  const rendered = withDiagrams(anchored(marked.parse(body, { async: false, gfm: true })));
+  const rendered = withColumnWidths(
+    withDiagrams(anchored(marked.parse(body, { async: false, gfm: true }))),
+  );
   const nav = navHtml(options.nav ?? ownNav(body), title, options.homeHref ?? "#");
 
   return `<!doctype html>
@@ -205,7 +223,9 @@ export function renderHtml(markdown: string, title: string, options: RenderOptio
 <div id="layout">
 ${nav}
 <main>
+<div id="doc">
 ${rendered}
+</div>
 </main>
 </div>
 ${NAV_SCRIPT}
@@ -216,16 +236,17 @@ ${MERMAID_SCRIPT}
 }
 
 /** This page's own h2s, with their h3s nested — the whole-document sidebar. */
+/**
+ * One entry per section, and nothing nested under it.
+ *
+ * Sub-headings were listed too, which every document in this set is short
+ * enough not to need: the sidebar became a second table of contents that had
+ * to be scrolled past to find the sections themselves.
+ */
 function ownNav(markdown: string): NavEntry[] {
-  const nav: { title: string; href: string; children: NavEntry[] }[] = [];
-  for (const heading of readHeadings(markdown)) {
-    if (heading.level === 2) {
-      nav.push({ title: heading.title, href: `#${heading.anchor}`, children: [] });
-    } else if (heading.level === 3 && nav.length > 0) {
-      nav[nav.length - 1]!.children.push({ title: heading.title, href: `#${heading.anchor}` });
-    }
-  }
-  return nav;
+  return readHeadings(markdown)
+    .filter((heading) => heading.level === 2)
+    .map((heading) => ({ title: heading.title, href: `#${heading.anchor}` }));
 }
 
 function navHtml(entries: readonly NavEntry[], title: string, homeHref: string): string {
@@ -317,4 +338,24 @@ function unescapeHtml(text: string): string {
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")
     .replaceAll("&amp;", "&");
+}
+
+/**
+ * Gives a two-column table its proportions.
+ *
+ * These are a subject and an explanation — "about" and "what could not be
+ * established" — and a browser splitting the width evenly wrapped every
+ * explanation while the subject beside it held two words. Marked by column
+ * count rather than by section, so any such table is treated alike; a table
+ * with more columns is left to the browser, which handles those well.
+ */
+function withColumnWidths(html: string): string {
+  return html.replaceAll(/<table>\s*<thead>\s*<tr>([\s\S]*?)<\/tr>/g, (whole, headRow: string) => {
+    const columns = [...headRow.matchAll(/<th[^>]*>/g)].length;
+    if (columns !== 2) return whole;
+    return whole.replace(
+      "<table>",
+      '<table class="pair"><colgroup><col class="subject"><col class="detail"></colgroup>',
+    );
+  });
 }

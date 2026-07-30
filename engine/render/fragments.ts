@@ -127,6 +127,17 @@ function share(frame: Glossary, part: number, whole: number): string {
  * The mark rather than a word per entry: a stack line carries a dozen of
  * these, and a parenthesis on each would bury the versions themselves.
  */
+/**
+ * How many of a repository's libraries to name.
+ *
+ * Nothing in the data tells a framework from a general-purpose helper — tested
+ * on WCP, `lodash` is imported by 376 files against React's 519, exposes more
+ * distinct names, and sits in the same kinds of file, so no usage signal
+ * separates them. Rather than guess with a curated list, the most-imported few
+ * are named and the note beside the table says that is what they are.
+ */
+const STACK_SHOWN = 6;
+
 function versionOf(entry: StackEntry): string {
   if (entry.version === null) return entry.name;
   return `${entry.name} ${entry.version}${entry.resolved ? "" : "✱"}`;
@@ -178,19 +189,34 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       ),
     ];
 
-    const stacks = profiles
-      .filter((profile) => profile.platforms.length > 0 || profile.stack.length > 0)
-      .map((profile) => {
-        const named = [...profile.platforms, ...profile.stack].map(versionOf).join(" · ");
-        const counted = t(
-          f,
-          "stack-and-more",
-          profile.directDependencies,
-          profile.dependenciesWithExactVersion,
-        );
-        return `- ${t(f, "stack-line", profile.rootName, `${named} (${counted})`)}`;
-      });
-    if (stacks.length > 0) parts.push(stacks.join("\n"));
+    // The stack as a table a reader can scan down, rather than one long line
+    // per repository. Six entries is what fits before a reader stops reading;
+    // the rest are counted, because a dozen names in a row is the thing that
+    // made this unreadable.
+    const withStack = profiles.filter(
+      (profile) => profile.platforms.length > 0 || profile.stack.length > 0,
+    );
+    if (withStack.length > 0) {
+      parts.push(
+        table(
+          [t(f, "col-repository"), t(f, "col-runtime"), t(f, "col-built-with"), t(f, "col-dependencies")],
+          withStack.map((profile) => [
+            profile.rootName,
+            profile.platforms.length === 0
+              ? null
+              : profile.platforms.map(versionOf).join(", "),
+            profile.stack.slice(0, STACK_SHOWN).map(versionOf).join(", "),
+            t(
+              f,
+              "of-total",
+              profile.dependenciesWithExactVersion,
+              profile.directDependencies,
+            ),
+          ]),
+        ),
+        t(f, "stack-note", STACK_SHOWN),
+      );
+    }
 
     // Migrations are counted apart from code, so a repository that has them
     // says so rather than having them silently left out of both numbers.

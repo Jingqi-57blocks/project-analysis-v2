@@ -141,6 +141,19 @@ function splitNav(
   return entries;
 }
 
+/**
+ * The document's own title, as its first heading states it.
+ *
+ * The caller passes the template's title, which still carries `$project` or
+ * `$capability` — a reader with four tabs open saw `$project` on three of them.
+ * The heading was resolved at prepare time, so it is the one thing on the page
+ * that already knows the answer.
+ */
+function titleOf(markdown: string, fallback: string): string {
+  const heading = /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim();
+  return heading === undefined || heading === "" ? fallback : heading;
+}
+
 export function exportDocument(
   runDir: string,
   format: string,
@@ -186,7 +199,7 @@ export function exportDocument(
               homeHref: source.startsWith("sections/") ? "../index.html" : "#",
             }
           : { contentsLabel, ...language };
-      writeFileSync(path, renderHtml(markdown, title, options), "utf8");
+      writeFileSync(path, renderHtml(markdown, titleOf(raw, title), options), "utf8");
     }
     files.push(relative(runDir, path));
   }
