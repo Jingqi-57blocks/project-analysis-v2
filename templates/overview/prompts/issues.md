@@ -39,4 +39,4 @@ No severity labels, no finding identifiers, no file paths, no counts standing in
 
 ## How this answer is used
 
-Your reply becomes the section "What is wrong with it" of the overview. Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 850 words.
+Your reply becomes the section "Issues & Risks" of the overview. Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 850 words.

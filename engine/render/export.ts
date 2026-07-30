@@ -14,7 +14,8 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
-import { renderHtml } from "./html.js";
+import { anchorFor, readHeadings } from "./contents.js";
+import { renderHtml, type NavEntry, type RenderOptions } from "./html.js";
 
 export const FORMATS = ["html"] as const;
 export type ExportFormat = (typeof FORMATS)[number];
@@ -67,6 +68,77 @@ export interface ExportResult {
   readonly files: readonly string[];
 }
 
+/** What the sidebar needs from the manifest — nothing else is read. */
+interface ManifestNav {
+  readonly frame?: Readonly<Record<string, string>>;
+  readonly sections?: readonly {
+    readonly id: string;
+    readonly heading: string | null;
+    readonly omitted?: boolean;
+  }[];
+}
+
+function readManifestNav(runDir: string): ManifestNav {
+  const path = join(runDir, "manifest.json");
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as ManifestNav;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The sidebar for one page of a split document.
+ *
+ * Every page lists every section, so a reader on any page can reach any other.
+ * A section with its own page links there; one kept in the index (the
+ * limitations, deliberately) links into the index at its anchor. The current
+ * page's entry carries its own sub-headings, so within-page navigation nests
+ * under it the way the whole-document sidebar nests everything.
+ */
+function splitNav(
+  manifest: ManifestNav,
+  sources: readonly string[],
+  source: string,
+  markdown: string,
+): NavEntry[] {
+  const inSections = source.startsWith("sections/");
+  const taken = new Set<string>();
+  const entries: NavEntry[] = [];
+
+  for (const section of manifest.sections ?? []) {
+    if (section.heading === null || section.omitted === true) continue;
+    const indexAnchor = anchorFor(section.heading, taken);
+    const file = `sections/${section.id}.md`;
+    const current = source === file;
+
+    let href: string;
+    if (sources.includes(file)) {
+      href = inSections ? `${section.id}.html` : `sections/${section.id}.html`;
+    } else {
+      href = inSections ? `../index.html#${indexAnchor}` : `#${indexAnchor}`;
+    }
+
+    let children: NavEntry[] | undefined;
+    if (current) {
+      // `readHeadings` assigns anchors with the same taken-set rules the page
+      // itself renders with, so these hrefs land exactly on the heading ids.
+      children = readHeadings(markdown)
+        .filter((heading) => heading.level === 3)
+        .map((heading) => ({ title: heading.title, href: `#${heading.anchor}` }));
+      if (children.length === 0) children = undefined;
+    }
+
+    entries.push({
+      title: section.heading,
+      href,
+      ...(current ? { current: true } : {}),
+      ...(children === undefined ? {} : { children }),
+    });
+  }
+  return entries;
+}
+
 export function exportDocument(
   runDir: string,
   format: string,
@@ -80,14 +152,30 @@ export function exportDocument(
     throw new Error(`No assembled document in ${runDir}. Run \`render assemble\` first.`);
   }
 
+  const manifest = readManifestNav(runDir);
+  const contentsLabel = manifest.frame?.["contents"] ?? "Contents";
+  const split = sources.includes("index.md");
+
   const target = outDir ?? join(runDir, format);
   const files: string[] = [];
 
   for (const source of sources) {
     const markdown = retarget(readFileSync(join(runDir, source), "utf8"), format);
+
+    // A whole document navigates by its own headings; a split page needs the
+    // sibling pages the markdown alone cannot know about.
+    const options: RenderOptions =
+      split && source !== "report.md"
+        ? {
+            contentsLabel,
+            nav: splitNav(manifest, sources, source, markdown),
+            homeHref: source.startsWith("sections/") ? "../index.html" : "#",
+          }
+        : { contentsLabel };
+
     const path = join(target, source.replace(/\.md$/, `.${format}`));
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, renderHtml(markdown, title), "utf8");
+    writeFileSync(path, renderHtml(markdown, title, options), "utf8");
     files.push(relative(runDir, path));
   }
 

@@ -21,4 +21,4 @@ Some of a capability's behaviour happens with nobody asking: work on a timer, an
 
 ## How this answer is used
 
-Your reply becomes the section "What happens automatically". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 500 words.
+Your reply becomes the section "Automation & Notifications". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 500 words.

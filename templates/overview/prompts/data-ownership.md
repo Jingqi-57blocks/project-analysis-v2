@@ -31,7 +31,7 @@ A shared *name* is not proof of a shared physical database — two services may 
 
 ## How this answer is used
 
-Your reply becomes the section "The data it owns, and what it shares". Write the section body only — no preamble, no repetition of the heading.
+Your reply becomes the section "Data Ownership". Write the section body only — no preamble, no repetition of the heading.
 
 - `data.json` beside this file is everything you may state. Say plainly where something could not be established.
 - Headings no shallower than level 3 (`###`). At most 700 words.

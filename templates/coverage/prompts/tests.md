@@ -30,4 +30,4 @@ Whether tests run before a deploy, and what they truly cover, needs someone who 
 
 ## How this answer is used
 
-Your reply becomes the section "Where the tests are, and where they are not". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 600 words.
+Your reply becomes the section "Test Coverage". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 600 words.

@@ -561,6 +561,38 @@ describe("a format is a view, not a second document", () => {
     expect(html).not.toContain('class="language-mermaid"');
   });
 
+  it("carries a left sidebar built from the document's own headings", () => {
+    const outDir = assembled("export-nav", false);
+    exportDocument(outDir, "html", "T");
+    const html = readFileSync(join(outDir, "html", "report.html"), "utf8");
+    expect(html).toContain('<nav id="sidebar">');
+    // The sections appear as in-page links, and the scroll tracker is loaded.
+    expect(html).toContain('href="#parts"');
+    expect(html).toContain("getBoundingClientRect");
+  });
+
+  it("drops the inline contents from the page, keeping it in the Markdown", () => {
+    // The sidebar shows the same list; rendered as well it would open every
+    // page with a duplicate. The Markdown is the artifact and keeps its own.
+    const outDir = assembled("export-contents", false);
+    exportDocument(outDir, "html", "T");
+    expect(readFileSync(join(outDir, "report.md"), "utf8")).toContain("## Contents");
+    const html = readFileSync(join(outDir, "html", "report.html"), "utf8");
+    expect(html).not.toContain(">Contents</h2>");
+  });
+
+  it("gives every split page a sidebar reaching every sibling section", () => {
+    const outDir = assembled("export-split-nav");
+    exportDocument(outDir, "html", "T");
+
+    const section = readFileSync(join(outDir, "html", "sections", "parts.html"), "utf8");
+    // The current page is marked, and the index is one link away.
+    expect(section).toContain('aria-current="page"');
+    expect(section).toContain('href="../index.html"');
+    // Limitations stays in the index, so its entry points into the index page.
+    expect(section).toContain('href="../index.html#limits"');
+  });
+
   it("refuses a format it does not have", () => {
     const outDir = assembled("export-unknown");
     expect(() => exportDocument(outDir, "docx", "T")).toThrow(UnknownFormatError);

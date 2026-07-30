@@ -29,7 +29,7 @@ The analysis reads authorization that is *declared* (a middleware on a route, an
 
 ## How this answer is used
 
-Your reply becomes the section "Who uses it, and how access is controlled". Write the section body only — no preamble, no repetition of the heading.
+Your reply becomes the section "Roles & Users". Write the section body only — no preamble, no repetition of the heading.
 
 - `data.json` beside this file is everything you may state. Say plainly where something could not be established.
 - Headings no shallower than level 3 (`###`). At most 600 words.

@@ -32,4 +32,4 @@ State this limit plainly. It is the difference between a description and an accu
 
 ## How this answer is used
 
-Your reply becomes the section "Who can do what". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 500 words.
+Your reply becomes the section "Roles & Permissions". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 500 words.

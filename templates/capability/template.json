@@ -8,7 +8,7 @@
     {
       "id": "what-this-is",
       "kind": "llm",
-      "heading": "What this is",
+      "heading": "Overview",
       "prompt": "prompts/what-this-is.md",
       "requires": [
         "feature-detail:$capability",
@@ -22,7 +22,7 @@
     {
       "id": "where-to-find",
       "kind": "llm",
-      "heading": "Where to find it",
+      "heading": "Where to Find It",
       "prompt": "prompts/where-to-find.md",
       "requires": [
         "feature-screens:$capability",
@@ -37,7 +37,7 @@
     {
       "id": "journey",
       "kind": "llm",
-      "heading": "What happens when you use it",
+      "heading": "User Journey",
       "prompt": "prompts/journey.md",
       "requires": [
         "feature-flows:$capability",
@@ -54,7 +54,7 @@
     {
       "id": "flow",
       "kind": "llm",
-      "heading": "The logic, drawn",
+      "heading": "Business Logic",
       "prompt": "prompts/flow.md",
       "requires": [
         "feature-decisions:$capability",
@@ -72,7 +72,7 @@
     {
       "id": "rules",
       "kind": "llm",
-      "heading": "The rules it enforces",
+      "heading": "Business Rules",
       "prompt": "prompts/rules.md",
       "requires": [
         "feature-rules:$capability",
@@ -87,7 +87,7 @@
     {
       "id": "lifecycle",
       "kind": "llm",
-      "heading": "The states it moves through",
+      "heading": "Lifecycle & States",
       "prompt": "prompts/lifecycle.md",
       "requires": [
         "feature-status-sets:$capability",
@@ -103,7 +103,7 @@
     {
       "id": "who-can",
       "kind": "llm",
-      "heading": "Who can do what",
+      "heading": "Roles & Permissions",
       "prompt": "prompts/who-can.md",
       "requires": [
         "feature-permissions:$capability"
@@ -117,7 +117,7 @@
     {
       "id": "automatic",
       "kind": "llm",
-      "heading": "What happens automatically",
+      "heading": "Automation & Notifications",
       "prompt": "prompts/automatic.md",
       "requires": [
         "feature-scheduled:$capability",
@@ -132,7 +132,7 @@
     {
       "id": "data",
       "kind": "code",
-      "heading": "What it remembers",
+      "heading": "Data",
       "fragment": "capability-data",
       "requires": [
         "feature-detail:$capability",
@@ -144,7 +144,7 @@
     {
       "id": "issues",
       "kind": "llm",
-      "heading": "What is wrong with it",
+      "heading": "Issues & Risks",
       "prompt": "prompts/issues.md",
       "requires": [
         "feature-findings-for:$capability",
@@ -158,7 +158,7 @@
     {
       "id": "limitations",
       "kind": "code",
-      "heading": "What this report cannot tell you",
+      "heading": "Analysis Limitations",
       "fragment": "limitations",
       "requires": [
         "coverage-notes",

@@ -34,7 +34,7 @@ After each diagram, a short paragraph (2–4 sentences) in plain words: what the
 
 ## How this answer is used
 
-Your reply becomes the section "The logic, drawn" of a generated report. Write the section body only — the ```mermaid blocks and their short explanations. No preamble, no repetition of the heading.
+Your reply becomes the section "Business Logic" of a generated report. Write the section body only — the ```mermaid blocks and their short explanations. No preamble, no repetition of the heading.
 
 - `data.json` beside this file is everything you may draw from. A node with no basis in it is an invented fact.
 - Headings no shallower than level 3 (`###`) if you use any.

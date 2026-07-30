@@ -28,7 +28,7 @@ Static analysis of committed code **cannot** observe: whether tests run in CI, w
 
 ## How this answer is used
 
-Your reply becomes the section "How it runs, and how it copes with failure". Write the section body only — no preamble, no repetition of the heading.
+Your reply becomes the section "Operations & Reliability". Write the section body only — no preamble, no repetition of the heading.
 
 - `data.json` beside this file is everything you may state. Say plainly where something could not be established.
 - Headings no shallower than level 3 (`###`). At most 600 words.

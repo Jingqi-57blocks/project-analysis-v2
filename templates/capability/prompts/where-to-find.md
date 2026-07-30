@@ -23,4 +23,4 @@ Keep the paths themselves out of the prose except where a path *is* the clearest
 
 ## How this answer is used
 
-Your reply becomes the section "Where to find it". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 400 words.
+Your reply becomes the section "Where to Find It". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 400 words.

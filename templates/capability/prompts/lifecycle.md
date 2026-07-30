@@ -23,4 +23,4 @@ A capability's records usually live a small life — waiting, approved, rejected
 
 ## How this answer is used
 
-Your reply becomes the section "The states it moves through". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 600 words.
+Your reply becomes the section "Lifecycle & States". Write the section body only — no preamble, no repetition of the heading. Headings no shallower than level 3 (`###`). At most 600 words.

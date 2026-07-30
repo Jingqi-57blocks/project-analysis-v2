@@ -6,7 +6,7 @@
     {
       "id": "what-this-is",
       "kind": "llm",
-      "heading": "What this is",
+      "heading": "Overview",
       "prompt": "prompts/what-this-is.md",
       "requires": [
         "run-context",
@@ -16,63 +16,97 @@
         "reliability",
         "evidence:readme-section"
       ],
-      "contract": { "maxWords": 750, "maxHeadingLevel": 3 }
+      "contract": {
+        "maxWords": 750,
+        "maxHeadingLevel": 3
+      }
     },
     {
       "id": "map",
       "kind": "code",
-      "heading": "How it fits together",
+      "heading": "Architecture",
       "fragment": "project-map",
-      "requires": ["map-edges"]
+      "requires": [
+        "map-edges"
+      ]
     },
     {
       "id": "capabilities",
       "kind": "llm",
-      "heading": "What it does",
+      "heading": "Capabilities",
       "prompt": "prompts/capabilities.md",
-      "requires": ["capability-index"],
-      "contract": { "maxHeadingLevel": 3 },
+      "requires": [
+        "capability-index"
+      ],
+      "contract": {
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
       "id": "access",
       "kind": "llm",
-      "heading": "Who uses it, and how access is controlled",
+      "heading": "Roles & Users",
       "prompt": "prompts/access.md",
-      "requires": ["screens", "auth-annotations", "endpoints", "map-edges", "run-context"],
-      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
+      "requires": [
+        "screens",
+        "auth-annotations",
+        "endpoints",
+        "map-edges",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
       "id": "data-ownership",
       "kind": "llm",
-      "heading": "The data it owns, and what it shares",
+      "heading": "Data Ownership",
       "prompt": "prompts/data-ownership.md",
-      "requires": ["data-ownership", "entities", "run-context"],
-      "contract": { "maxWords": 700, "maxHeadingLevel": 3 },
+      "requires": [
+        "data-ownership",
+        "entities",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 700,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
       "id": "connections",
       "kind": "code",
-      "heading": "What it connects to",
+      "heading": "External Systems",
       "fragment": "external-systems",
-      "requires": ["map-edges"],
+      "requires": [
+        "map-edges"
+      ],
       "omitWhenEmpty": true
     },
     {
       "id": "operational",
       "kind": "llm",
-      "heading": "How it runs, and how it copes with failure",
+      "heading": "Operations & Reliability",
       "prompt": "prompts/operational.md",
-      "requires": ["reliability", "dependencies", "run-context"],
-      "contract": { "maxWords": 600, "maxHeadingLevel": 3 },
+      "requires": [
+        "reliability",
+        "dependencies",
+        "run-context"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      },
       "omitWhenEmpty": true
     },
     {
       "id": "issues",
       "kind": "llm",
-      "heading": "What is wrong with it",
+      "heading": "Issues & Risks",
       "prompt": "prompts/issues.md",
       "requires": [
         "structural-findings",
@@ -82,14 +116,20 @@
         "feature-findings",
         "run-context"
       ],
-      "contract": { "maxWords": 850, "maxHeadingLevel": 3 }
+      "contract": {
+        "maxWords": 850,
+        "maxHeadingLevel": 3
+      }
     },
     {
       "id": "limitations",
       "kind": "code",
-      "heading": "What this report cannot tell you",
+      "heading": "Analysis Limitations",
       "fragment": "limitations",
-      "requires": ["coverage-notes", "extraction-failures"]
+      "requires": [
+        "coverage-notes",
+        "extraction-failures"
+      ]
     }
   ]
 }
