@@ -201,9 +201,9 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       (facts) => ({ items: facts.reduce((sum, root) => sum + root.model.records.length, 0) }),
     );
 
-    // One answer, computed once from the reader's own outcome and reused by the
-    // note and the returned result — so the terminal and the knowledge base can
-    // never disagree about whether an index is there.
+    // One answer, computed once and reused by the note and the returned result,
+    // so the terminal and the knowledge base can never disagree about whether an
+    // index is there.
     const indexPresent = codeIndexPresent(codeIndexPath);
 
     const derived = timer.time(
@@ -219,7 +219,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
           // Checked after extraction, never assumed from the plan.
           ...(codeIndexPath === undefined
             ? {}
-            : { codeIndexWritten: indexPresent }),
+            : { codeIndexPresent: indexPresent }),
         }),
       (result) => ({ items: countDerived(result.records) }),
     );
