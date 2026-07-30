@@ -188,13 +188,16 @@ function isStyling(attribute: SgNode): boolean {
 /**
  * The first string literal inside a node — the message a rejection states.
  *
- * Markup is skipped entirely. A component that returns an element is producing a
- * value, not refusing to work, and the first string inside that element is a prop
- * or a label rather than a rule: `if (record.cancel_flag) return <Button
- * className="py-0 lh-base text-nowrap">` had a CSS class list read as a business
- * rule, and it reached a recovered specification under the heading "rules the
- * system enforces". Same reasoning the named-constant test already applies to a
- * `return` — see `errorCodeName` — extended to stated messages.
+ * Styling attributes are skipped; the rest of the markup is not. `if
+ * (record.cancel_flag) return <Button className="py-0 lh-base text-nowrap">` had a
+ * CSS class list read as a business rule, and it reached a recovered specification
+ * under the heading "rules the system enforces" — so a class list is never a
+ * message. Skipping markup wholesale was tried and reverted: it also dropped the
+ * four rules WCP states in a tooltip's `title`, and a component's props are where
+ * a browser application says what it refuses to do.
+ *
+ * The declared limit is the other half of this: a prop that is a label rather than
+ * a rejection is read as though it were one.
  */
 function firstMessage(node: SgNode): string | null {
   const stack: SgNode[] = [node];
@@ -581,6 +584,7 @@ export function logicCapabilities(): ProviderCapabilities {
           "an `if` that rejects is read as a rule, by the message it states or by the name of the error constant it *throws*; the text behind such a constant lives in a message catalogue this run does not read, so the rule is named rather than quoted",
           "a named error must be the thrown expression or its first argument, and its parts must be capitalised — so `raise PermissionDenied`, `return ErrNotFound` and `throw new ForbiddenException()` are all missed, and a gate that rejects through one of those is absent rather than reported",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
+          "a message built from a template is quoted only as far as its first interpolation, and one longer than 160 characters is cut, so `Already have a work log for ${proj.name}` is reported as `Already have a work log for` — the rule is real and its sentence is incomplete",
           "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
           "a styling attribute is never read as a message, so a rule stated only through a class name is missed — and one stated in a component's other props is read as though it were a rejection",
           "languages without a grammar in this run are not read at all",

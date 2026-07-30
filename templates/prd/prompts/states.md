@@ -18,7 +18,7 @@ A rebuild has to reproduce a record's lifecycle: the values a status can hold, a
 ## Rules
 
 - **Do not draw a state machine the guards do not support.** A list of states plus a handful of rejection messages is not a transition graph. If you cannot say what moves a record from one named state to another, say so.
-- Quote a guard's message verbatim when you cite it. It is the rule as the code states it.
+- Quote a guard's message verbatim when you cite it. It is the rule as the code states it — and quote it as the slice gives it, without completing a sentence that stops mid-phrase: a message built from a template reaches you only as far as its first interpolation, and finishing it would be your words presented as the code's.
 - State names exactly as declared, including case and prefix.
 - Never order states by plausibility. If the declaration order is all you have, say that is what you are reporting.
 - Do not merge two sets that look similar. Two status sets with overlapping member names are two sets.

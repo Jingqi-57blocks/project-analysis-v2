@@ -33,6 +33,11 @@ export const FRAME_EN: Glossary = {
   "col-flow": "Flow",
   "col-id": "ID",
   "col-tables": "Tables",
+  // Not "Tables": the attribution is file-scoped, so the cell holds every table
+  // touched anywhere in the handler's file. WCP's Title capability has one
+  // endpoint reading `wcp_title` alone, and eleven tables in this cell, because
+  // its handler shares a file with the rest of the user service.
+  "col-tables-touched": "Tables its files touch",
   "col-when": "When",
   // Not "First seen": the cell lists every file in this repository that states the
   // rule, and a first is walk order rather than a fact about the code.
@@ -40,33 +45,42 @@ export const FRAME_EN: Glossary = {
   "and-files": "{0} and {1} more file(s)",
   "also-in-other-repositories": "also enforced in {0} file(s) in other repositories",
   "col-endpoints": "Endpoints",
-  "col-what-was-read": "What was read",
   "col-area": "Area",
   "col-pages": "Pages",
   "col-addresses": "Addresses",
   "col-rejects-with": "Rejects with",
   "col-stated-as": "Stated as",
-  "col-places": "Places",
   "message-kind-stated": "a message in the code",
   "message-kind-error-code": "a named error constant",
   "prd-flows-lead":
-    "A few traced flows per capability, drawn from the calls the analysis could follow. " +
+    "Up to two traced flows per capability, chosen as the clearest: a trace whose " +
+    "every step was established before one with a gap, and one observed in the " +
+    "handler itself before one observed only somewhere in its package. " +
     "A step it could not resolve is drawn as a gap rather than left out, so a " +
     "diagram never implies a hop that was not found.",
   "prd-flow-whole": "{0} flow(s), every step established",
   "prd-flow-partial": "{0} of {1} flow(s) have a step that could not be resolved",
   "prd-flow-entry": "Entry point `{0}`",
+  // Says which flows were drawn rather than claiming anything about the rest: an
+  // earlier line said every undrawn flow was reachable from an endpoint listed
+  // above, and 261 of them start at an endpoint this document never prints.
   "prd-flows-left-out":
-    "{0} of {1} traced flow(s) are not drawn here. Every one of them is reachable " +
-    "from the endpoints listed above.",
-  "prd-flows-untraced":
-    "{0} of {1} capabilities have no traced flow: an entry point was found, but no " +
-    "call chain from it could be followed to the end.",
+    "{0} of {1} traced flow(s) are not drawn: at most {2} per capability appear here, " +
+    "the ones whose steps were established in the handler itself.",
+  "prd-flows-no-entry":
+    "{0} of {1} capabilities have no diagram because no entry point was attributed to " +
+    "them at all — they were detected from the system's vocabulary, not from a route.",
+  "prd-flows-no-chain":
+    "{0} of {1} capabilities have an entry point but no flow traced from it.",
   "prd-no-flows":
     "No flow was traced end to end, so this section is empty rather than guessed. " +
     "Entry points and the tables they reach are listed in their own sections.",
   "prd-features-lead":
-    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints and tables named beside it. A dash under Tables means no table could be attributed to it, not that it stores nothing.",
+    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, which for a shared service file means most of that service's tables. Treat it as where to look, not as what this capability stores; a dash means nothing could be attributed at all.",
+  "prd-orphan-endpoints":
+    "{0} of {1} endpoints belong to no capability above: the system's vocabulary gave " +
+    "no term to file them under. They are part of the surface a rebuild has to " +
+    "cover, so they are named here rather than left out.",
   "prd-features-note":
     "Identifiers are assigned by this document, not carried in the code, so they are stable for one run rather than across the system's history. No row carries a priority: nothing in a codebase records which capability mattered more, and a recovered specification that invented a ranking would be putting a product decision in a reader's mouth.",
   "prd-no-features": "No capability was detected from this system's vocabulary.",
@@ -78,7 +92,7 @@ export const FRAME_EN: Glossary = {
   "prd-validation-lead":
     "What the system refuses, quoted in the words it refuses with. Each row is a rule the code enforces; the message is the rule as the code states it, not an interpretation of what it means.",
   "prd-validation-note":
-    "Each row is one distinct message; two gates stating the same message on different values collapse into one. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all — and a message a component states in its props is read as a rejection even where it is only a label.",
+    "One row per message per repository: two gates stating the same message in one codebase collapse into one row, and a message enforced in two codebases appears under each, because the conditions are rarely the same rule twice. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all; a message a component states in its props is read as a rejection even where it is only a label; and a message built from a template is quoted only as far as its first interpolation.",
   "prd-no-validation": "No rejection with a stated message was read from this system.",
   "prd-absent-lead":
     "This specification was recovered from source. It states in mechanical detail what the system does, and the following cannot be recovered from code by any means — they are absent here because no codebase records them, not because the recovery fell short:",

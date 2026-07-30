@@ -36,7 +36,8 @@
       "heading": "Capabilities",
       "fragment": "prd-features",
       "requires": [
-        "features"
+        "features",
+        "endpoints"
       ]
     },
     {

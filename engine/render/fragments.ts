@@ -58,7 +58,10 @@ function pick<T>(input: FragmentInput, selector: string): T | undefined {
 
 
 function cell(text: unknown): string {
-  return String(text ?? "—").replaceAll("|", "\\|").replaceAll("\n", " ");
+  // An empty string is absence too, and it rendered as a blank cell where every
+  // other absence in these documents reads as a dash.
+  const value = text === null || text === undefined || text === "" ? "—" : String(text);
+  return value.replaceAll("|", "\\|").replaceAll("\n", " ");
 }
 
 /**
@@ -253,13 +256,20 @@ const PAGES_PER_AREA = 6;
  */
 /**
  * High enough to print every rule a real workspace states: WCP-V2's largest
- * service alone has 490 distinct messages, and at 400 the recovered specification
- * silently ended that table with 90 of the biggest service's rules missing.
+ * service alone holds 493 distinct messages, and at 400 the recovered
+ * specification ended that table with `and 93 more` — counted, but 93 of the
+ * biggest service's rules absent from a document meant to be built from.
+ *
+ * Per repository, so the headroom is thinner than it looks: those same five roots
+ * analysed as one monorepo root would be 686 against this cap.
  */
 const VALIDATION_PER_ROOT = 1000;
 
 /** Conditions shown per rule before the rest are counted. */
 const TESTS_PER_RULE = 2;
+
+/** Endpoints named individually where no capability claimed them. */
+const ORPHAN_ENDPOINTS = 80;
 
 /** Capabilities whose flows are drawn, and flows drawn for each: a diagram is a page. */
 const FEATURES_WITH_FLOWS = 8;
@@ -281,7 +291,16 @@ function flowTally(f: Glossary, flows: readonly FeatureFlowFact[]): string {
 interface Rule {
   message: string;
   kind: string;
-  tests: Set<string>;
+  /**
+   * The conditions under which this rule rejects, per repository.
+   *
+   * Kept apart rather than pooled: the same message is enforced in two codebases
+   * under conditions that are not the same rule. `sort params is invalid` allows
+   * four columns in one service and one in another, and a pooled cell printed
+   * wcp-service-v2's Go whitelist under wcp_review_service's heading — a rebuild
+   * reading it implements the wrong allowed set.
+   */
+  testsBy: Map<string, Set<string>>;
   /** Every `<root>/<path>` that states this rule, which is more than one often. */
   where: Set<string>;
 }
@@ -762,8 +781,9 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
 
     const parts = [t(f, "prd-flows-lead")];
     let drawn = 0;
+
     const ordered = [...byFeature.entries()].sort(
-      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
+      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "en"),
     );
     for (const [featureId, own] of ordered.slice(0, FEATURES_WITH_FLOWS)) {
       // Clearest first: a trace that closes, and whose steps were observed in the
@@ -777,7 +797,9 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             Number(a.partial) - Number(b.partial) ||
             vagueSteps(a) - vagueSteps(b) ||
             a.steps.length - b.steps.length ||
-            a.entryKey.localeCompare(b.entryKey),
+            // Pinned, like every other ordering here: unpinned, two machines with
+            // different locales draw different flows from the same knowledge base.
+            a.entryKey.localeCompare(b.entryKey, "en"),
         )
         .slice(0, FLOWS_PER_FEATURE);
       parts.push(`**${nameOf.get(featureId) ?? featureId}** — ${flowTally(f, own)}`);
@@ -786,10 +808,18 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         drawn += 1;
       }
     }
-    if (flows.length > drawn) parts.push(t(f, "prd-flows-left-out", flows.length - drawn, flows.length));
+    if (flows.length > drawn) {
+      parts.push(t(f, "prd-flows-left-out", flows.length - drawn, flows.length, FLOWS_PER_FEATURE));
+    }
 
-    const untraced = features.filter((feature) => !byFeature.has(feature.id)).length;
-    if (untraced > 0) parts.push(t(f, "prd-flows-untraced", untraced, features.length));
+    // Two different silences, and stating one reason for both was wrong for every
+    // capability it described: all 12 of WCP's flowless capabilities have no
+    // endpoint at all, so nothing was ever there to trace from.
+    const flowless = features.filter((feature) => !byFeature.has(feature.id));
+    const noEntry = flowless.filter((feature) => feature.endpoints.length === 0).length;
+    const noChain = flowless.length - noEntry;
+    if (noEntry > 0) parts.push(t(f, "prd-flows-no-entry", noEntry, features.length));
+    if (noChain > 0) parts.push(t(f, "prd-flows-no-chain", noChain, features.length));
     return parts.join("\n\n");
   },
 
@@ -807,6 +837,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
    */
   "prd-features": (input) => {
     const f = input.frame ?? FRAME_EN;
+    const endpoints = pick<readonly RouteRecord[]>(input, "endpoints") ?? [];
     const features = pick<readonly FeatureFact[]>(input, "features") ?? [];
     if (features.length === 0) return t(f, "prd-no-features");
 
@@ -827,14 +858,27 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
         feature.name,
         feature.endpoints.length === 0 ? null : feature.endpoints.length,
         shown.join("<br>") +
-          (paths.length > shown.length
-            ? `<br>${t(f, "and-more", paths.length - shown.length)}`
-            : ""),
+          (paths.length > shown.length ? `<br>${t(f, "and-more", paths.length - shown.length)}` : ""),
         tables.length === 0 ? null : tables.join(", "),
       ];
     });
 
-    return [
+    // Endpoints no capability claimed. Left out entirely, 65 of WCP's 539 endpoints
+    // — `POST /projects`, `POST /file/upload`, `POST /cronjobs` among them —
+    // appeared nowhere in a document meant to be built from, while a note said
+    // they were "listed only under their service", which is a section the overview
+    // has and this document does not.
+    const claimed = new Set(
+      features.flatMap((feature) =>
+        feature.endpoints.map((e) => `${e.rootName}:${e.method ?? "ANY"} ${e.path}`),
+      ),
+    );
+    const orphans = endpoints
+      .filter((route) => !claimed.has(`${route.rootName}:${route.method ?? "ANY"} ${route.path}`))
+      .map((route) => `${route.rootName}: ${route.method ?? "ANY"} ${route.path}`)
+      .sort();
+
+    const parts = [
       t(f, "prd-features-lead"),
       table(
         [
@@ -842,12 +886,21 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
           t(f, "col-capability"),
           t(f, "col-endpoints"),
           t(f, "col-addresses"),
-          t(f, "col-tables"),
+          t(f, "col-tables-touched"),
         ],
         rows,
       ),
-      t(f, "prd-features-note"),
-    ].join("\n\n");
+    ];
+    if (orphans.length > 0) {
+      const shown = orphans.slice(0, ORPHAN_ENDPOINTS);
+      parts.push(t(f, "prd-orphan-endpoints", orphans.length, endpoints.length));
+      parts.push(shown.map((address) => `- \`${address}\``).join("\n"));
+      if (orphans.length > shown.length) {
+        parts.push(t(f, "and-more", orphans.length - shown.length));
+      }
+    }
+    parts.push(t(f, "prd-features-note"));
+    return parts.join("\n\n");
   },
 
   /**
@@ -934,20 +987,20 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     const guards = pick<readonly GuardRecord[]>(input, "guards") ?? [];
     if (guards.length === 0) return t(f, "prd-no-validation");
 
-    const byMessage = new Map<
-      string,
-      Rule
-    >();
+    const byMessage = new Map<string, Rule>();
     for (const guard of guards) {
-      const at = `${guard.rootName}/${guard.source.relPath}`;
       const entry = byMessage.get(guard.message) ?? {
         message: guard.message,
         kind: guard.messageKind,
-        tests: new Set<string>(),
+        testsBy: new Map<string, Set<string>>(),
         where: new Set<string>(),
       };
-      if (guard.test !== null && guard.test !== "") entry.tests.add(guard.test);
-      entry.where.add(at);
+      if (guard.test !== null && guard.test !== "") {
+        const tests = entry.testsBy.get(guard.rootName) ?? new Set<string>();
+        tests.add(guard.test);
+        entry.testsBy.set(guard.rootName, tests);
+      }
+      entry.where.add(`${guard.rootName}/${guard.source.relPath}`);
       byMessage.set(guard.message, entry);
     }
 
@@ -990,7 +1043,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             const elsewhere = entry.where.size - here.length;
             return [
               entry.message,
-              conditions(f, entry.tests),
+              conditions(f, entry.testsBy.get(rootName) ?? new Set()),
               t(f, `message-kind-${entry.kind}`),
               [
                 here.length === 1 ? here[0]! : t(f, "and-files", here[0]!, here.length - 1),

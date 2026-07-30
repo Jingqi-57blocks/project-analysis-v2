@@ -7,10 +7,11 @@ analyzes them once into a structured, queryable knowledge base. Reports are
 rendered from that knowledge base by editable templates, never by re-reading
 the source.
 
-Three templates ship: a project overview, a per-capability detail report, and a
-coverage report. They are the first version, not the specification: the
-knowledge base is designed so a template nobody has written yet still works
-against it.
+Four templates ship: a project overview, a per-capability detail report, a
+coverage report, and a recovered specification — the system's behaviour written
+in the shape a rebuild reads, structurally complete and intent-empty. They are
+the first version, not the specification: the knowledge base is designed so a
+template nobody has written yet still works against it.
 
 ## Status
 
@@ -36,6 +37,7 @@ pnpm run status  -- [--workspace dir] [--db kb.sqlite] [--run id]
 pnpm run export  -- --as json                    # the knowledge base as one JSON document
 pnpm run export  -- --as overview [--format html] [--lang <language>]
 pnpm run export  -- --as coverage
+pnpm run export  -- --as prd                      # the recovered specification
 pnpm run export  -- --as capability --param capability=<id>
 pnpm run export  -- --as overview --only <section>   # rebuild one section
                      [--force]                       #   or start the whole document over

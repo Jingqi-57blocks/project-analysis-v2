@@ -263,7 +263,10 @@ export function derive(input: DeriveInput): Derived {
   if (flowSet.skipped.length > 0) {
     notes.push({
       subject: "features",
-      note: `${flowSet.skipped.length} of ${routes.length} endpoints name no detected feature and are listed only under their service`,
+      // Not "listed only under their service": which sections exist is the
+      // template's business, and the recovered specification has no such listing —
+      // so the note sent a reader looking for something that was not there.
+      note: `${flowSet.skipped.length} of ${routes.length} endpoints name no detected feature, so no capability claims them`,
     });
   }
 

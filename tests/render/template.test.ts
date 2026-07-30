@@ -127,7 +127,7 @@ describe("a fragment gets what its section was told to require", () => {
     "flow-coverage": ["flow-coverage"],
     "capability-flow-coverage": ["feature-flow-coverage"],
     "silent-files": ["silent-files", "unread-files"],
-    "prd-features": ["features"],
+    "prd-features": ["features", "endpoints"],
     "prd-flows": ["flows", "features"],
     "prd-pages": ["screens"],
     "prd-validation": ["guards"],
