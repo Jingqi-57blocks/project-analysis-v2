@@ -102,6 +102,18 @@ function runHeading(kb: KnowledgeBase): string {
     : `${project} · ${context.runId}`;
 }
 
+/** The language a prepared document was written in, so the listing states it too. */
+function documentLanguage(workDir: string): string | undefined {
+  try {
+    const manifest = JSON.parse(readFileSync(join(workDir, "manifest.json"), "utf8")) as {
+      language?: string;
+    };
+    return manifest.language;
+  } catch {
+    return undefined;
+  }
+}
+
 /** One frame word from a prepared document, for text the listing page needs. */
 function frameWord(workDir: string, key: string, fallback: string): string {
   try {
@@ -205,6 +217,12 @@ function exportDocumentType(
         dirname(target),
         runHeading(kb),
         frameWord(workDir, "all-reports-lead", "The reports produced from this analysis."),
+        documentLanguage(workDir),
+        {
+          overview: frameWord(workDir, "kind-overview", "System overview"),
+          capability: frameWord(workDir, "kind-capability", "Capability report"),
+          coverage: frameWord(workDir, "kind-coverage", "Analysis coverage"),
+        },
       );
       if (listing !== null) console.log(`  ${listing}`);
     }

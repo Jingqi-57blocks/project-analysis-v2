@@ -51,6 +51,14 @@ export interface RenderOptions {
    * is what a document with no stated language is.
    */
   readonly language?: string;
+  /**
+   * Which kind of document this is — the template that produced it.
+   *
+   * Emitted as a meta tag so the run's listing page can say what each report
+   * *is* ("a capability report") rather than repeating its folder name, which
+   * was the least readable text on that page.
+   */
+  readonly kind?: string;
 }
 
 /**
@@ -146,10 +154,11 @@ body {
   background: var(--nav-bg); border-right: 1px solid var(--line); padding: 1.1rem 0.9rem 2rem;
 }
 #sidebar .home {
-  display: block; font-size: 0.84rem; color: var(--muted); text-decoration: none;
-  padding: 0.1rem 0.6rem 0.5rem;
+  display: inline-block; font-size: 0.9rem; font-weight: 600; color: var(--fg);
+  text-decoration: none; margin: 0 0.6rem 0.85rem; padding: 0.3rem 0.65rem;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--bg);
 }
-#sidebar .home:hover { color: var(--accent); }
+#sidebar .home:hover { color: var(--accent); border-color: var(--accent); }
 #sidebar .doc-title {
   display: block; font-weight: 700; font-size: 1.02rem; line-height: 1.3;
   color: var(--fg); text-decoration: none; padding: 0.25rem 0.6rem 0.9rem;
@@ -212,15 +221,25 @@ pre.mermaid { background: none; padding: 1rem 0; text-align: center; }
 pre.mermaid:not([data-processed]) { font-size: 0.85em; text-align: left; opacity: 0.8; }
 
 /* The run's listing page: one link per report. */
-#doc ul.reports { list-style: none; padding: 0; margin: 1.5rem 0; }
-#doc ul.reports li { margin: 0 0 0.6rem; }
-#doc ul.reports a {
-  display: block; padding: 0.85rem 1.1rem; border: 1px solid var(--line);
-  border-radius: 10px; text-decoration: none; font-weight: 600; background: var(--nav-bg);
+#doc ul.reports {
+  list-style: none; padding: 0; margin: 1.75rem 0 0;
+  display: grid; gap: 0.8rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
 }
-#doc ul.reports a:hover { border-color: var(--accent); }
+#doc ul.reports li { margin: 0; }
+#doc ul.reports a {
+  display: flex; flex-direction: column; gap: 0.35rem; height: 100%;
+  padding: 1.05rem 1.2rem; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--nav-bg); color: var(--fg); text-decoration: none;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+#doc ul.reports a:hover {
+  border-color: var(--accent); transform: translateY(-1px);
+}
+#doc ul.reports .name { font-size: 1.05rem; font-weight: 650; line-height: 1.3; }
+#doc ul.reports a:hover .name { color: var(--accent); }
 #doc ul.reports .where {
-  display: block; font-weight: 400; font-size: 0.84rem; color: var(--muted); margin-top: 0.2rem;
+  font-size: 0.82rem; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 #nav-toggle {
@@ -258,6 +277,7 @@ export function renderHtml(markdown: string, title: string, options: RenderOptio
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
+${options.kind === undefined ? "" : `<meta name="pa-kind" content="${escapeHtml(options.kind)}">`}
 <style>${STYLE}</style>
 </head>
 <body>

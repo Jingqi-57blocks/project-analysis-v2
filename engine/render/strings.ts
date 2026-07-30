@@ -52,6 +52,9 @@ export const FRAME_EN: Glossary = {
   /** What separates items joined into one cell or sentence. */
   join: "; ",
   "all-reports": "All reports",
+  "kind-overview": "System overview",
+  "kind-capability": "Capability report",
+  "kind-coverage": "Analysis coverage",
   "all-reports-lead": "The reports produced from this analysis.",
   "col-no-caller": "No caller found",
   "no-caller-note":

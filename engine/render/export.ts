@@ -71,6 +71,8 @@ export interface ExportResult {
 /** What the sidebar needs from the manifest — nothing else is read. */
 interface ManifestNav {
   readonly frame?: Readonly<Record<string, string>>;
+  /** The template that produced the document — overview, capability, coverage. */
+  readonly template?: string;
   /** The language the document was prepared in, absent for English. */
   readonly language?: string;
   readonly sections?: readonly {
@@ -212,16 +214,18 @@ export function exportDocument(
       // above the document's folder.
       const depth = source.startsWith("sections/") ? "../../" : "../";
       const home = { href: `${depth}index.html`, label: manifest.frame?.["all-reports"] ?? "All reports" };
+      const kind = manifest.template === undefined ? {} : { kind: manifest.template };
       const options: RenderOptions =
         split && source !== "report.md"
           ? {
               contentsLabel,
               ...language,
               home,
+              ...kind,
               nav: splitNav(manifest, sources, source),
               homeHref: source.startsWith("sections/") ? "../index.html" : "#",
             }
-          : { contentsLabel, ...language, home };
+          : { contentsLabel, ...language, home, ...kind };
       const heading = source === "report.md" || source === "index.md"
         ? document
         : pageTitle(document, markdown);
@@ -240,7 +244,13 @@ export function exportDocument(
  * which it was. Written beside them and refreshed on every export, so it grows
  * as a run's documents are produced rather than needing a separate command.
  */
-export function writeRunIndex(runRoot: string, heading: string, label: string): string | null {
+export function writeRunIndex(
+  runRoot: string,
+  heading: string,
+  label: string,
+  language?: string,
+  kindLabels: Readonly<Record<string, string>> = {},
+): string | null {
   let entries: { href: string; title: string; folder: string }[] = [];
   try {
     entries = readdirSync(runRoot, { withFileTypes: true })
@@ -251,13 +261,16 @@ export function writeRunIndex(runRoot: string, heading: string, label: string): 
           if (!existsSync(path)) continue;
           const html = readFileSync(path, "utf8");
           const title = /<title>([^<]*)<\/title>/.exec(html)?.[1]?.trim();
+          const kind = /<meta name="pa-kind" content="([^"]*)">/.exec(html)?.[1];
           return [
             {
               href: `${entry.name}/${page}`,
               title: title === undefined || title === "" ? entry.name : title,
-              // Two documents of one project can share a title — an overview is
-              // named after the project — so the folder tells them apart.
-              folder: entry.name,
+              // What the document is, in the report's language. Two documents of
+              // one project can share a title — an overview is named after the
+              // project — and "a capability report" tells them apart in a way a
+              // folder name does not.
+              folder: (kind === undefined ? undefined : kindLabels[kind]) ?? entry.name,
             },
           ];
         }
@@ -272,12 +285,13 @@ export function writeRunIndex(runRoot: string, heading: string, label: string): 
   const list = entries
     .map(
       (entry) =>
-        `<li><a href="${escapeHtml(entry.href)}">${escapeHtml(entry.title)}` +
+        `<li><a href="${escapeHtml(entry.href)}">` +
+        `<span class="name">${escapeHtml(entry.title)}</span>` +
         `<span class="where">${escapeHtml(entry.folder)}</span></a></li>`,
     )
     .join("\n");
   const page = `# ${heading}\n\n${label}\n`;
-  const html = renderHtml(page, heading, {}).replace(
+  const html = renderHtml(page, heading, language === undefined ? {} : { language }).replace(
     "</main>",
     `<ul class="reports">\n${list}\n</ul>\n</main>`,
   );
