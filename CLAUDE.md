@@ -21,6 +21,40 @@ It prints where every issue branch stands and exits non-zero on the two states
 this paragraph is about. Writing the rule down did not prevent a second
 occurrence within the hour; the check is there because prose was not enough.
 
+## How a change gets reviewed
+
+Review is the **`code-review` plugin workflow**, at **max effort** — not the Sonnet
+and Haiku tiers its own file names — with its five passes dispatched concurrently
+rather than by one agent in sequence: CLAUDE.md adherence, a diff-only bug scan, git
+history of the modified code, **comments on prior PRs that touched these files**, and
+**the code comments in those files against what the change now does**.
+
+Those last two are why it replaced the ad-hoc reviewer. Six sequential adversarial
+rounds on 57B-278 missed two defects the plugin found at once: a branch returning an
+email subject line published as a rule the system enforces — recorded as already
+fixed on the sibling code path in PR #57's own comment — and a presentation-value
+skip testing the wrong node kind, under a declared limit saying such values could not
+appear.
+
+- **Act on P0 and P1 only.** Have the reader report anything from 50 up: the plugin's
+  own 80 threshold and its exclusion list ("test coverage", "lines the user did not
+  modify", "pre-existing") drop classes that hide real defects here. Report is not
+  the same as act.
+- **Post every review on the PR**, as comments at the lines they concern, each saying
+  where the finding stands — fixed in a named commit, deferred to a named issue, or
+  open. A review that lives only in a terminal makes the next reader find it again.
+- **Whether to re-review after fixing is a judgement to make and state**, not a
+  ritual. A fix that adds a sentence to a document needs its claims measured again; a
+  fix already verified against a fresh run of a real target does not need a second
+  reader. A third round means the fixes are introducing defects.
+- **Measure your own new claims before asking anyone to read them.** Render, and check
+  every sentence the change added against the data behind it. Four of the six rounds
+  on 57B-278 went on sentences written and never measured — "a dash means nothing
+  could be attributed", "established in the handler itself", "every capability is
+  stated at equal weight" — each false of the data one command away. State a quantity
+  by computing it at render time, or soften the sentence until it is true of any
+  input.
+
 ## Never change an analyzed project's content
 
 The rule is about the project's **own** files, and only those. Never edit,

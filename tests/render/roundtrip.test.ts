@@ -1249,6 +1249,18 @@ describe("the recovered specification's tables", () => {
     expect(rendered).not.toContain("belong to no capability");
   });
 
+  it("says when one message is thrown in one place and returned in another", () => {
+    // One of WCP's 682 rules is stated both ways, and a single label for the pair
+    // would have called it whichever the walk met first.
+    const rendered = render("prd-validation", {
+      guards: [
+        { ...guard("svc", "a.go", "start_date must be on or before end_date", "x"), exit: "throw" },
+        { ...guard("svc", "b.js", "start_date must be on or before end_date", "y"), exit: "return" },
+      ],
+    });
+    expect(rendered).toContain(FRAME_EN["exit-return-and-throw"]!);
+  });
+
   it("labels how a rule was stated through the frame", () => {
     const rendered = render("prd-validation", {
       guards: [{ ...guard("svc", "a.go", "ErrNope", "x"), messageKind: "error-code" }],
