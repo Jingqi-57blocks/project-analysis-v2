@@ -47,9 +47,14 @@ function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
 }
 
-function capped(refs: readonly string[]): readonly string[] {
-  const unique = sortedUnique(refs);
-  return unique.length <= MAX_REFS ? unique : unique.slice(0, MAX_REFS);
+/**
+ * Bounds the ref list while always keeping the candidate's own primary ref (the
+ * module/component/boundary it *is*), which alphabetical capping could otherwise
+ * slice off in favour of member refs. The primary leads; the rest are sorted.
+ */
+function capped(primary: string, rest: readonly string[]): readonly string[] {
+  const others = sortedUnique(rest).filter((ref) => ref !== primary);
+  return [primary, ...others].slice(0, MAX_REFS);
 }
 
 function externalCandidateId(key: string): string {
@@ -64,7 +69,7 @@ function moduleCandidate(module: ProductModule): ModuleCandidate {
     memberSummary: `${module.symbolIds.length} symbols across ${module.rootNames.length} root(s)`,
     entrySummary: sortedUnique([...module.entryKeys]),
     relationSummary: sortedUnique([...module.rootNames]),
-    evidenceRefs: capped([`fact:module:${module.id}`, ...entryRefs]),
+    evidenceRefs: capped(`fact:module:${module.id}`, entryRefs),
     reason: `product traces grouped by ${module.groupingSignal}`,
   };
 }
@@ -77,7 +82,7 @@ function componentCandidate(component: TechnicalComponent): ModuleCandidate {
     memberSummary: `${component.memberPaths.length} file(s) in ${component.rootName}`,
     entrySummary: [],
     relationSummary: sortedUnique([component.rootName]),
-    evidenceRefs: capped([`fact:component:${component.id}`, ...memberRefs]),
+    evidenceRefs: capped(`fact:component:${component.id}`, memberRefs),
     reason: `technical component identified by ${sortedUnique([...component.signals]).join(", ")}`,
   };
 }
@@ -89,22 +94,22 @@ function externalCandidate(obs: ExternalSystemObservation): ModuleCandidate {
     memberSummary: `${obs.targets.length} outbound target(s)`,
     entrySummary: sortedUnique([...obs.targets]),
     relationSummary: [`boundary:${obs.key}`],
-    evidenceRefs: capped([...obs.evidenceRefs]),
+    evidenceRefs: capped(`fact:boundary:${obs.key}`, obs.evidenceRefs),
     reason: obs.reason,
   };
 }
 
 /**
  * The candidate list, deterministic and stable-ordered by id so the same snapshot
- * always digests to the same set. Candidates with no evidence at all are dropped:
- * a candidate a classifier cannot ground is not a candidate.
+ * always digests to the same set. Every candidate carries at least its own primary
+ * ref (the module/component/boundary it is), so a classifier can always ground it.
  */
 export function generateModuleCandidates(input: CandidateInput): readonly ModuleCandidate[] {
   const candidates: ModuleCandidate[] = [
     ...input.modules.map(moduleCandidate),
     ...input.components.map(componentCandidate),
     ...input.externalSystems.map(externalCandidate),
-  ].filter((c) => c.evidenceRefs.length > 0);
+  ];
 
   return candidates.sort((a, b) =>
     a.candidateId < b.candidateId ? -1 : a.candidateId > b.candidateId ? 1 : 0,

@@ -146,7 +146,7 @@ export function shouldReuse(
 export function artifactIdentity(artifact: ModuleClassificationArtifact): string {
   const overrides = [...artifact.candidates]
     .filter((c) => c.override !== undefined)
-    .sort((a, b) => (a.candidateId < b.candidateId ? -1 : 1))
+    .sort((a, b) => (a.candidateId < b.candidateId ? -1 : a.candidateId > b.candidateId ? 1 : 0))
     .map((c) => ({ candidateId: c.candidateId, override: c.override }));
   return createHash("sha256")
     .update(
@@ -230,12 +230,14 @@ export function validateClassificationResult(
       problems.push("confidence must be within [0,1]");
     }
     // A decision must be grounded; `unresolved` is the absence of a decision, so
-    // it need not (and typically cannot) cite evidence. Any refs it does carry
-    // must still belong to the candidate.
+    // it need not (and typically cannot) cite evidence. Any refs it does carry must
+    // still belong to the candidate. A classifier that omits the array entirely
+    // fails closed here rather than throwing.
+    const refs = Array.isArray(result.evidenceRefs) ? result.evidenceRefs : [];
     const allowed = new Set(input.evidenceRefs);
-    const foreign = result.evidenceRefs.filter((ref) => !allowed.has(ref));
+    const foreign = refs.filter((ref) => !allowed.has(ref));
     if (foreign.length > 0) problems.push(`evidence refs not on the candidate: ${foreign.join(", ")}`);
-    if (result.classification !== "unresolved" && result.evidenceRefs.length === 0) {
+    if (result.classification !== "unresolved" && refs.length === 0) {
       problems.push("classification carries no evidence refs");
     }
 

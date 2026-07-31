@@ -77,10 +77,11 @@ describe("generateModuleCandidates", () => {
     expect(one[0]!.candidateId.startsWith("ext_")).toBe(true);
   });
 
-  it("drops a candidate with no evidence at all", () => {
-    const noEvidence: ExternalSystemObservation = { key: "x", displayNameCandidates: ["X"], targets: [], evidenceRefs: [], reason: "r" };
-    const candidates = generateModuleCandidates({ modules: [], components: [], externalSystems: [noEvidence] });
-    expect(candidates).toHaveLength(0);
+  it("always grounds a candidate in its own primary ref, even with no member evidence", () => {
+    const bare: ExternalSystemObservation = { key: "x", displayNameCandidates: ["X"], targets: [], evidenceRefs: [], reason: "r" };
+    const candidates = generateModuleCandidates({ modules: [], components: [], externalSystems: [bare] });
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.evidenceRefs).toContain("fact:boundary:x");
   });
 
   it("feeds reuse: an unchanged candidate set reuses a prior classification (no re-run)", () => {

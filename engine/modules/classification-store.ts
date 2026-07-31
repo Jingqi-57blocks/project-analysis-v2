@@ -13,6 +13,7 @@ import { join } from "node:path";
 
 import type { ModuleClassificationArtifact } from "../contracts/module-classification/schema.js";
 import { MODULE_CLASSIFICATION_SCHEMA_VERSION } from "../contracts/module-classification/schema.js";
+import { stableStringify } from "../contracts/shared-fact/merge.js";
 
 export const MODULE_CLASSIFICATION_FILENAME = "module-classification.v1.json";
 
@@ -27,7 +28,9 @@ export function writeClassificationArtifact(
   mkdirSync(runDir, { recursive: true });
   const path = classificationArtifactPath(runDir);
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(artifact, null, 2)}\n`);
+  // stableStringify, not JSON.stringify: two semantically-equal artifacts serialize
+  // to identical bytes, so a reproducibility check compares content, not key order.
+  writeFileSync(tmp, `${stableStringify(artifact)}\n`);
   renameSync(tmp, path);
   return path;
 }
@@ -43,7 +46,13 @@ export function readClassificationArtifact(runDir: string): ModuleClassification
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as ModuleClassificationArtifact;
+    // A prior artifact a later run will reuse must be whole. A file with the right
+    // schema version but a missing classifier or candidate list — external tampering,
+    // never the atomic writer — is treated as absent, so reuse re-derives instead of
+    // dereferencing a hole.
     if (parsed.schemaVersion !== MODULE_CLASSIFICATION_SCHEMA_VERSION) return null;
+    if (parsed.classifier === undefined || typeof parsed.classifier.executor !== "string") return null;
+    if (!Array.isArray(parsed.candidates)) return null;
     return parsed;
   } catch {
     return null;
