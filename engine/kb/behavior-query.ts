@@ -110,7 +110,7 @@ export function queryBehaviorFacts(
   if (filter.relPath !== undefined) facts = facts.filter((f) => matchesPath(f, filter.relPath!));
 
   const total = facts.length;
-  const offset = page.offset ?? 0;
+  const offset = Math.max(0, page.offset ?? 0);
   const limit = page.limit ?? total - offset;
   const paged = facts.slice(offset, offset + Math.max(0, limit));
 
@@ -130,10 +130,14 @@ export interface TraversalLimits {
 export interface TraversalResult {
   /** The fact ids reached from the seeds, in stable order, including the seeds. */
   readonly reached: readonly FactId[];
+  /**
+   * The relations walked. May include an edge whose `to` was cut by `maxNodes`
+   * and so is not in `reached` — a dangling edge marks exactly where the bound bit.
+   */
   readonly edges: readonly BehaviorRelation[];
   /** True when a limit stopped the traversal before it was exhausted. */
   readonly truncated: boolean;
-  /** How many frontier nodes were left unexpanded when a limit was hit. */
+  /** How many distinct nodes a bound left unreached or unexpanded. */
   readonly affected: number;
 }
 
@@ -158,8 +162,10 @@ export function traverseBehaviorRelations(
 ): TraversalResult {
   const reached = new Set<FactId>();
   const edges: BehaviorRelation[] = [];
-  let truncated = false;
-  let unexpanded = 0;
+  // Distinct nodes a bound kept us from fully processing: cut before reaching
+  // (maxNodes) or reached but not expanded (maxDepth). A Set so an edge into the
+  // same blocked node from two places counts it once.
+  const affected = new Set<FactId>();
 
   let frontier = [...new Set(seeds)].sort();
   for (const seed of frontier) reached.add(seed);
@@ -181,8 +187,7 @@ export function traverseBehaviorRelations(
         const to = row.to_id as FactId;
         if (reached.has(to)) continue;
         if (reached.size >= limits.maxNodes) {
-          truncated = true;
-          unexpanded += 1;
+          affected.add(to);
           continue;
         }
         reached.add(to);
@@ -191,16 +196,13 @@ export function traverseBehaviorRelations(
     }
     frontier = [...next].sort();
   }
-  if (frontier.length > 0) {
-    // maxDepth stopped us with a non-empty frontier still to expand.
-    truncated = true;
-    unexpanded += frontier.length;
-  }
+  // maxDepth stopped us with a non-empty frontier still to expand.
+  for (const node of frontier) affected.add(node);
 
   return {
     reached: [...reached].sort(),
     edges,
-    truncated,
-    affected: unexpanded,
+    truncated: affected.size > 0,
+    affected: affected.size,
   };
 }

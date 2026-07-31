@@ -110,6 +110,14 @@ describe("queryBehaviorFacts", () => {
     expect(a).toEqual([...a].sort());
     store.close();
   });
+
+  it("clamps a negative offset instead of slicing from the end", () => {
+    const { store, snap } = seeded();
+    const clamped = queryBehaviorFacts(store, snap, {}, { offset: -2, limit: 3 });
+    const zero = queryBehaviorFacts(store, snap, {}, { offset: 0, limit: 3 });
+    expect(clamped.facts.map((f) => f.factId)).toEqual(zero.facts.map((f) => f.factId));
+    store.close();
+  });
 });
 
 describe("traverseBehaviorRelations", () => {
