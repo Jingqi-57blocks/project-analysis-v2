@@ -90,68 +90,70 @@ Nothing new is written in this phase.
   merged, because neither is in the graph. **Run it before cutting a branch and
   before step 6.**
 
-## Phase 0b — the split, before anything new is written
+## Phase 1 — the spine, before anything else is added to a document
 
-- **57B-301** — the four files CLAUDE.md names, split as pure moves. Head of the
-  queue, not the end: `engine/render/fragments.ts` is 1,235 lines against a 500-line
-  ceiling and every issue below touches it, so each one lands in a file that cannot
-  be read and makes the next reviewer's job harder. As a move, no behaviour change
-  and no test change beyond import paths.
-
-## Phase 1 — make the knowledge base tell the truth about what it already read
-
-Highest value per unit of work: each improves every existing report and unblocks
-what follows.
+Every issue below Phase 1 adds to a document. Doing them first means adding to the
+wrong shape and cutting twice.
 
 | | Issue | Why here |
 |---|---|---|
-| 1 | **57B-293** | Follow the call graph we already walk to the tables a handler touches. Urgent, and 57B-290's real prerequisite. |
-| 2 | **57B-298** | A table declared by a constant beside its struct. Returns 41 model files from "unread" to real entities and repairs the recovered data model. |
-| 3 | **57B-299** | Tell a rejection's message from a string that happens to be nearby. The PRD's rules section is shipping with two wrong rows. |
-| 4 | **57B-270** | Per-type behaviour as a lookup. Feeds both 57B-280 and 57B-290. |
+| 1 | **57B-305** | A third of the 48 "capabilities" are external services (`Openai`, `Jira`) or vocabulary fragments (`Year`, `Star`). Each carries a table row, an endpoint list and — under 57B-306 — its own document, so they inflate the very length 57B-303 measures. Independent of the standard, and needs none to be right. |
+| 2 | **57B-303** | The length and content standard: complete on detail, as short as that allows, current state only. Everything downstream is written to it, and 57B-292's hand-written constraints cannot be judged without it. |
+| 3 | **57B-292** | Plan the structure from evidence, with constraints over it as data. A full template is the limiting case, so today's templates become its strongest constraint set. |
+| 4 | **57B-306** | Two audiences, product manager and engineer, as registrations rather than a flag. Plans into 57B-292. |
 
-## Phase 2 — turn the remaining silences into facts
-
-| | Issue | Why here |
-|---|---|---|
-| 5 | **57B-269** then **57B-295** | The notification reader, then the section that reports what the system sends. A pair: the section is short without the reader. |
-| 6 | **57B-255** | Work routed by writing a record — a state transition by another name. |
-| 7 | **57B-271** | Rules and tables inside raw SQL. |
-| 8 | **57B-272** | A check commented out beside a live route. Feeds 57B-291's matrix. |
-
-## Phase 3 — the structure, and the sections a recovered specification needs
+## Phase 2 — the truth about what was already read
 
 | | Issue | Why here |
 |---|---|---|
-| 9 | **57B-292** | Plan the document's structure from evidence, hold it for the run, keep it extensible. Everything below assumes it, and it removes the per-template duplication of `requires`/`fragment`/`contract`. |
-| 10 | **57B-289** | Unread project facts signposted, misunderstood format parts omitted. Was blocked on 57B-268. |
-| 11 | **57B-290** | Object state machines. Needs 57B-293. |
-| 12 | **57B-280** | Field value sets, and the invariant boundary. |
-| 13 | **57B-281** | Acceptance criteria and exception handling, asserting the code's own message. |
-| 14 | **57B-291** | Roles and permission matrix. |
-| 15 | **57B-279** | Join a page to its component, then read the tree. Re-scoped: the client-side route table is already read. |
+| 5 | **57B-293** | Read the call edges the index already holds. 0 of 520 entry points reach past their handler today; 415 with them. Unblocks 57B-290. |
+| 6 | **57B-298** | A table declared by a constant beside its struct. Returns 41 model files from "unread" to real entities. |
+| 7 | **57B-299** | Tell a rejection's message from a value a branch returns. Narrowed: presentation is fixed, the call-signature reading is what remains. |
+| 8 | **57B-270** | Per-type behaviour as a lookup. Feeds 57B-280 and 57B-290. |
 
-## Phase 4 — assemble, measure, accept
+## Phase 3 — the remaining silences
 
 | | Issue | Why here |
 |---|---|---|
-| 16 | **57B-278** again | The recovered specification with the sections Phase 3 added. |
-| 17 | **57B-283** | Coverage and confidence, defined for a recovered spec. |
-| 18 | **57B-282** | Migration mapping: the legacy side and an honest gap list. |
-| 19 | **57B-273** | Make the report-against-source audit a standing step. |
-| 20 | **57B-277** | Raise the parked Blueprint questions, if any now blocks. |
+| 9 | **57B-269** then **57B-295** | The notification reader, then the section. A pair: the section is short without the reader. |
+| 10 | **57B-255** | Work routed by writing a record — a state transition by another name. |
+| 11 | **57B-271** | Rules and tables inside raw SQL. |
+| 12 | **57B-272** | A check commented out beside a live route. |
+| 13 | **57B-304** | Tell an unresolved call from no call. Depends on 57B-293's reading. |
+| 14 | **57B-307** | Twelve real addresses missing from the Page Map, with `gaps: []` and a declared limit claiming the opposite. |
 
-**Acceptance for both parents.** A full five-root run, every document rendered,
-and an audit of each against the real code by a subagent: no wrong facts, no
-material omissions, nothing stated beyond its slice. Then `feat` → `main`.
+## Phase 4 — the sections a recovered specification needs
+
+| | Issue | Why here |
+|---|---|---|
+| 14 | **57B-280** | Field value sets, pluggable per declaration form. Prerequisite for 57B-290, not a peer. |
+| 15 | **57B-290** | Object state machines. Needs 57B-280 and 57B-293. |
+| 16 | **57B-289** | Unread project facts signposted. Analysis gaps only; intent is not signposted at all. |
+| 17 | **57B-291** | Roles and permission matrix. |
+| 18 | **57B-281** | Acceptance criteria and exception handling, asserting the code's own message. |
+| 19 | **57B-279** | Join a page to its component. Re-scoped: the 182 addresses are already read. |
+
+## Phase 5 — assemble, measure, accept
+
+| | Issue | Why here |
+|---|---|---|
+| 20 | **57B-283** | Coverage against real denominators, the behaviour fraction refused, confidence per fact. |
+| 21 | **57B-282** | Migration mapping: the legacy side and an honest gap list. |
+| 22 | **57B-273** | The document-against-source audit as a standing step, per section on change and whole at acceptance. |
+| 23 | **57B-277** | The Blueprint register. Moved to Backlog: blocked on them, not on us, and it should not read as available work. |
 
 ## Held out of scope
 
 - **57B-276 and its five children** — the skill and its packaging. Held by
   instruction until both parents are done.
-- **57B-266** — a record of audit evidence, not work. Close it with 57B-267.
-- Branch pruning: 17 stale local branches, most already merged. Cosmetic, and it
-  needs a decision rather than initiative.
+- **57B-266** — cancelled. It was the citation list every reader issue was derived
+  from, not work of its own, and left open it would have blocked the parent forever.
+  The evidence stays readable on the cancelled issue.
+- **57B-302** — delegating `engine/kb/query.ts`, the one file no move could shrink.
+  Design change, not urgent.
+- **57B-296**, **57B-284**, **57B-286** — a prompt keyed to one target, test
+  scaffolding that must not ship, and SKILL.md's command surface.
+- Branch pruning: stale local branches, most already merged. Cosmetic.
 
 ## Standing rules for this stretch
 

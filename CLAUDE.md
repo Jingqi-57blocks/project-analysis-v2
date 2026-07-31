@@ -175,6 +175,13 @@ are, and never merge a declared fact with an inferred claim.
   in `engine/targets/registry.ts` with `PA_TARGET_*` environment overrides; that
   file is test scaffolding and must not ship in a published package
   ([57B-284](https://linear.app/57blocks-prd/issue/57B-284)).
+- **Simplest version first, and it is not required to be complete.** A reader that
+  reports one shape correctly beats one that attempts every shape and is wrong
+  somewhere. Where it misses a case, add that case as its own registration rather
+  than generalising ahead of the evidence — and because each is a registration, the
+  fourth costs nothing to the first three, and swapping the tool underneath costs
+  nothing to the callers. Incompleteness is declared as a gap; that is what makes
+  shipping it honest.
 - **Evaluate what exists before writing a reader.** An off-the-shelf tool behind
   a provider boundary beats one of ours; build only where it genuinely falls
   short, and grade the two against each other in writing under `references/` —
