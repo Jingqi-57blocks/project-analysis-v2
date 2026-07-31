@@ -124,6 +124,15 @@ describe("deriveBoundaryBehavior", () => {
     expect(payloadOf(fact)).toMatchObject({ field: "age", rule: "min", expression: "age >= 18", activation: "guarded" });
   });
 
+  it("carries the enclosing symbol so a later pass can connect the check to its handler", () => {
+    const model = derive({
+      auth: [auth("requireRole", "admin")],
+      validations: [validation("age", "min", "age >= 18")],
+      errorHandling: [errorHandling(["NotFoundError"])],
+    });
+    for (const fact of model.facts) expect(payloadOf(fact).symbol).toBe(sym);
+  });
+
   it("returns an empty, valid model for no input", () => {
     const model = derive();
     expect(model.facts).toEqual([]);

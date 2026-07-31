@@ -93,6 +93,9 @@ function authFact(a: AuthAnnotationRecord): BehaviorFact {
     payload: pl({
       scope: scopeOf(a.symbolId),
       activation: "guarded",
+      // The enclosing symbol, kept so a later pass can connect this check to the
+      // entry/handler it guards without re-deriving anything.
+      symbol: a.symbolId,
       check: authCheckOf(a.mechanism, a.requirement),
       mechanism: a.mechanism,
       requirement: a.requirement,
@@ -115,6 +118,7 @@ function validationFact(v: ValidationRuleRecord): BehaviorFact {
     payload: pl({
       scope: scopeOf(v.subjectSymbolId),
       activation: "guarded",
+      symbol: v.subjectSymbolId,
       field: v.field,
       rule: v.rule,
       expression: v.expression,
@@ -139,6 +143,7 @@ function errorHandlingFact(e: ErrorHandlingRecord): BehaviorFact {
     payload: pl({
       scope: scopeOf(e.symbolId),
       activation: "conditional",
+      symbol: e.symbolId,
       // The internal error types this handles — never a user-facing message. Sorted
       // so the persisted payload is byte-stable however the record ordered them
       // (handles are a set of types, not an ordered sequence).
@@ -164,6 +169,7 @@ function discardedFact(d: DiscardedErrorRecord): BehaviorFact {
     payload: pl({
       scope: scopeOf(d.enclosingFunction),
       activation: "always",
+      symbol: d.enclosingFunction,
       call: d.call,
       mechanism: d.mechanism,
     }),
