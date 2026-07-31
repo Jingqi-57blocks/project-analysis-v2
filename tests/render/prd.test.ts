@@ -12,6 +12,14 @@ import { kb } from "./fixture.js";
 import { renderFragment } from "../../engine/render/fragments.js";
 import { FRAME_EN } from "../../engine/render/strings.js";
 
+/**
+ * The recovered-specification fragments, checked for keys that do not exist.
+ *
+ * A key with no string renders as `[key]` — the fallback is deliberate, so a
+ * missing word degrades rather than throws, which means nothing fails until a
+ * reader sees a bracket in a document. `[col-endpoints]` reached a rendered PRD
+ * exactly that way.
+ */
 describe("the recovered specification's own sections", () => {
   const marked = Object.fromEntries(
     Object.keys(FRAME_EN).map((key) => [key, `<<${key}>>`]),

@@ -14,9 +14,6 @@ import { pick, table, type Fragment } from "./parts.js";
 /** Conditions shown per rule before the rest are counted. */
 const TESTS_PER_RULE = 2;
 
-
-
-
 interface Rule {
   message: string;
   kind: string;
@@ -36,8 +33,6 @@ interface Rule {
   where: Set<string>;
 }
 
-
-
 /**
  * How the rule was stated, and how the branch stating it leaves.
  *
@@ -53,8 +48,6 @@ function statedAs(f: Glossary, rule: Rule): string {
   const exits = [...rule.exits].sort().join("-and-");
   return `${kind}, ${t(f, `exit-${exits}`)}`;
 }
-
-
 
 /**
  * The conditions under which a rule rejects, one per line.
@@ -72,9 +65,6 @@ function conditions(f: Glossary, tests: ReadonlySet<string>): string | null {
   const rest = all.length - shown.length;
   return [...shown, ...(rest > 0 ? [t(f, "and-more", rest)] : [])].join("<br>");
 }
-
-
-
 
 /**
  * How many distinct rejection messages to name per repository.

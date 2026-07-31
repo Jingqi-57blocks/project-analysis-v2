@@ -99,9 +99,3 @@ export interface ModuleDetail {
   /** The capabilities this unit of code serves. Often more than one. */
   readonly features: readonly FeatureFact[];
 }
-
-export interface ModuleDetail {
-  readonly module: ModuleFact;
-  /** The capabilities this unit of code serves. Often more than one. */
-  readonly features: readonly FeatureFact[];
-}

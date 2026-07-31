@@ -34,6 +34,7 @@ import {
 import { COVERAGE_FRAGMENTS } from "./coverage-sections.js";
 import { PRD_FRAGMENTS } from "./prd.js";
 export { FragmentError } from "./parts.js";
+export type { FragmentInput } from "./parts.js";
 import {
   FragmentError,
   mermaid,
@@ -101,13 +102,6 @@ function versionOf(entry: StackEntry): string {
   if (entry.version === null) return entry.name;
   return `${entry.name} ${entry.version}${entry.resolved ? "" : "✱"}`;
 }
-
-
-
-
-
-
-
 
 const FRAGMENTS: Readonly<Record<string, Fragment>> = {
   ...COVERAGE_FRAGMENTS,
@@ -272,17 +266,6 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
     }
     return parts.filter((part) => part !== "").join("\n\n");
   },
-
-
-
-
-
-
-
-
-
-
-
 
   /** What the system talks to outside itself, minus what is not an integration. */
   "external-systems": (input) => {

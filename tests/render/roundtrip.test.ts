@@ -2,8 +2,7 @@
  * Preparing, assembling, and the formats a document is viewed in.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 

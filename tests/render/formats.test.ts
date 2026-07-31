@@ -2,7 +2,7 @@
  * A format is a view of one document, and rebuilding one section of it.
  */
 
-import { kb, prepareInto, templateDir } from "./fixture.js";
+import { kb, prepareInto, templateDir, workDir } from "./fixture.js";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,7 +12,6 @@ import { prepare } from "../../engine/render/prepare.js";
 import { assemble, writeAssembled } from "../../engine/render/assemble.js";
 import { exportDocument, retarget, UnknownFormatError } from "../../engine/render/export.js";
 import { undrawableDiagramLines } from "../../engine/render/validate.js";
-import { workDir } from "./fixture.js";
 
 /**
  * The recovered-specification fragments, checked for keys that do not exist.

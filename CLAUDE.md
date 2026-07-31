@@ -86,6 +86,28 @@ skips it and declares the missing symbols as a gap.
 Knowledge bases and report output go somewhere outside the target. Throwaway
 files go in a scratch directory, never in this repository.
 
+## What a document is for
+
+Every exported document exists so someone else understands the system quickly.
+**Complete and accurate on detail, and as short as that allows** — both goals, and
+nothing else is a goal.
+
+- **The system as it is.** Not why it was built, not the problem it solves, not who
+  feels which pain, not which parts matter most. A reader wants the shape of the
+  thing that exists.
+- **Do not enumerate the intent a codebase cannot hold.** A section listing product
+  goal, target users, success metrics, priority and risks as absences is an apology
+  that costs a reader time and says nothing about the system.
+- **No unnecessary words.** A lead explaining how to read a column, a note restating
+  what the table shows, a paragraph where a clause would do — cut it. Brevity is
+  half the point, not a preference.
+- **The reference PRD is a reference.** Take its major shape; reproducing its
+  structure produces a document too long to read, which defeats the purpose it was
+  written for.
+
+Never buy brevity with accuracy, and never drop a fact to save a line: that is the
+other goal, and the writer contract below is how it is kept.
+
 ## The writer contract
 
 This is the rule an agent breaks most easily, and the one that decides whether
