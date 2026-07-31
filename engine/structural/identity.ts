@@ -1,11 +1,15 @@
 /**
  * Stable identity for symbols across providers.
  *
- * Identity comes from properties of the code, never from anything a provider
- * assigns — a vendor's internal node id would make its numbering part of our
- * schema, and two providers finding the same symbol must agree without
- * coordinating.
+ * The canonical serialization it is built on now comes from the shared-fact
+ * contract (PI-54); symbol identity stays here because it is one specific
+ * application of that scheme. `joinKey` is re-exported so existing callers keep
+ * importing it from this module.
  */
+
+import { joinKey } from "../contracts/shared-fact/serialization.js";
+
+export { joinKey };
 
 declare const symbolIdBrand: unique symbol;
 
@@ -21,32 +25,21 @@ export interface SymbolIdParts {
   readonly signature: string | null;
 }
 
-const DELIMITER = "|";
-
-function escape(part: string): string {
-  return part.replaceAll("\\", "\\\\").replaceAll(DELIMITER, `\\${DELIMITER}`);
-}
-
 /**
- * Without escaping, root `a|b` + path `c` and root `a` + path `b|c` collide,
- * silently merging two unrelated symbols — a failure no later stage could
- * detect.
- *
  * When `signature` is null, two overloads in one file collapse to one id.
  * Deliberate: a positional discriminator would make identity churn whenever
  * unrelated code above it moved.
  */
 export function symbolId(parts: SymbolIdParts): SymbolId {
-  return [parts.rootName, parts.relPath, parts.kind, parts.qualifiedName, parts.signature ?? ""]
-    .map(escape)
-    .join(DELIMITER) as SymbolId;
+  return joinKey([
+    parts.rootName,
+    parts.relPath,
+    parts.kind,
+    parts.qualifiedName,
+    parts.signature,
+  ]) as SymbolId;
 }
 
 export function fileId(rootName: string, relPath: string): string {
-  return [rootName, relPath].map(escape).join(DELIMITER);
-}
-
-/** Shares the escaping so record keys cannot forge a boundary either. */
-export function joinKey(parts: readonly (string | number | null | undefined)[]): string {
-  return parts.map((part) => escape(part == null ? "" : String(part))).join(DELIMITER);
+  return joinKey([rootName, relPath]);
 }
