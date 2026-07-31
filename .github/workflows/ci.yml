@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main, feat/project-intelligence-v1]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  pr-contract:
+    # Enforces the Linear-driven PR contract: a PR cannot merge without a Linear
+    # link, a Fixes PI-XX line, test evidence and an acceptance disposition.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Validate PR body carries the Linear-driven contract
+        run: |
+          fail=0
+          check() {
+            if ! printf '%s' "$PR_BODY" | grep -Eiq "$1"; then
+              echo "MISSING: $2"
+              fail=1
+            fi
+          }
+          check 'linear\.app/'        'a Linear issue link'
+          check 'Fixes PI-[0-9]+'     'a "Fixes PI-XX" line'
+          check '(## *tests|test evidence|pnpm test)' 'a Tests / test-evidence section'
+          check '(## *acceptance|disposition)'        'an acceptance disposition section'
+          if [ "$fail" -ne 0 ]; then
+            echo "PR body is missing required sections. See docs/integration-workflow.md."
+            exit 1
+          fi
+          echo "PR contract satisfied."
