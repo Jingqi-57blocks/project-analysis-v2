@@ -111,6 +111,11 @@ describe("assembleBehaviorModel", () => {
     expect(model.facts.length).toBe(new Set(model.facts.map((f) => f.factId)).size);
   });
 
+  it("returns the model in a stable order by identity, whatever the deriver order", () => {
+    const { model } = assembleBehaviorModel(input());
+    expect(model.facts.map((f) => f.factId)).toEqual([...model.facts.map((f) => f.factId)].sort());
+  });
+
   it("propagates state diagnostics and test coverage", () => {
     const withUnresolved: AssembleInput = {
       ...input(),

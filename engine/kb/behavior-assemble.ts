@@ -92,11 +92,19 @@ export function assembleBehaviorModel(input: AssembleInput): AssembledBehavior {
     }
   }
 
-  const model: BehaviorModel = {
-    schemaVersion: parts[0]!.model.schemaVersion,
-    facts: [...factById.values()].map((v) => v.fact),
-    relations,
-  };
+  // Order the integrated model by identity, so it is self-consistently ordered
+  // whichever way a caller serializes it — not reliant on part order or each
+  // deriver's internal fact ordering staying stable across refactors.
+  const facts = [...factById.values()]
+    .map((v) => v.fact)
+    .sort((a, b) => (a.factId < b.factId ? -1 : a.factId > b.factId ? 1 : 0));
+  relations.sort((a, b) => {
+    const ak = `${a.kind}\0${a.from}\0${a.to}\0${a.role}`;
+    const bk = `${b.kind}\0${b.from}\0${b.to}\0${b.role}`;
+    return ak < bk ? -1 : ak > bk ? 1 : 0;
+  });
+
+  const model: BehaviorModel = { schemaVersion: parts[0]!.model.schemaVersion, facts, relations };
 
   const validation = validateBehaviorModel(model);
   if (!validation.ok) {
