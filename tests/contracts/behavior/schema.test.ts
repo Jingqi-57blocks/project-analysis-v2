@@ -68,9 +68,46 @@ describe("ownership (PI-11 vs PI-12)", () => {
     expect(overlap).toEqual([]);
   });
 
+  it("rejects a kind claimed by two owners (PI-11/PI-12 duplicate ownership)", () => {
+    const r = validateOwnership(
+      [
+        ["behavior-semantics", ["decision", "condition"]],
+        ["side-effect", ["decision"]], // decision claimed by both
+      ],
+      ["decision", "condition"],
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join()).toContain("owned by both PI-11 and PI-12");
+  });
+
+  it("rejects an M2 kind left with no owner", () => {
+    const r = validateOwnership([["behavior-semantics", ["condition"]]], ["condition", "decision"]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join()).toContain("decision has no owner");
+  });
+
   it("assigns every M2 kind an owner and unknown kinds none", () => {
     for (const kind of BEHAVIOR_KINDS) expect(ownerOf(kind)).not.toBe("unknown");
     expect(ownerOf("teleport")).toBe("unknown");
+  });
+});
+
+describe("per-kind examples", () => {
+  // transition and decision carry cross-fact cardinality (endpoint states, ≥1 branch)
+  // that a lone fact cannot satisfy by design — their positive/conflict cases live in
+  // the model tests below (endpoints(), the orphan-transition and no-branch rejections).
+  const STANDALONE_KINDS = BEHAVIOR_KINDS.filter((k) => k !== "transition" && k !== "decision");
+
+  it.each([...STANDALONE_KINDS])("accepts a positive and a minimal %s fact, and rejects a duplicate", (kind) => {
+    const positive = fact(kind, "positive", { payload: { scope: "module", activation: "conditional" } });
+    expect(validateBehaviorModel({ schemaVersion: "1.0.0", facts: [positive], relations: [] }).ok).toBe(true);
+
+    const minimal = fact(kind, "minimal");
+    expect(validateBehaviorModel({ schemaVersion: "1.0.0", facts: [minimal], relations: [] }).ok).toBe(true);
+
+    const conflict = validateBehaviorModel({ schemaVersion: "1.0.0", facts: [minimal, minimal], relations: [] });
+    expect(conflict.ok).toBe(false);
+    if (!conflict.ok) expect(conflict.reasons.join()).toContain("duplicate behaviour fact id");
   });
 });
 
@@ -79,16 +116,24 @@ describe("validateBehaviorModel", () => {
     expect(validateBehaviorModel(endpoints())).toEqual({ ok: true, quarantined: [] });
   });
 
-  it("accepts a minimal single-fact model", () => {
-    const r = validateBehaviorModel({ schemaVersion: "1.0.0", facts: [fact("condition", "c")], relations: [] });
-    expect(r.ok).toBe(true);
-  });
-
   it("quarantines an unknown kind rather than dropping or failing", () => {
     const unknown = fact("teleport", "x");
     const r = validateBehaviorModel({ schemaVersion: "1.0.0", facts: [unknown], relations: [] });
     expect(r.ok).toBe(true);
     expect(r.quarantined).toEqual([unknown.factId]);
+  });
+
+  it("does not judge an unknown kind's payload — a future scope value stays forward-compatible", () => {
+    const future = fact("teleport", "y", { payload: { scope: "package" as unknown as BehaviorPayload["scope"] } });
+    const r = validateBehaviorModel({ schemaVersion: "1.0.0", facts: [future], relations: [] });
+    expect(r.ok).toBe(true);
+    expect(r.quarantined).toEqual([future.factId]);
+  });
+
+  it("still requires an unknown kind to cite evidence", () => {
+    const r = validateBehaviorModel({ schemaVersion: "1.0.0", facts: [fact("teleport", "z", { evidence: [] })], relations: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join()).toContain("must cite evidence");
   });
 
   it("rejects a fact outside the behavioural family", () => {
@@ -113,8 +158,8 @@ describe("validateBehaviorModel", () => {
     if (!r.ok) expect(r.reasons.join()).toContain("bad provenance");
   });
 
-  it("rejects a fact with no scope or activation", () => {
-    const noPayload: BehaviorFact = { ...fact("decision", "d"), payload: {} as unknown as BehaviorPayload };
+  it("rejects a known-kind fact with no scope or activation, without crashing on an absent payload", () => {
+    const noPayload: BehaviorFact = { ...fact("decision", "d"), payload: undefined as unknown as BehaviorPayload };
     const r = validateBehaviorModel({ schemaVersion: "1.0.0", facts: [noPayload], relations: [] });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -150,7 +195,7 @@ describe("validateBehaviorModel", () => {
     if (!r.ok) expect(r.reasons.join()).toContain("not a state");
   });
 
-  it("rejects a transition without exactly one from-state and one to-state", () => {
+  it("rejects a transition with only one endpoint", () => {
     const r = validateBehaviorModel({
       schemaVersion: "1.0.0",
       facts: [trans, stateA],
@@ -158,6 +203,12 @@ describe("validateBehaviorModel", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join()).toContain("exactly one from-state and one to-state");
+  });
+
+  it("rejects an orphan transition with no endpoint relations at all", () => {
+    const r = validateBehaviorModel({ schemaVersion: "1.0.0", facts: [trans], relations: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join()).toContain("from=0 to=0");
   });
 
   it("rejects a decision with no branch outcome", () => {
@@ -174,6 +225,17 @@ describe("validateBehaviorModel", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reasons.join()).toContain("not a value-set");
+  });
+
+  it("allows guard-subject to reference a structural fact outside the behaviour model", () => {
+    const guard = fact("guard", "g1");
+    const structuralSubject = factId({ family: "structural", kind: "symbol", discriminators: ["svc", "OrderService.pay"] });
+    const r = validateBehaviorModel({
+      schemaVersion: "1.0.0",
+      facts: [guard],
+      relations: [{ kind: "guard-subject", from: guard.factId, to: structuralSubject, role: "constrains" }],
+    });
+    expect(r.ok).toBe(true);
   });
 
   it("rejects a cycle through derivation relations", () => {

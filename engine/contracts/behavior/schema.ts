@@ -12,16 +12,19 @@
  *     (side effects) that the matrix only states per unit, so the two never
  *     claim the same kind;
  *   - the relations between behaviour facts (a decision's branches, a
- *     transition's endpoint states, a rule's value set, a guard's subject, an
- *     entry's trace), keyed by canonical `FactId`, with their cardinality and a
- *     cycle rule;
+ *     transition's endpoint states, a rule's value set) and from a behaviour
+ *     fact to a structural one (a guard's subject symbol/entity), keyed by
+ *     canonical `FactId`, with their cardinality and a cycle rule;
  *   - the constraints every behaviour fact must satisfy — cited evidence with a
  *     legal resolution/confidence, a declared scope and an activation;
- *   - forward-compatible handling of an unknown/new kind: quarantined, never
- *     silently dropped and never a hard failure.
+ *   - forward-compatible handling of an unknown/new kind: quarantined, its
+ *     kind-specific shape left unjudged, never silently dropped.
  *
- * It carries no report-audience or target-project field: those belong to the
- * report layer and to no fact.
+ * `entry`, `trace` and control-flow facts are structural/derived kinds owned by
+ * PI-10 and the logic provider — a behaviour fact *references* them through a
+ * relation, it does not redefine them here (the same "extend, don't parallel"
+ * rule the vocabulary follows). It carries no report-audience or target-project
+ * field: those belong to the report layer and to no fact.
  *
  * `BehaviorRelation` is the `FactId`-keyed form of engine/kb `DerivedLink`
  * (fromKind/fromKey/role/toKind/toKey); PI-63 persistence maps between the two.
@@ -78,11 +81,20 @@ export const SIDE_EFFECT_KINDS: readonly string[] = [
 /** PI-40 — the linkage between a test and what it exercises. */
 export const TEST_KINDS: readonly string[] = ["test-relation"];
 
+/** An owner paired with the kinds it claims. Parameterizable so the disjointness
+ * check is exercisable with deliberately overlapping input, not only the constants. */
+export type OwnerAssignment = readonly [BehaviorOwner, readonly string[]];
+export const OWNER_LISTS: readonly OwnerAssignment[] = [
+  ["behavior-semantics", BEHAVIOR_SEMANTIC_KINDS],
+  ["side-effect", SIDE_EFFECT_KINDS],
+  ["test", TEST_KINDS],
+];
+
 /** The owner of a kind, or "unknown" for a kind outside the M2 vocabulary. */
 export function ownerOf(kind: string): BehaviorOwner | "unknown" {
-  if (BEHAVIOR_SEMANTIC_KINDS.includes(kind)) return "behavior-semantics";
-  if (SIDE_EFFECT_KINDS.includes(kind)) return "side-effect";
-  if (TEST_KINDS.includes(kind)) return "test";
+  for (const [owner, kinds] of OWNER_LISTS) {
+    if (kinds.includes(kind)) return owner;
+  }
   return "unknown";
 }
 
@@ -91,36 +103,33 @@ export type OwnershipValidation =
   | { readonly ok: false; readonly reasons: readonly string[] };
 
 /**
- * The ownership split is disjoint and total over the M2 vocabulary. This is the
- * check that fails the moment a new kind is added to two owners' lists at once
- * (PI-11/PI-12 duplicate ownership) or to neither.
+ * The ownership split is disjoint and total over the vocabulary. This is the
+ * check that fails the moment a kind is assigned to two owners at once (PI-11/
+ * PI-12 duplicate ownership) or to neither. The lists and vocabulary are
+ * parameters so the rejection path is triggerable by input, not only by editing
+ * the source constants.
  */
-export function validateOwnership(): OwnershipValidation {
+export function validateOwnership(
+  lists: readonly OwnerAssignment[] = OWNER_LISTS,
+  vocabulary: readonly string[] = BEHAVIOR_KINDS,
+): OwnershipValidation {
   const reasons: string[] = [];
-  const lists: readonly (readonly [BehaviorOwner, readonly string[]])[] = [
-    ["behavior-semantics", BEHAVIOR_SEMANTIC_KINDS],
-    ["side-effect", SIDE_EFFECT_KINDS],
-    ["test", TEST_KINDS],
-  ];
-
   const seen = new Map<string, BehaviorOwner>();
   for (const [owner, kinds] of lists) {
     for (const kind of kinds) {
       const prior = seen.get(kind);
-      if (prior !== undefined) {
+      if (prior !== undefined && prior !== owner) {
         reasons.push(`kind ${kind} owned by both ${OWNER_ISSUE[prior]} and ${OWNER_ISSUE[owner]}`);
       }
       seen.set(kind, owner);
     }
   }
-
-  for (const kind of BEHAVIOR_KINDS) {
+  for (const kind of vocabulary) {
     if (!seen.has(kind)) reasons.push(`M2 kind ${kind} has no owner`);
   }
   for (const kind of seen.keys()) {
-    if (!BEHAVIOR_KINDS.includes(kind)) reasons.push(`owned kind ${kind} is not an M2 behaviour kind`);
+    if (!vocabulary.includes(kind)) reasons.push(`owned kind ${kind} is not an M2 behaviour kind`);
   }
-
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
 
@@ -157,16 +166,21 @@ export type BehaviorRelationKind =
   | "transition-endpoint"
   /** A business rule to a value set it reads. Zero-or-more. */
   | "rule-valueset"
-  /** A guard or validation rule to the subject it constrains. */
-  | "guard-subject"
-  /** An entry point to the trace it begins. */
-  | "entry-trace";
+  /** A guard or validation rule to the subject it constrains — the one relation
+   *  whose far end is a structural/derived fact rather than a behaviour fact. */
+  | "guard-subject";
+
+/**
+ * The relation kinds whose far end is a structural/derived fact outside the
+ * behaviour model, so its existence and kind are not checked against `model.facts`.
+ */
+const CROSS_FAMILY_RELATIONS: readonly BehaviorRelationKind[] = ["guard-subject"];
 
 export interface BehaviorRelation {
   readonly kind: BehaviorRelationKind;
   readonly from: FactId;
   readonly to: FactId;
-  /** The far end's role: "then"|"else"|"from-state"|"to-state"|"uses"|"begins"|… */
+  /** The far end's role: "then"|"else"|"from-state"|"to-state"|"uses"|"constrains"|… */
   readonly role: string;
 }
 
@@ -186,7 +200,6 @@ const ACYCLIC_RELATIONS: readonly BehaviorRelationKind[] = [
   "decision-branch",
   "rule-valueset",
   "guard-subject",
-  "entry-trace",
 ];
 
 export type BehaviorValidation =
@@ -220,11 +233,13 @@ function hasCycle(edges: readonly (readonly [FactId, FactId])[]): boolean {
 
 /**
  * Integrity: unique ids; behavioural family; cited evidence with legal
- * provenance; a declared scope and activation; relation endpoints that exist and
- * whose kinds fit the relation; transition/decision cardinality; and no cycle
- * through the derivation relations. A fact whose kind is outside the M2
- * vocabulary is quarantined — reported, kept, and never a hard failure — so a
- * new kind stays forward-compatible instead of being dropped.
+ * provenance; for a known kind a declared scope and activation; relation
+ * endpoints that exist and whose kinds fit the relation; transition/decision
+ * cardinality; and no cycle through the derivation relations. A fact whose kind
+ * is outside the M2 vocabulary is quarantined — reported and kept, its
+ * kind-specific shape (scope/activation) left unjudged — so a new kind stays
+ * forward-compatible instead of being dropped. Evidence is still required of it,
+ * because a fact no report can cite is worthless whatever its kind.
  */
 export function validateBehaviorModel(model: BehaviorModel): BehaviorValidation {
   const reasons: string[] = [];
@@ -239,20 +254,28 @@ export function validateBehaviorModel(model: BehaviorModel): BehaviorValidation 
     byId.set(fact.factId, fact);
 
     if (fact.family !== "behavioral") reasons.push(`${fact.factId}: not in the behavioural family (${fact.family})`);
-    if (ownerOf(fact.kind) === "unknown") quarantined.push(fact.factId);
+    const unknownKind = ownerOf(fact.kind) === "unknown";
+    if (unknownKind) quarantined.push(fact.factId);
 
-    if (fact.evidence.length === 0) reasons.push(`${fact.factId}: a behaviour fact must cite evidence`);
-    for (const record of fact.evidence) {
-      const provenance = validateProvenance(record.provenance);
-      if (!provenance.ok) reasons.push(`${fact.factId}: bad provenance — ${provenance.reason}`);
+    if (!Array.isArray(fact.evidence) || fact.evidence.length === 0) {
+      reasons.push(`${fact.factId}: a behaviour fact must cite evidence`);
+    } else {
+      for (const record of fact.evidence) {
+        const provenance = validateProvenance(record?.provenance);
+        if (!provenance.ok) reasons.push(`${fact.factId}: bad provenance — ${provenance.reason}`);
+      }
     }
 
-    const payload = fact.payload as Partial<BehaviorPayload>;
-    if (!BEHAVIOR_SCOPES.includes(payload.scope as BehaviorScope)) {
-      reasons.push(`${fact.factId}: scope must be one of ${BEHAVIOR_SCOPES.join(", ")}`);
-    }
-    if (!BEHAVIOR_ACTIVATIONS.includes(payload.activation as BehaviorActivation)) {
-      reasons.push(`${fact.factId}: activation must be one of ${BEHAVIOR_ACTIVATIONS.join(", ")}`);
+    // A new kind may legitimately introduce a new scope/activation value; judging
+    // its payload against this contract's enums would defeat the quarantine.
+    if (!unknownKind) {
+      const payload = (fact.payload ?? {}) as Partial<BehaviorPayload>;
+      if (!BEHAVIOR_SCOPES.includes(payload.scope as BehaviorScope)) {
+        reasons.push(`${fact.factId}: scope must be one of ${BEHAVIOR_SCOPES.join(", ")}`);
+      }
+      if (!BEHAVIOR_ACTIVATIONS.includes(payload.activation as BehaviorActivation)) {
+        reasons.push(`${fact.factId}: activation must be one of ${BEHAVIOR_ACTIVATIONS.join(", ")}`);
+      }
     }
   }
 
@@ -261,8 +284,9 @@ export function validateBehaviorModel(model: BehaviorModel): BehaviorValidation 
   const decisionBranchCount = new Map<FactId, number>();
 
   for (const relation of model.relations) {
+    const crossFamily = CROSS_FAMILY_RELATIONS.includes(relation.kind);
     if (!byId.has(relation.from)) reasons.push(`relation ${relation.kind} from unknown fact ${relation.from}`);
-    if (!byId.has(relation.to)) reasons.push(`relation ${relation.kind} to unknown fact ${relation.to}`);
+    if (!crossFamily && !byId.has(relation.to)) reasons.push(`relation ${relation.kind} to unknown fact ${relation.to}`);
     if (relation.role.length === 0) reasons.push(`relation ${relation.kind} has no role`);
 
     switch (relation.kind) {
@@ -293,21 +317,19 @@ export function validateBehaviorModel(model: BehaviorModel): BehaviorValidation 
         }
         break;
       }
-      case "entry-trace": {
-        if (kindOf(relation.to) !== "trace") reasons.push(`entry-trace to ${relation.to} is not a trace`);
-        break;
-      }
     }
   }
 
-  // A transition connects exactly two states: one it leaves, one it enters.
-  for (const [transition, tally] of transitionEndpoints) {
-    if (tally.from !== 1 || tally.to !== 1) {
-      reasons.push(`transition ${transition} needs exactly one from-state and one to-state, has from=${tally.from} to=${tally.to}`);
-    }
-  }
-  // A decision that fans out must fan out to at least one branch.
+  // Cardinality is a property of the facts, not of the relations that happen to
+  // exist: a transition with no endpoint relation at all is as wrong as one with
+  // a single endpoint, and only a fact-driven check catches the orphan.
   for (const fact of model.facts) {
+    if (fact.kind === "transition") {
+      const tally = transitionEndpoints.get(fact.factId) ?? { from: 0, to: 0 };
+      if (tally.from !== 1 || tally.to !== 1) {
+        reasons.push(`transition ${fact.factId} needs exactly one from-state and one to-state, has from=${tally.from} to=${tally.to}`);
+      }
+    }
     if (fact.kind === "decision" && (decisionBranchCount.get(fact.factId) ?? 0) === 0) {
       reasons.push(`decision ${fact.factId} has no branch outcome`);
     }
