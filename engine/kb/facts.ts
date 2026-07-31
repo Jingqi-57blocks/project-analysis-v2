@@ -57,6 +57,16 @@ export interface FeatureFact {
    * tables itself.
    */
   readonly tablesNearby: readonly string[];
+  /**
+   * Whether a flow of this capability hit the assembler's per-flow table cap, so
+   * further tables were touched and never named.
+   *
+   * Carried rather than counted: the cap applies per flow, and the same unnamed
+   * table may be behind several endpoints, so summing the remainders would state a
+   * number nothing supports. A reader needs to know the lists are short; how short
+   * is not something this can honestly say.
+   */
+  readonly tablesTruncated: boolean;
   /** Files it owns, qualified as `root/relPath`. */
   readonly filePaths: readonly string[];
   readonly flowCount: number;

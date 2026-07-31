@@ -586,6 +586,690 @@ describe("where a report stopped reading", () => {
 });
 
 
+/**
+ * The recovered-specification fragments, checked for keys that do not exist.
+ *
+ * A key with no string renders as `[key]` — the fallback is deliberate, so a
+ * missing word degrades rather than throws, which means nothing fails until a
+ * reader sees a bracket in a document. `[col-endpoints]` reached a rendered PRD
+ * exactly that way.
+ */
+describe("the recovered specification's own sections", () => {
+  const marked = Object.fromEntries(
+    Object.keys(FRAME_EN).map((key) => [key, `<<${key}>>`]),
+  ) as typeof FRAME_EN;
+
+  const cases: readonly { fragment: string; data: Readonly<Record<string, unknown>> }[] = [
+    {
+      fragment: "prd-features",
+      data: {
+        features: [
+          {
+            id: "feat_a",
+            name: "Leave",
+            term: "leave",
+            signals: ["26 endpoints", "3 data entities"],
+            filePaths: [],
+            endpoints: [
+              { method: "POST", path: "/v2/leaves", rootName: "svc" },
+              { method: "GET", path: "/v2/leaves/me", rootName: "svc" },
+            ],
+            tables: ["wcp_leave", "wcp_leave_detail"],
+          },
+          {
+            id: "feat_b",
+            name: "Billing",
+            term: "billing",
+            signals: ["32 endpoints"],
+            filePaths: [],
+            endpoints: [{ method: "GET", path: "/v2/bills", rootName: "svc" }],
+            tables: [],
+          },
+        ],
+      },
+    },
+    {
+      fragment: "prd-pages",
+      data: {
+        screens: [
+          { rootName: "ui", path: "/manage/employee/list", method: null, middleware: [], handlerName: null },
+          { rootName: "ui", path: "/manage/employee/:id", method: null, middleware: [], handlerName: null },
+          { rootName: "ui", path: "/leave/apply", method: null, middleware: [], handlerName: null },
+        ],
+      },
+    },
+    {
+      fragment: "prd-validation",
+      data: {
+        guards: [
+          {
+            rootName: "svc",
+            message: "Comment is required when status is rejected.",
+            messageKind: "stated",
+            test: "status == rejected",
+            source: { relPath: "a.go", line: 1 },
+          },
+          {
+            rootName: "svc",
+            message: "ErrNotFound",
+            messageKind: "error-code",
+            test: "found == false",
+            source: { relPath: "b.go", line: 2 },
+          },
+        ],
+      },
+    },
+    {
+      fragment: "prd-not-recoverable",
+      data: {
+        "silent-files": [{ rootName: "svc", relPath: "a.go", sizeBytes: 900 }],
+        "unread-files": [{ rootName: "svc", relPath: "b.js", sizeBytes: 800 }],
+        "coverage-notes": [{ subject: "route", note: "some limit" }],
+      },
+    },
+  ];
+
+  for (const { fragment, data } of cases) {
+    it(`${fragment} states every word through the frame`, () => {
+      const rendered = renderFragment(fragment, { kb, params: {}, frame: marked, data });
+      expect(rendered).not.toBe("");
+      // A bracketed key is the fallback for a string the frame does not carry.
+      expect(rendered, `${fragment} rendered a key with no string`).not.toMatch(/\[[a-z][a-z0-9-]*\]/);
+      // And nothing bypassed t(): every word came from the marked glossary.
+      expect(rendered).toMatch(/<<[a-z-]+>>/);
+    });
+  }
+});
+
+/**
+ * The recovered specification's tables, on their inputs.
+ *
+ * Nine of ten mutations of these fragments once survived the whole suite —
+ * changing a truncation limit, dropping a truncation notice, reversing a sort,
+ * breaking the identifier padding, mislabelling a count. Each assertion below
+ * kills one, and none depends on any target's contents.
+ */
+describe("the recovered specification's tables", () => {
+  function feature(
+    name: string,
+    endpoints: number,
+    tables: readonly string[] = [],
+    options: { nearby?: readonly string[]; roots?: readonly string[]; truncated?: boolean } = {},
+  ) {
+    return {
+      id: `feat_${name}`,
+      name,
+      term: name.toLowerCase(),
+      signals: [],
+      filePaths: [],
+      tables: [...tables],
+      tablesNearby: [...(options.nearby ?? [])],
+      tablesTruncated: options.truncated ?? false,
+      endpoints: Array.from({ length: endpoints }, (_, n) => ({
+        method: "GET",
+        path: `/${name.toLowerCase()}/${n}`,
+        rootName: "svc",
+      })),
+    };
+  }
+
+  function screen(rootName: string, path: string) {
+    return { rootName, path, method: null, middleware: [], handlerName: null };
+  }
+
+  function guard(rootName: string, relPath: string, message: string, test: string) {
+    return { rootName, message, messageKind: "stated", test, source: { relPath, line: 1 } };
+  }
+
+  const render = (fragment: string, data: Readonly<Record<string, unknown>>) =>
+    renderFragment(fragment, { kb, params: {}, data });
+
+  it("numbers capabilities by surface area, widest first, zero-padded", () => {
+    // Named against alphabetical order deliberately: `Large/Middle/Small` sorts the
+    // same way under both rules, so the assertion held under pure alphabetical.
+    const rendered = render("prd-features", {
+      features: [feature("Alpha", 2), feature("Zulu", 30), feature("Mike", 9)],
+    });
+    const ids = [...rendered.matchAll(/\| (F\d+) \| (\w+)/g)].map((m) => [m[1], m[2]]);
+    expect(ids).toEqual([
+      ["F001", "Zulu"],
+      ["F002", "Mike"],
+      ["F003", "Alpha"],
+    ]);
+  });
+
+  it("does not tell a reader a dash means nothing was attributed at either scope", () => {
+    // The lead said exactly that while 24 of 38 dashes had 1 to 45 tables in the
+    // facts, and the flows section drew them three pages later.
+    const rendered = render("prd-features", {
+      features: [feature("Billing", 1, [], { nearby: ["wcp_billing"] })],
+      endpoints: [],
+    });
+    expect(rendered).not.toContain("nothing could be attributed at all");
+  });
+
+  it("names the tables its package touches where its own files touch none", () => {
+    // 24 of 38 dashes stood for 1 to 45 attributed tables, and the flows section
+    // drew Billing's seven tables three pages after Billing's row said none.
+    const rendered = render("prd-features", {
+      features: [feature("Billing", 2, [], { nearby: ["wcp_billing", "wcp_project"] })],
+      endpoints: [],
+    });
+    expect(rendered).toContain("wcp_billing");
+    expect(rendered).toContain(FRAME_EN["tables-in-package"]!.replace("{0}", "").trim().split(":")[0]!);
+  });
+
+  it("marks nothing where no trace stopped counting", () => {
+    // On the row: the lead explains what the marker means, so the word is in the
+    // section either way.
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1, ["wcp_leave"])],
+      endpoints: [],
+    });
+    const row = rendered.split("\n").find((line) => line.includes("| Leave |"))!;
+    expect(row).not.toContain("uncounted");
+  });
+
+  it("does not print the truncation marker as a row's whole table cell", () => {
+    // A capability with no table at either scope and a truncated trace printed the
+    // marker alone, which reads as a table named "and more, uncounted".
+    const rendered = render("prd-features", {
+      features: [feature("Vocabulary", 0, [], { truncated: true })],
+      endpoints: [],
+    });
+    const cells = rendered
+      .split("\n")
+      .find((line) => line.includes("Vocabulary"))!
+      .split("|")
+      .map((part) => part.trim());
+    expect(cells[5]).toBe("—");
+  });
+
+  it("says the lists are short where a trace stopped counting tables", () => {
+    // Two caps compound: this section's, and the assembler's per-flow cap whose
+    // remainder is unknowable. Eleven capabilities printed twelve tables and said
+    // nothing, while their own diagrams read "16 more tables".
+    const rendered = render("prd-features", {
+      features: [feature("Openai", 1, [], { nearby: ["a_table"], truncated: true })],
+      endpoints: [],
+    });
+    const row = rendered.split("\n").find((line) => line.includes("| Openai |"))!;
+    expect(row).toContain("uncounted");
+  });
+
+  it("accounts for the tables it does not name at either scope", () => {
+    const own = Array.from({ length: 20 }, (_, n) => `own_${String(n).padStart(2, "0")}`);
+    const near = Array.from({ length: 30 }, (_, n) => `near_${String(n).padStart(2, "0")}`);
+    const rendered = render("prd-features", {
+      features: [feature("Wide", 1, own, { nearby: near })],
+      endpoints: [],
+    });
+    const shownOwn = [...rendered.matchAll(/own_\d\d/g)].length;
+    const shownNear = [...rendered.matchAll(/near_\d\d/g)].length;
+    const counted = [...rendered.matchAll(/and (\d+) more/g)].map((m) => Number(m[1]));
+    expect(shownOwn + shownNear + counted.reduce((a, b) => a + b, 0)).toBe(50);
+    expect(shownOwn).toBeGreaterThan(4);
+    expect(shownNear).toBeGreaterThan(4);
+  });
+
+  it("does not repeat a table in both scopes", () => {
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1, ["wcp_leave"], { nearby: ["wcp_leave", "wcp_user"] })],
+      endpoints: [],
+    });
+    expect([...rendered.matchAll(/wcp_leave/g)]).toHaveLength(1);
+  });
+
+  it("keeps the two scopes apart rather than merging them into one list", () => {
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1, ["wcp_leave"], { nearby: ["wcp_user"] })],
+      endpoints: [],
+    });
+    const row = rendered.split("\n").find((line) => line.includes("Leave"))!;
+    expect(row.indexOf("wcp_leave")).toBeLessThan(row.indexOf("elsewhere in its package"));
+    expect(row.indexOf("elsewhere in its package")).toBeLessThan(row.indexOf("wcp_user"));
+  });
+
+  it("names an address with the service that serves it, so a count adds up", () => {
+    // Deduped on the address alone, a capability said 2 endpoints and listed one,
+    // losing the fact that both services serve it.
+    const rendered = render("prd-features", {
+      features: [
+        {
+          ...feature("Support", 0),
+          endpoints: [
+            { method: "GET", path: "/v2/support/projects", rootName: "svc-a" },
+            { method: "GET", path: "/v2/support/projects", rootName: "svc-b" },
+          ],
+        },
+      ],
+      endpoints: [],
+    });
+    expect(rendered).toContain("svc-a: GET /v2/support/projects");
+    expect(rendered).toContain("svc-b: GET /v2/support/projects");
+  });
+
+  it("names a capability's addresses and tables, not only how many", () => {
+    // "Billing — 32 endpoints" and not one path is what a rebuild team was given.
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 2, ["wcp_leave", "wcp_leave_detail"])],
+    });
+    expect(rendered).toContain("/leave/0");
+    expect(rendered).toContain("wcp_leave_detail");
+  });
+
+  it("counts every address it does not name", () => {
+    const rendered = render("prd-features", { features: [feature("Wide", 30)] });
+    const more = Number(/and (\d+) more/.exec(rendered)?.[1]);
+    const shown = [...rendered.matchAll(/\/wide\/\d+/g)].length;
+    expect(shown + more).toBe(30);
+  });
+
+  it("keeps two front ends apart and counts an address once", () => {
+    // Grouping on the path alone merged them and counted a shared path twice.
+    const rendered = render("prd-pages", {
+      screens: [screen("ui-a", "/login"), screen("ui-b", "/login")],
+    });
+    expect(rendered).toContain("ui-a");
+    expect(rendered).toContain("ui-b");
+    expect(rendered).not.toMatch(/\| \/login \| 2 \|/);
+  });
+
+  it("groups pages two segments deep, so an area is navigable", () => {
+    // One repository put 132 of 182 addresses under `/manage` and listed six.
+    // Asserted on the area headings rather than on the address column, where
+    // `/manage/leave` appears as a substring however the grouping is done.
+    const rendered = render("prd-pages", {
+      screens: [
+        screen("ui", "/manage/leave/list"),
+        screen("ui", "/manage/leave/:id"),
+        screen("ui", "/manage/employee/list"),
+      ],
+    });
+    const areas = [...rendered.matchAll(/^\| (\/\S+) \|/gm)].map((m) => m[1]);
+    expect(areas).toEqual(["/manage/leave", "/manage/employee"]);
+  });
+
+  it("accounts for every page, shown or summarised", () => {
+    const screens = Array.from({ length: 20 }, (_, n) => screen("ui", `/area/sub/page${n}`));
+    const rendered = render("prd-pages", { screens });
+    const more = Number(/and (\d+) more/.exec(rendered)?.[1] ?? 0);
+    const shown = [...rendered.matchAll(/\/area\/sub\/page\d+/g)].length;
+    expect(shown + more).toBe(20);
+    // And enough of each area to be worth reading. The accounting holds for any
+    // limit, including one, so the property is "several per area" rather than the
+    // constant's value — a section naming one page in seven is not a page map.
+    expect(shown).toBeGreaterThan(4);
+  });
+
+  it("survives a root address without rendering a doubled slash", () => {
+    expect(render("prd-pages", { screens: [screen("ui", "/")] })).not.toContain("//");
+  });
+
+  it("says when a rule fires and where it is, not only what it says", () => {
+    // A message alone cannot be reproduced, and cannot be gone and read either.
+    const rendered = render("prd-validation", {
+      guards: [guard("svc", "leave.go", "Not enough holiday.", "available < requested")],
+    });
+    expect(rendered).toContain("available < requested");
+    expect(rendered).toContain("svc/leave.go");
+  });
+
+  it("does not rank rules by how often their message repeats", () => {
+    // Ranking that way filled every row with a repeated message, hid 623 rules
+    // stated once each, and let a repeated CSS value outrank a real rule.
+    const many = Array.from({ length: 3 }, (_, n) =>
+      guard("svc", `dup${n}.go`, "zzz repeated everywhere", "x"),
+    );
+    const one = guard("svc", "a.go", "aaa stated once", "y");
+    const rendered = render("prd-validation", { guards: [...many, one] });
+    expect(rendered.indexOf("aaa stated once")).toBeLessThan(
+      rendered.indexOf("zzz repeated everywhere"),
+    );
+  });
+
+  it("keeps each repository's rules under its own heading", () => {
+    const rendered = render("prd-validation", {
+      guards: [guard("api", "a.go", "Api rejects this.", "x"), guard("ui", "b.tsx", "Ui rejects this.", "y")],
+    });
+    expect(rendered).toContain("api");
+    expect(rendered).toContain("ui");
+  });
+
+  it("states each condition on its own line, not joined into one trigger", () => {
+    // `status === 0 · status === UserStatus.Inactive` are two mutually exclusive
+    // checks in two files; under a column headed "When" they read as a conjunction
+    // and a rebuild implements it.
+    const rendered = render("prd-validation", {
+      guards: [
+        guard("svc", "a.go", "Add User", "status === 0"),
+        guard("svc", "b.go", "Add User", "status === UserStatus.Inactive"),
+      ],
+    });
+    expect(rendered).toContain("status === 0<br>status === UserStatus.Inactive");
+    expect(rendered).not.toContain("·");
+  });
+
+  it("counts the conditions it does not show", () => {
+    // 78 of WCP's messages have more than one distinct condition and one has
+    // thirteen; past the second they were dropped with nothing said.
+    const guards = Array.from({ length: 6 }, (_, n) =>
+      guard("svc", `f${n}.go`, "Rejected.", `check${n}()`),
+    );
+    const rendered = render("prd-validation", { guards });
+    const shown = [...rendered.matchAll(/check\d\(\)/g)].length;
+    const more = Number(/and (\d+) more/.exec(rendered)?.[1] ?? 0);
+    expect(shown + more).toBe(6);
+    expect(more).toBeGreaterThan(0);
+  });
+
+  it("prints a rule enforced in two repositories under each of them", () => {
+    // Filed under whichever file was walked first, WCP's password rules appeared
+    // once, under a proposal-share modal, and never among the 493 rules of the
+    // service that also enforces them.
+    const rendered = render("prd-validation", {
+      guards: [
+        guard("ui", "Modal.tsx", "Password must be 6 digits long.", "!/^\\d{6}$/.test(value)"),
+        guard("api", "service.go", "Password must be 6 digits long.", "len(p.Password) != 6"),
+      ],
+    });
+    const rows = rendered.split("\n").filter((line) => line.includes("Password must be 6 digits"));
+    expect(rows).toHaveLength(2);
+    expect(rendered).toContain(FRAME_EN["also-in-other-repositories"]!.replace("{0}", "1"));
+  });
+
+  it("shows only the conditions the repository under the heading states", () => {
+    // The cross-root union printed wcp-service-v2's Go whitelist under
+    // wcp_review_service's heading, where the allowed set is a different one.
+    const rendered = render("prd-validation", {
+      guards: [
+        guard("ui", "Modal.tsx", "sort params is invalid", 'sortable.includes("full_name")'),
+        guard("api", "service.go", "sort params is invalid", 'sortable.includes("status")'),
+      ],
+    });
+    const uiRow = rendered.split("\n").find((line) => line.includes("Modal.tsx"))!;
+    const apiRow = rendered.split("\n").find((line) => line.includes("service.go"))!;
+    expect(uiRow).toContain("full_name");
+    expect(uiRow).not.toContain("status");
+    expect(apiRow).toContain("status");
+    expect(apiRow).not.toContain("full_name");
+  });
+
+  it("names only this repository's files under its heading", () => {
+    const rendered = render("prd-validation", {
+      guards: [
+        guard("ui", "Modal.tsx", "Shared rejection.", "x"),
+        guard("api", "service.go", "Shared rejection.", "y"),
+      ],
+    });
+    const uiRow = rendered.split("\n").find((line) => line.includes("Modal.tsx"))!;
+    expect(uiRow).not.toContain("service.go");
+  });
+
+  it("prints every rule a repository states on this scale", () => {
+    // The cap was 400 against a service holding 493 distinct messages, so the
+    // document shipped ending that table with 93 of its rules absent.
+    const guards = Array.from({ length: 493 }, (_, n) =>
+      guard("svc", `f${n}.go`, `Rejection number ${String(n).padStart(3, "0")}.`, `c${n}()`),
+    );
+    const rendered = render("prd-validation", { guards });
+    expect(rendered).toContain("Rejection number 492.");
+    expect(rendered).not.toMatch(/^and \d+ more$/m);
+  });
+
+  function flow(
+    featureId: string,
+    entry: string,
+    options: { partial?: boolean; vague?: number; steps?: number } = {},
+  ) {
+    const steps = Array.from({ length: options.steps ?? 2 }, (_, n) => ({
+      kind: n === 0 ? "entry" : "data-access",
+      label: `step${n}`,
+      conditions: [],
+      unresolvedReason: null,
+      indirect: n > 0 && n <= (options.vague ?? 0),
+    }));
+    return {
+      featureId,
+      entryKey: entry,
+      partial: options.partial ?? false,
+      steps,
+      diagram: `flowchart LR\n  s0["${entry}"]`,
+    };
+  }
+
+  it("draws the traced flows themselves, not numbers about the analysis", () => {
+    // The section rendered how much of each capability had been followed — two
+    // numbers about the analysis, under a heading promising the system's behaviour.
+    const rendered = render("prd-flows", {
+      flows: [flow("feat_Leave", "svc:POST /leaves")],
+      features: [feature("Leave", 1)],
+    });
+    expect(rendered).toContain("```mermaid");
+    expect(rendered).toContain("svc:POST /leaves");
+  });
+
+  it("does not claim the drawn flows rest on the handler alone", () => {
+    // 14 of the 16 drawn against WCP carry a step observed only in the handler's
+    // package, and every such edge says so three lines above this sentence. Three
+    // flows, so the line that carried the claim is actually emitted — with one it
+    // never was, and this assertion passed against the wording it rejects.
+    const rendered = render("prd-flows", {
+      flows: [
+        flow("feat_Leave", "svc:GET /a", { vague: 2, steps: 3 }),
+        flow("feat_Leave", "svc:GET /b", { vague: 2, steps: 3 }),
+        flow("feat_Leave", "svc:GET /c", { vague: 2, steps: 3 }),
+      ],
+      features: [feature("Leave", 3)],
+    });
+    expect(rendered).toContain("traced flow(s) are not drawn");
+    expect(rendered).not.toContain("established in the handler itself");
+    // And says a gap is what puts a flow last, not only where its steps came from.
+    expect(rendered).toContain("no gap in it");
+  });
+
+  it("counts how many drawn flows rest on package evidence, rather than asserting it", () => {
+    // "Most flows here have at least one such step" was counted by hand, once,
+    // against one target, and asserted for every render after.
+    const rendered = render("prd-flows", {
+      flows: [
+        flow("feat_A", "svc:GET /a", { vague: 1, steps: 3 }),
+        flow("feat_B", "svc:GET /b", { vague: 0, steps: 3 }),
+      ],
+      features: [feature("A", 1), feature("B", 1)],
+    });
+    expect(rendered).toContain("2 traced flows");
+    expect(rendered).toContain("1 of those drawn carry at least one step");
+  });
+
+  it("says whether any drawn flow has a gap, having looked", () => {
+    const whole = render("prd-flows", {
+      flows: [flow("feat_A", "svc:GET /a")],
+      features: [feature("A", 1)],
+    });
+    expect(whole).toContain("None of them has a gap");
+
+    const gapped = render("prd-flows", {
+      flows: [flow("feat_A", "svc:GET /a", { partial: true })],
+      features: [feature("A", 1)],
+    });
+    expect(gapped).toContain("1 of them still has a gap");
+    expect(gapped).not.toContain("None of them has a gap");
+  });
+
+  it("draws a complete trace before one with a gap", () => {
+    const rendered = render("prd-flows", {
+      flows: [
+        flow("feat_Leave", "svc:GET /partial", { partial: true }),
+        flow("feat_Leave", "svc:GET /whole"),
+      ],
+      features: [feature("Leave", 2)],
+    });
+    expect(rendered.indexOf("/whole")).toBeLessThan(rendered.indexOf("/partial"));
+  });
+
+  it("draws a trace observed in the handler before one observed in its package", () => {
+    // The section opened on a delete endpoint drawn against 13 tables, every edge
+    // dotted and labelled "observed in the handler's package". Same step count on
+    // both, or the shorter-trace tiebreak would order them without this rule.
+    const rendered = render("prd-flows", {
+      flows: [
+        // Named so that alphabetical order opposes the rule under test: without
+        // the package-scope term, the entry-key tiebreak alone would order these
+        // correctly and the assertion would hold for the wrong reason.
+        flow("feat_Leave", "svc:GET /a-vague", { vague: 3, steps: 4 }),
+        flow("feat_Leave", "svc:GET /z-crisp", { vague: 0, steps: 4 }),
+      ],
+      features: [feature("Leave", 2)],
+    });
+    expect(rendered.indexOf("/z-crisp")).toBeLessThan(rendered.indexOf("/a-vague"));
+  });
+
+  it("draws at most a couple of flows for one capability", () => {
+    // A diagram is a page each: WCP's Review capability alone has 55 flows, and
+    // drawing them all is how the section came to 2,068 lines.
+    const flows = Array.from({ length: 9 }, (_, n) => flow("feat_Leave", `svc:GET /f${n}`));
+    const rendered = render("prd-flows", { flows, features: [feature("Leave", 9)] });
+    expect(rendered.split("```mermaid").length - 1).toBeLessThan(4);
+  });
+
+  it("says how many capabilities with flows have no diagram", () => {
+    // 28 of WCP's 36 capabilities with traced flows vanished from a section whose
+    // lead read as covering all of them.
+    const features = Array.from({ length: 20 }, (_, n) => feature(`Cap${n}`, n + 1));
+    const flows = features.map((f) => flow(f.id, `svc:GET /${f.name}`));
+    const rendered = render("prd-flows", { flows, features });
+    const drawnCaps = [...rendered.matchAll(/^\*\*Cap\d+\*\*/gm)].length;
+    const said = Number(/(\d+) of the 20 capabilities with a traced flow/.exec(rendered)?.[1] ?? 0);
+    expect(drawnCaps + said).toBe(20);
+    expect(said).toBeGreaterThan(0);
+    // Enough of them to be a section: the accounting holds for a bound of one too.
+    expect(drawnCaps).toBeGreaterThan(4);
+  });
+
+  it("draws flows for some capabilities, not for forty-eight", () => {
+    const features = Array.from({ length: 20 }, (_, n) => feature(`Cap${n}`, n + 1));
+    const flows = features.map((f) => flow(f.id, `svc:GET /${f.name}`));
+    const rendered = render("prd-flows", { flows, features });
+    const drawn = rendered.split("```mermaid").length - 1;
+    expect(drawn).toBeLessThan(features.length);
+    expect(drawn).toBeGreaterThan(0);
+    // And what is left out is still accounted for.
+    expect(Number(/(\d+) of 20 traced flow/.exec(rendered)?.[1] ?? 0)).toBe(features.length - drawn);
+  });
+
+  it("accounts for every flow it does not draw", () => {
+    const flows = Array.from({ length: 9 }, (_, n) => flow("feat_Leave", `svc:GET /f${n}`));
+    const rendered = render("prd-flows", { flows, features: [feature("Leave", 9)] });
+    const drawn = rendered.split("```mermaid").length - 1;
+    const left = Number(/(\d+) of 9 traced flow/.exec(rendered)?.[1] ?? 0);
+    expect(drawn + left).toBe(9);
+    expect(drawn).toBeGreaterThan(0);
+  });
+
+  it("counts a capability's partial flows, and does not call them established", () => {
+    const rendered = render("prd-flows", {
+      flows: [flow("feat_Leave", "svc:GET /a", { partial: true }), flow("feat_Leave", "svc:GET /b")],
+      features: [feature("Leave", 2)],
+    });
+    expect(rendered).toContain(
+      FRAME_EN["prd-flow-partial"]!.replace("{0}", "1").replace("{1}", "2"),
+    );
+    expect(rendered).not.toContain("every step established");
+  });
+
+  it("says every step was established where none is missing", () => {
+    const rendered = render("prd-flows", {
+      flows: [flow("feat_Leave", "svc:GET /a"), flow("feat_Leave", "svc:GET /b")],
+      features: [feature("Leave", 2)],
+    });
+    expect(rendered).toContain(FRAME_EN["prd-flow-whole"]!.replace("{0}", "2"));
+    expect(rendered).not.toContain("could not be resolved");
+  });
+
+  it("says a capability has no entry point rather than no traceable chain", () => {
+    // All 12 of WCP's flowless capabilities have no endpoint at all, so "an entry
+    // point was found, but no call chain could be followed" was wrong for every
+    // one of them — and this run had call-edge extraction switched off besides.
+    const rendered = render("prd-flows", {
+      flows: [flow("feat_Leave", "svc:GET /a")],
+      features: [feature("Leave", 1), feature("Vocabulary", 0)],
+    });
+    expect(rendered).toContain("no entry point was attributed");
+    expect(rendered).not.toContain("no call chain");
+  });
+
+  it("separates a capability with an entry point but no flow from one with neither", () => {
+    const rendered = render("prd-flows", {
+      flows: [flow("feat_Leave", "svc:GET /a")],
+      features: [feature("Leave", 1), feature("Silent", 4), feature("Vocabulary", 0)],
+    });
+    expect(rendered).toContain("no entry point was attributed");
+    expect(rendered).toContain("have an entry point but no flow traced");
+  });
+
+  it("names the endpoints no capability claimed", () => {
+    // 65 of WCP's 539 endpoints belonged to no capability and appeared nowhere in
+    // a document meant to be built from.
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1)],
+      endpoints: [
+        { method: "GET", path: "/leave/0", rootName: "svc", middleware: [], handlerName: null },
+        { method: "POST", path: "/cronjobs", rootName: "svc", middleware: [], handlerName: null },
+      ],
+    });
+    expect(rendered).toContain("/cronjobs");
+    expect(rendered).toContain("1 of 2 endpoints belong to no capability");
+  });
+
+  it("marks an absent address with a dash, as every other absence is marked", () => {
+    // A capability detected from vocabulary alone has no address, and the cell was
+    // rendered empty where the rest of the document writes an em dash.
+    const rendered = render("prd-features", {
+      features: [feature("Vocabulary", 0)],
+      endpoints: [],
+    });
+    // By position: the endpoint-count cell is a dash too, so a bare `contains`
+    // passed while the addresses cell rendered blank.
+    const cells = rendered
+      .split("\n")
+      .find((line) => line.includes("Vocabulary"))!
+      .split("|")
+      .map((part) => part.trim());
+    expect(cells[4]).toBe("—");
+  });
+
+  it("says nothing about orphan endpoints where every one is claimed", () => {
+    const rendered = render("prd-features", {
+      features: [feature("Leave", 1)],
+      endpoints: [
+        { method: "GET", path: "/leave/0", rootName: "svc", middleware: [], handlerName: null },
+      ],
+    });
+    expect(rendered).not.toContain("belong to no capability");
+  });
+
+  it("says when one message is thrown in one place and returned in another", () => {
+    // One of WCP's 682 rules is stated both ways, and a single label for the pair
+    // would have called it whichever the walk met first.
+    const rendered = render("prd-validation", {
+      guards: [
+        { ...guard("svc", "a.go", "start_date must be on or before end_date", "x"), exit: "throw" },
+        { ...guard("svc", "b.js", "start_date must be on or before end_date", "y"), exit: "return" },
+      ],
+    });
+    expect(rendered).toContain(FRAME_EN["exit-return-and-throw"]!);
+  });
+
+  it("labels how a rule was stated through the frame", () => {
+    const rendered = render("prd-validation", {
+      guards: [{ ...guard("svc", "a.go", "ErrNope", "x"), messageKind: "error-code" }],
+    });
+    expect(rendered).toContain(FRAME_EN["message-kind-error-code"]);
+    expect(rendered).not.toContain("error-code |");
+  });
+});
+
 describe("finding your way around a long report", () => {
   function prepared(name: string) {
     const { outDir } = prepareInto(name);

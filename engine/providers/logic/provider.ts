@@ -172,16 +172,117 @@ const EXIT_KINDS = new Set<string>(["return_statement", "throw_statement"]);
 const PLUMBING_TEST =
   /^(!?\w*(err|error)\w*)\s*(!=|==)\s*nil$|^!?ok$|^!?\w*ok$|(err|error)\s*(!=|==)\s*nil/i;
 
-/** The first string literal inside a node — the message a rejection states. */
+/**
+ * Names whose value is presentation, never a statement.
+ *
+ * Named rather than inferred: a `title` or an `aria-label` on a rejected branch
+ * often *is* the rule, so the exclusion has to be this narrow. The trailing
+ * pattern keeps it open where the world is — `wrapperClassName`, `inputClassName`
+ * and whatever the next component library invents.
+ */
+const STYLING_NAMES = new Set(["className", "class", "style", "styles", "css", "sx"]);
+const STYLING_NAME_PATTERN = /(ClassName|Margin|Padding|Color|Radius|Shadow|Width|Height)$/;
+
+function isStylingName(name: string): boolean {
+  return STYLING_NAMES.has(name) || STYLING_NAME_PATTERN.test(name);
+}
+
+/**
+ * CSS syntax, for values no key introduces.
+ *
+ * `getRoleColor` returns `['#40C585', 'rgba(64, 197, 133, 0.10)']` — a bare array,
+ * so nothing names those values and the name-based skip cannot see them. They
+ * reached a recovered specification as rules the system enforces.
+ *
+ * A closed set on purpose, and defensible as one: it enumerates CSS, not the
+ * conventions of any project. The test is that *every* token is one of these, so a
+ * sentence containing the word `none` is unaffected.
+ */
+const CSS_KEYWORDS = new Set([
+  "solid",
+  "dashed",
+  "dotted",
+  "none",
+  "auto",
+  "inherit",
+  "transparent",
+  "currentcolor",
+]);
+const CSS_TOKEN =
+  /^(?:#[0-9a-f]{3,8}|(?:rgba?|hsla?|var|calc)\(.*|-?[\d.]+(?:px|rem|em|%|vh|vw|fr|s|ms|deg)?|[\d.]+\)?,?)$/i;
+
+function isPresentationValue(raw: string): boolean {
+  const tokens = raw.split(/[\s,]+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+  return tokens.every(
+    (token) => CSS_TOKEN.test(token) || CSS_KEYWORDS.has(token.replace(/[(),]/g, "").toLowerCase()),
+  );
+}
+
+/**
+ * Whether a node names presentation and holds its value.
+ *
+ * Attributes *and* object properties: keyed on the attribute form alone, this
+ * missed `className: 'mx-4 my-2'` in a settings object, `borderBottom: '1px solid
+ * #DDE3EE'`, and `rootMargin: '-125px 0px 0px 0px'` — which was the first row of a
+ * recovered specification's rules table, under a declared limit telling the reader
+ * a class list could not appear there.
+ *
+ * Keyed on the *name*, so it stays safe for the case that made excluding object
+ * literals wholesale wrong: a rejection in Express or Go states its message by
+ * building a response body, and a response body's key is `message` or `error`,
+ * never `className`.
+ */
+function isStyling(node: SgNode): boolean {
+  const name = node.children()[0];
+  return name !== undefined && isStylingName(name.text().replace(/^["'`]|["'`]$/g, ""));
+}
+
+/**
+ * The first string literal inside a node — the message a rejection states.
+ *
+ * Styling attributes are skipped; the rest of the markup is not. `if
+ * (record.cancel_flag) return <Button className="py-0 lh-base text-nowrap">` had a
+ * CSS class list read as a business rule, and it reached a recovered specification
+ * under the heading "rules the system enforces" — so a class list is never a
+ * message. Skipping markup wholesale was tried and reverted: it also dropped the
+ * four rules WCP states in a tooltip's `title`, and a component's props are where
+ * a browser application says what it refuses to do.
+ *
+ * The declared limit is the other half of this: a prop that is a label rather than
+ * a rejection is read as though it were one.
+ */
 function firstMessage(node: SgNode): string | null {
   const stack: SgNode[] = [node];
   while (stack.length > 0) {
     const current = stack.shift()!;
     const kind = current.kind() as string;
+    // A styling attribute is not a message. `if (record.cancel_flag) return
+    // <Button className="py-0 lh-base text-nowrap">` had a CSS class list read as
+    // a business rule, because the walk takes the first string in the returned
+    // subtree and a component's first string is usually a prop.
+    //
+    // Only styling, though. Skipping markup wholesale was tried and it cost real
+    // rules: this browser application states several by the tooltip it renders —
+    // `if (durationDays >= 30) return <BSTooltip title="Exceeded the expect date
+    // by more than a month">` and `if (client.submitted) return <BSTooltip
+    // title="Client has filled out the review and cannot be removed">`. Neither
+    // is a literal comparison, so nothing else recovers them.
+    //
+    // Excluding settings objects was tried and reverted for the same reason: a
+    // rejection in Express or Go commonly states its message *by* building a
+    // response body, so it lost "Invalid Authorization header" and "invalid
+    // client". Noise and rules share that shape; styling attributes are the one
+    // place they do not.
+    if ((kind === "jsx_attribute" || kind === "pair" || kind === "property") && isStyling(current)) {
+      continue;
+    }
     if (kind.includes("string") && !kind.includes("template")) {
       const raw = current.text().replace(/^[`'"]|[`'"]$/g, "").trim();
       // A message, not a format verb, a key, or a single word like "id".
-      if (raw.length >= 6 && /\s/.test(raw) && !/^%[svd]/.test(raw)) return raw.slice(0, 160);
+      if (raw.length >= 6 && /\s/.test(raw) && !/^%[svd]/.test(raw) && !isPresentationValue(raw)) {
+        return raw.slice(0, 160);
+      }
     }
     for (const child of current.children()) stack.push(child);
   }
@@ -297,6 +398,7 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
     const stated = firstMessage(exit);
     const message = stated ?? errorCodeName(exit);
     if (message === null) continue;
+    const exitKind = (exit.kind() as string) === "throw_statement" ? "throw" : "return";
 
     const range = node.range();
     const key = `${relPath}:${range.start.line}:${message}`;
@@ -316,6 +418,7 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
       test,
       message,
       messageKind: stated === null ? "error-code" : "stated",
+      exit: exitKind,
       enclosingFunction: enclosingFunctionName(node),
       source,
       provenance: resolved(source, "high"),
@@ -538,9 +641,12 @@ export function logicCapabilities(): ProviderCapabilities {
         support: "partial",
         limits: [
           "an `if` that rejects is read as a rule, by the message it states or by the name of the error constant it *throws*; the text behind such a constant lives in a message catalogue this run does not read, so the rule is named rather than quoted",
+          "a branch that leaves with a message is read the same way whether it throws or returns, because a rejection in Express or Go states its message by building a response body; a branch that returns a value rather than refusing — one subject line per language, a label, a formatted heading — is therefore read as a rule too, and only the recorded exit distinguishes them",
           "a named error must be the thrown expression or its first argument, and its parts must be capitalised — so `raise PermissionDenied`, `return ErrNotFound` and `throw new ForbiddenException()` are all missed, and a gate that rejects through one of those is absent rather than reported",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
+          "a message built from a template is quoted as the first run of its text that reads like a sentence, which may begin or end at an interpolation: `Already have a work log for ${proj.name}` is reported as `Already have a work log for`, and `entries[${i}].date must be YYYY-MM-DD` as `].date must be YYYY-MM-DD`. A message longer than 160 characters is cut. The rule is real in each case and its sentence is incomplete",
           "error-propagation guards (`if err != nil`) are filtered by shape, so a genuine rule that happens to test a variable named like an error is missed",
+          "a styling attribute is never read as a message, so a rule stated only through a class name is missed — and one stated in a component's other props is read as though it were a rejection",
           "languages without a grammar in this run are not read at all",
         ],
       },

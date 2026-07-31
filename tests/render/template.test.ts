@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { parseTemplate, TemplateError, loadTemplate } from "../../engine/render/template.js";
@@ -15,7 +18,7 @@ const MINIMAL = {
 };
 
 /** Every template this tool ships, so none of them drifts unchecked. */
-const SHIPPED = ["overview", "capability", "coverage"] as const;
+const SHIPPED = ["overview", "capability", "coverage", "prd"] as const;
 
 describe("reading a template", () => {
   it("reads sections in the order they are written", () => {
@@ -96,6 +99,19 @@ describe("the shipped templates", () => {
     // out of agreement with the data it reads.
     expect(fragmentNames().filter((name) => !used.has(name))).toEqual([]);
   });
+
+  it("names a prompt file that exists, for every llm section", () => {
+    // A typo in a `prompt:` path fails at export time, in front of whoever ran
+    // the command, after the analysis has already been paid for.
+    for (const id of SHIPPED) {
+      const template = loadTemplate(id);
+      for (const section of template.sections) {
+        if (section.kind !== "llm") continue;
+        const prompt = join(template.dir, section.prompt);
+        expect(existsSync(prompt), `${id}/${section.id}: ${section.prompt} is missing`).toBe(true);
+      }
+    }
+  });
 });
 
 describe("a fragment gets what its section was told to require", () => {
@@ -111,6 +127,11 @@ describe("a fragment gets what its section was told to require", () => {
     "flow-coverage": ["flow-coverage"],
     "capability-flow-coverage": ["feature-flow-coverage"],
     "silent-files": ["silent-files", "unread-files"],
+    "prd-features": ["features", "endpoints"],
+    "prd-flows": ["flows", "features"],
+    "prd-pages": ["screens"],
+    "prd-validation": ["guards"],
+    "prd-not-recoverable": ["silent-files", "unread-files", "coverage-notes"],
     "capability-silent-files": ["feature-silent-files", "feature-unread-files"],
     limitations: ["coverage-notes", "extraction-failures"],
   };

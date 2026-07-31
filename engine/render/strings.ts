@@ -31,6 +31,114 @@ export const FRAME_EN: Glossary = {
   "col-flows-traced": "Flows followed to the end",
   "col-steps-traced": "Steps established",
   "col-flow": "Flow",
+  "col-id": "ID",
+  // Not "Tables": the attribution is file-scoped, so the cell holds every table
+  // touched anywhere in the handler's file. WCP's Title capability has one
+  // endpoint reading `wcp_title` alone, and eleven tables in this cell, because
+  // its handler shares a file with the rest of the user service.
+  "col-tables-touched": "Tables its files touch",
+  "tables-in-package": "elsewhere in its package: {0}",
+  "tables-not-counted": "and more, uncounted",
+  "col-when": "When",
+  // Not "First seen": the cell lists every file in this repository that states the
+  // rule, and a first is walk order rather than a fact about the code.
+  "col-enforced-in": "Enforced in",
+  "and-files": "{0} and {1} more file(s)",
+  "also-in-other-repositories": "also enforced in {0} file(s) in other repositories",
+  "col-endpoints": "Endpoints",
+  "col-area": "Area",
+  "col-pages": "Pages",
+  "col-addresses": "Addresses",
+  "col-rejects-with": "Rejects with",
+  "col-stated-as": "Stated as",
+  "message-kind-stated": "a message in the code",
+  "message-kind-error-code": "a named error constant",
+  "exit-throw": "thrown",
+  "exit-return": "returned",
+  "exit-return-and-throw": "thrown in one place and returned in another",
+  // Every quantity here is measured at render time. Both halves used to be
+  // asserted: "the ones with no gap in them" was only a preference in the sort, and
+  // "most have at least one such step" was counted once, by hand, against one
+  // target.
+  "prd-flows-lead":
+    "{0} traced flows, at most two for each of the capabilities with the most of " +
+    "them, chosen as the clearest of each: a trace with no gap in it before one with " +
+    "a gap, and among those the one resting least on evidence from the handler's " +
+    "package rather than the handler itself. {1} {2} of those drawn carry at least " +
+    "one step observed only in the package, and every edge drawn from one says so.",
+  "prd-flows-all-whole": "None of them has a gap.",
+  "prd-flows-some-partial": "{0} of them still has a gap, no flow of that capability being whole.",
+  "prd-flow-whole": "{0} flow(s), every step established",
+  "prd-flow-partial": "{0} of {1} flow(s) have a step that could not be resolved",
+  "prd-flow-entry": "Entry point `{0}`",
+  // Says which flows were drawn rather than claiming anything about the rest: an
+  // earlier line said every undrawn flow was reachable from an endpoint listed
+  // above, and 261 of them start at an endpoint this document never prints.
+  // Not "the ones whose steps were established in the handler itself": 14 of the
+  // 16 drawn carry a step observed only in the handler's package, and the diagrams
+  // three lines above say so on every one of those edges.
+  // Both keys, not the second alone: four of the eight drawn capabilities have an
+  // undrawn flow with no package-scoped step at all, undrawn because it has a gap.
+  "prd-flows-left-out":
+    "{0} of {1} traced flow(s) are not drawn: at most {2} per capability appear here, " +
+    "the ones with no gap in them, and among those the ones resting least on " +
+    "evidence from outside the handler.",
+  "prd-flows-capabilities-left-out":
+    "{0} of the {1} capabilities with a traced flow have no diagram here: the ones " +
+    "with the most flows are drawn. The rest are traced in the knowledge base and " +
+    "can be rendered per capability.",
+  "prd-flows-no-entry":
+    "{0} of {1} capabilities have no diagram because no entry point was attributed to " +
+    "them at all — they were detected from the system's vocabulary, not from a route.",
+  "prd-flows-no-chain":
+    "{0} of {1} capabilities have an entry point but no flow traced from it.",
+  "prd-no-flows":
+    "No flow was traced end to end, so this section is empty rather than guessed. " +
+    "Entry points and the tables they reach are listed in their own sections.",
+  "prd-features-lead":
+    "Each capability below was detected from the system's own vocabulary — the words its routes, folders and tables use — and owns the endpoints named beside it. The tables column is wider than the capability: a table is listed when it is touched anywhere in the file handling one of these endpoints, and a second list gives the tables touched elsewhere in that file's package. Read either as where to look rather than as what this capability stores; a dash means no table was attributed at either scope. A row ending \"and more, uncounted\" means at least one trace of this capability reached more tables than it names; some of those may still appear in the row through another of its endpoints, and how many do not is beyond what this can state.",
+  "prd-orphan-endpoints":
+    "{0} of {1} endpoints belong to no capability above: the system's vocabulary gave " +
+    "no term to file them under. They are part of the surface a rebuild has to " +
+    "cover, so they are named here rather than left out.",
+  "prd-features-note":
+    "Identifiers are assigned by this document, not carried in the code, so they are stable for one run rather than across the system's history. No row carries a priority: nothing in a codebase records which capability mattered more, and a recovered specification that invented a ranking would be putting a product decision in a reader's mouth.",
+  "prd-no-features": "No capability was detected from this system's vocabulary.",
+  "prd-pages-lead":
+    "{0} addresses were read from the application's own route table, grouped by the area each belongs to. Hierarchy is the paths' own — a nested address is a nested page — and a parameter appears as the code writes it.",
+  "prd-pages-note":
+    "No page here is joined to the component that draws it, so what a page is *for* — its goal, its main action, what it must not show — is absent by necessity rather than oversight. An address assembled at run time is not read at all and so cannot appear.",
+  "prd-no-pages": "This system serves no client-side route table that could be read as a page map.",
+  "prd-validation-lead":
+    "What the system refuses, quoted in the words it refuses with. The message is the rule as the code states it, not an interpretation of what it means. Read the last column before relying on a row: a thrown message is a refusal, while a returned one may be a refusal — a rejection in Express or Go states its message by building a response body — or may be a value the branch produces, such as a subject line or a label. This reader cannot tell those apart, so it says which the branch did and leaves the judgement where the evidence is.",
+  "prd-validation-note":
+    "One row per message per repository: two gates stating the same message in one codebase collapse into one row, and a message enforced in two codebases appears under each, because the conditions are rarely the same rule twice. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all; a message a component states in its props is read as a rejection even where it is only a label, as is a value a branch returns; and a message built from a template is quoted as the first run of its text that reads like a sentence, which may begin or end at an interpolation.",
+  "prd-no-validation": "No rejection with a stated message was read from this system.",
+  "prd-absent-lead":
+    "This specification was recovered from source. It states in mechanical detail what the system does, and the following cannot be recovered from code by any means — they are absent here because no codebase records them, not because the recovery fell short:",
+  // Not "no statement of purpose survives": the repositories' own documentation
+  // often states one, this engine reads it, and the opening section reports it.
+  // What no codebase holds is why any of it was worth building.
+  "prd-absent-goal":
+    "**What the product is for.** Source states what the system does, never why it " +
+    "was worth doing: no problem, no intended outcome, no argument for one design " +
+    "over another. Where a repository's own documentation describes itself, the " +
+    "opening section reports what it says — a description is not a statement of intent.",
+  "prd-absent-users": "**Who uses it, and what for.** What the code checks before it acts can be recovered; who the people behind those checks are, and what they are trying to achieve, cannot.",
+  "prd-absent-metrics": "**What success means.** No target, threshold or measure of success exists in code.",
+  // Not "stated at equal weight": the capabilities table is ordered by endpoint
+  // count and numbered from it, so F001 reads as first for a reason.
+  "prd-absent-priority":
+    "**What matters most.** No ranking by importance survives. Where this document " +
+    "orders capabilities it orders them by surface area — how many endpoints each " +
+    "answers — which is a measurement rather than a priority.",
+  "prd-absent-risks": "**What the team was worried about.** Risks and assumptions are decisions and conversations, not artefacts.",
+  "prd-absent-scope":
+    "One section inverts. Read forwards, *out of scope* is a decision someone made; read backwards, everything in the code is in scope by definition. So the honest content of that section is not what anyone chose to leave out but what this analysis could not read — stated below and throughout, rather than omitted.",
+  "prd-absent-counts":
+    "Of the files this analysis read, {0} yielded nothing about behaviour and a further {1} yielded nothing at all. Both are listed later in this document, largest first, with the remainder counted rather than named — because a specification quietly smaller than its system is more dangerous than one visibly incomplete.",
+  "prd-absent-notes":
+    "{0} standing limits of the readers that produced this document are listed with it. They are conditions on every statement here, and worth reading before relying on any single one.",
   "col-file": "File",
   kib: "{0} KB",
   bytes: "{0} bytes",

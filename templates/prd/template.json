@@ -1,0 +1,156 @@
+{
+  "id": "prd",
+  "title": "$project — recovered specification",
+  "params": [],
+  "sections": [
+    {
+      "id": "what-this-is",
+      "kind": "llm",
+      "heading": "What This System Is",
+      "prompt": "prompts/what-this-is.md",
+      "requires": [
+        "run-context",
+        "features",
+        "repositories",
+        "screens"
+      ],
+      "contract": {
+        "maxWords": 500,
+        "maxHeadingLevel": 3
+      }
+    },
+    {
+      "id": "not-recoverable",
+      "kind": "code",
+      "heading": "What This Specification Cannot State",
+      "fragment": "prd-not-recoverable",
+      "requires": [
+        "silent-files",
+        "unread-files",
+        "coverage-notes"
+      ]
+    },
+    {
+      "id": "features",
+      "kind": "code",
+      "heading": "Capabilities",
+      "fragment": "prd-features",
+      "requires": [
+        "features",
+        "endpoints"
+      ]
+    },
+    {
+      "id": "pages",
+      "kind": "code",
+      "heading": "Page Map",
+      "fragment": "prd-pages",
+      "requires": [
+        "screens"
+      ]
+    },
+    {
+      "id": "architecture",
+      "kind": "code",
+      "heading": "Services and How They Connect",
+      "fragment": "project-map",
+      "requires": [
+        "map-edges"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "data-model",
+      "kind": "llm",
+      "heading": "Data Model",
+      "prompt": "prompts/data-model.md",
+      "requires": [
+        "entities",
+        "entity-models",
+        "data-ownership"
+      ],
+      "contract": {
+        "maxWords": 700,
+        "maxHeadingLevel": 3
+      }
+    },
+    {
+      "id": "validation",
+      "kind": "code",
+      "heading": "Rules the System Enforces",
+      "fragment": "prd-validation",
+      "requires": [
+        "guards"
+      ]
+    },
+    {
+      "id": "flows",
+      "kind": "code",
+      "heading": "How Work Moves Through the System",
+      "fragment": "prd-flows",
+      "requires": [
+        "flows",
+        "features"
+      ]
+    },
+    {
+      "id": "states",
+      "kind": "llm",
+      "heading": "States a Record Moves Through",
+      "prompt": "prompts/states.md",
+      "requires": [
+        "value-sets",
+        "guards"
+      ],
+      "contract": {
+        "maxWords": 600,
+        "maxHeadingLevel": 3
+      },
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "permissions",
+      "kind": "llm",
+      "heading": "What the Code Checks Before Acting",
+      "prompt": "prompts/permissions.md",
+      "requires": [
+        "auth-annotations",
+        "endpoints"
+      ],
+      "contract": {
+        "maxWords": 500,
+        "maxHeadingLevel": 3
+      }
+    },
+    {
+      "id": "integrations",
+      "kind": "code",
+      "heading": "External Systems",
+      "fragment": "external-systems",
+      "requires": [
+        "map-edges"
+      ],
+      "omitWhenEmpty": true
+    },
+    {
+      "id": "silence",
+      "kind": "code",
+      "heading": "Where This Stopped Reading",
+      "fragment": "silent-files",
+      "requires": [
+        "silent-files",
+        "unread-files"
+      ]
+    },
+    {
+      "id": "limitations",
+      "kind": "code",
+      "heading": "Standing Limits of This Recovery",
+      "fragment": "limitations",
+      "requires": [
+        "coverage-notes",
+        "extraction-failures"
+      ]
+    }
+  ]
+}

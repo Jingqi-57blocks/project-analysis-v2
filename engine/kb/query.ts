@@ -288,6 +288,11 @@ export class KnowledgeBase {
     return readDerivedFor(this.store, this.snapshot.id, "feature-flow", featureId);
   }
 
+  /** Every traced flow, for a document that shows movement across capabilities. */
+  flows(): readonly FeatureFlowFact[] {
+    return this.derived("feature-flow");
+  }
+
   /**
    * The rules published for a capability — the ones worth a reader's
    * attention, not every comparison in its files.

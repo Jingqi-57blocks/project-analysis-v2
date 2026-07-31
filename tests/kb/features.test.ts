@@ -100,6 +100,48 @@ describe("joining a capability to what was observed of it", () => {
     expect(buildFeatureFacts([feature()], [unresolved]).features[0]!.tables).toEqual([]);
   });
 
+  it("carries forward that a trace stopped counting tables", () => {
+    // The assembler caps tables per flow and records the remainder as a step with
+    // a reason. Dropping it with the other unresolved steps lost the fact, and a
+    // capability published twelve tables where twenty-eight had been counted.
+    const truncated = flow({
+      steps: [
+        {
+          kind: "data-access",
+          label: "16 more tables",
+          rootName: "svc",
+          conditions: [],
+          unresolvedReason: "only the first 12 tables are shown",
+          truncated: true,
+          provenance: null,
+        },
+      ],
+    });
+    const facts = buildFeatureFacts([feature()], [truncated]);
+    expect(facts.features[0]!.tablesTruncated).toBe(true);
+    // And the remainder step is not mistaken for a table of its own.
+    expect(facts.features[0]!.tables).toEqual([]);
+  });
+
+  it("does not claim a trace stopped counting where none did", () => {
+    // An unresolved step is not a truncated one: a query built at runtime says
+    // nothing about how many tables the trace could hold.
+    const unresolved = flow({
+      steps: [
+        {
+          kind: "data-access",
+          label: "unknown",
+          rootName: "svc",
+          conditions: [],
+          unresolvedReason: "the query was built at runtime",
+          provenance: null,
+        },
+      ],
+    });
+    expect(buildFeatureFacts([feature()], [unresolved]).features[0]!.tablesTruncated).toBe(false);
+    expect(buildFeatureFacts([feature()], [flow()]).features[0]!.tablesTruncated).toBe(false);
+  });
+
   it("gives an endpoint to the capability whose flow claimed it, not to every match", () => {
     // "cancel a leave application" matches both Leave and Application. Listing
     // it under both puts a workflow under a capability it has nothing to do

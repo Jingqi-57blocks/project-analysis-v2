@@ -138,9 +138,17 @@ export function buildFeatureFacts(
 
     const tables = new Set<string>();
     const nearby = new Set<string>();
+    let truncated = false;
     for (const flow of own) {
       for (const step of flow.steps) {
-        if (step.kind !== "data-access" || step.unresolvedReason !== null) continue;
+        if (step.kind !== "data-access") continue;
+        // The assembler caps tables per flow and records the remainder as a step
+        // with a reason. Skipping it lost the fact entirely, so a capability whose
+        // package touches 28 tables published 12 and said nothing.
+        if (step.unresolvedReason !== null) {
+          truncated = truncated || step.truncated === true;
+          continue;
+        }
         if (step.indirect === true) nearby.add(step.label);
         else tables.add(step.label);
       }
@@ -169,6 +177,7 @@ export function buildFeatureFacts(
       dataEntities: feature.entities,
       tables: [...tables].sort(),
       tablesNearby: [...nearby].sort(),
+      tablesTruncated: truncated,
       filePaths: feature.filePaths,
       flowCount: own.length,
       partialFlowCount: own.filter((flow) => flow.partial).length,

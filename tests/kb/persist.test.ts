@@ -31,6 +31,7 @@ function feature(overrides: Partial<FeatureFact> = {}): FeatureFact {
     dataEntities: ["leaves"],
     tables: ["leaves"],
     tablesNearby: [],
+  tablesTruncated: false,
     filePaths: ["svc/leave.go"],
     flowCount: 4,
     partialFlowCount: 1,
