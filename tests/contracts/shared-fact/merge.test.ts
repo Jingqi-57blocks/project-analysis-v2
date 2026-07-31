@@ -78,4 +78,36 @@ describe("mergeFacts", () => {
     expect((merged[0]!.envelope.payload as { name: string }).name).toBe("a");
     expect(merged[0]!.conflicts.find((c) => c.field === "name")?.values).toHaveLength(2);
   });
+
+  it("records a conflict when one provider omits a field and another sets it to null", () => {
+    const merged = mergeFacts([
+      env(entityA, { name: "x" }, "p1", "resolved"),
+      env(entityA, { name: "x", note: null }, "p2", "resolved"),
+    ]);
+    const conflict = merged[0]!.conflicts.find((c) => c.field === "note");
+    expect(conflict, "an absent field vs an explicit null is a conflict, not a dropped variant").toBeDefined();
+    expect(conflict!.values).toHaveLength(2);
+  });
+
+  it("canonicalizes retained payload key order, so the serialized bytes are input-order-independent", () => {
+    const a = mergeFacts([env(entityA, { table: "leaves", columns: 7 }, "p1", "resolved")]);
+    const b = mergeFacts([env(entityA, { columns: 7, table: "leaves" }, "p1", "resolved")]);
+    expect(JSON.stringify(a[0]!.envelope.payload)).toBe(JSON.stringify(b[0]!.envelope.payload));
+  });
+
+  it("canonicalizes retained evidence key order", () => {
+    const forward = env(entityA, { x: 1 }, "p", "resolved");
+    const reordered: FactEnvelope = {
+      ...forward,
+      evidence: [
+        {
+          attribution: { providerVersion: "1.0.0", providerId: "p" },
+          provenance: { confidence: "high", source: lineRef("api", "model.go", 1), resolutionClass: "resolved" },
+        },
+      ],
+    };
+    const a = mergeFacts([forward]);
+    const b = mergeFacts([reordered]);
+    expect(JSON.stringify(a[0]!.envelope.evidence)).toBe(JSON.stringify(b[0]!.envelope.evidence));
+  });
 });
