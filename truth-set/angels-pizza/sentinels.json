@@ -1,0 +1,101 @@
+{
+  "manifest": {
+    "version": "0.1.0",
+    "target": "angels-pizza",
+    "note": "Lightweight source-verified sentinels for the angels-pizza generalization target. Root revisions are pinned by content digest in truth-set/targets.json (no VCS). Draft, pending human sign-off. Paths are relative to each named root under ~/Documents/angels-pizza."
+  },
+  "items": [
+    {
+      "id": "AP-BACKEND-EP-01",
+      "root": "backend",
+      "kind": "positive",
+      "category": "entry-point",
+      "claim": "The Node backend is an Express app mounting its HTTP API under /api, with route modules under routes/ (auth, cart, checkout, ...).",
+      "evidence": [
+        { "path": "index.js", "lines": "492", "note": "app.use(\"/api\", enforceSupportedAppVersion) — the /api surface" },
+        { "path": "routes", "note": "route modules: auth, cart, categories, checkout, contact, ..." }
+      ],
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "noDedicatedReader": false,
+      "prevents": "Missing the backend's HTTP surface entirely (Express is reader-covered; this is the baseline positive)."
+    },
+    {
+      "id": "AP-WEBVUE-ROUTE-01",
+      "root": "web-vue",
+      "kind": "positive",
+      "category": "client-route",
+      "claim": "web-vue declares a client route table via vue-router (createRouter) with paths /, /product/:id, /new-page, /checkout.",
+      "evidence": [
+        { "path": "src/router/index.js", "lines": "7,15,21,27,32", "note": "createRouter + route path literals" }
+      ],
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "noDedicatedReader": true,
+      "prevents": "Reporting web-vue as having no routes or no structure because no dedicated Vue Router reader exists — the generic path must surface this router config."
+    },
+    {
+      "id": "AP-XBOUND-01",
+      "root": "web-vue",
+      "kind": "positive",
+      "category": "cross-boundary",
+      "claim": "web-vue calls the backend HTTP API through a configured base URL (VITE_API_BASE_URL / VITE_API_URL).",
+      "evidence": [
+        { "path": "src/config/api.js", "lines": "35,36", "note": "normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL) || ... VITE_API_URL" }
+      ],
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "noDedicatedReader": true,
+      "prevents": "Missing the frontend to backend API boundary — a key cross-boundary relation."
+    },
+    {
+      "id": "AP-WEBVUE-NEG-01",
+      "root": "web-vue",
+      "kind": "negative",
+      "category": "client-route-not-server",
+      "claim": "web-vue's vue-router paths are CLIENT routes; they are not server-side HTTP endpoints and must not be attributed as backend API routes.",
+      "evidence": [
+        { "path": "src/router/index.js", "lines": "2,7", "note": "import { createRouter } from 'vue-router' — client router, not an HTTP server" }
+      ],
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "noDedicatedReader": true,
+      "prevents": "Mis-attributing Vue client routes as backend HTTP endpoints (a precision false positive)."
+    },
+    {
+      "id": "AP-WEBVUE-ABS-01",
+      "root": "web-vue",
+      "kind": "clean-absence",
+      "category": "server-routes",
+      "claim": "web-vue defines no server-side HTTP route handlers — it is a Vue SPA; there is no Express/server router in it.",
+      "evidence": [
+        { "path": "src", "note": "no Express app / server route registration under src; routing is client-side vue-router only" }
+      ],
+      "expectedStatus": "absent",
+      "criticality": "normal",
+      "mustFind": false,
+      "noDedicatedReader": true,
+      "prevents": "Fabricating backend HTTP endpoints for a client-only SPA (a false-positive 'has server routes' conclusion)."
+    },
+    {
+      "id": "AP-WEBVUE-STRUCT-01",
+      "root": "web-vue",
+      "kind": "positive",
+      "category": "structure",
+      "claim": "web-vue has Vue views and components as structural units under src/views and src/components.",
+      "evidence": [
+        { "path": "src/views", "note": "view components" },
+        { "path": "src/components", "note": "reusable components" }
+      ],
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "noDedicatedReader": true,
+      "prevents": "Producing no structural result for Vue source (an empty-structure false negative on the no-reader path)."
+    }
+  ]
+}
