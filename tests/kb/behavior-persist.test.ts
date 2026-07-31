@@ -106,6 +106,18 @@ describe("persistBehaviorModel / readBehaviorModel", () => {
     store.close();
   });
 
+  it("replaces the snapshot's model wholesale — a shrunk re-persist leaves no stale fact", () => {
+    const store = openStore(IN_MEMORY, { now: "t" });
+    const snap = newSnapshot(store);
+    persistBehaviorModel(store, snap, model()); // 4 facts
+    persistBehaviorModel(store, snap, { schemaVersion: "1.0.0", facts: [branch], relations: [] }); // now 1
+    const read = readBehaviorModel(store, snap);
+    expect(read.facts).toHaveLength(1);
+    expect(read.facts[0]!.kind).toBe("condition");
+    expect(store.get<{ n: number }>("SELECT COUNT(*) AS n FROM behavior_relations WHERE snapshot_id = ?", [snap])!.n).toBe(0);
+    store.close();
+  });
+
   it("leaves nothing readable when the write is interrupted", () => {
     const store = openStore(IN_MEMORY, { now: "t" });
     const snap = newSnapshot(store);
@@ -155,19 +167,36 @@ describe("schema migration to behaviour tables", () => {
     raw.prepare("INSERT INTO source_roots (id, snapshot_id, name, path, content_digest) VALUES (1, 1, 'svc', '/svc', 'd')").run();
     raw
       .prepare(
-        `INSERT INTO structural_records (snapshot_id, source_root_id, kind, record_key, payload, resolution_class)
-         VALUES (1, 1, 'symbol', 'k1', '{}', 'declared')`,
+        `INSERT INTO structural_records (id, snapshot_id, source_root_id, kind, record_key, payload, resolution_class)
+         VALUES (1, 1, 1, 'symbol', 'k1', '{}', 'declared')`,
       )
       .run();
-    const before = (raw.prepare("SELECT COUNT(*) AS n FROM structural_records").get() as { n: number }).n;
+    // Provenance/attribution rows too, so conservation covers more than one table.
+    raw
+      .prepare(
+        `INSERT INTO structural_attributions (record_id, provider_id, provider_version) VALUES (1, 'symbols', '1.0.0')`,
+      )
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO derived_records (snapshot_id, kind, record_key, payload) VALUES (1, 'feature', 'f1', '{}')`,
+      )
+      .run();
+    const before = {
+      structural: (raw.prepare("SELECT COUNT(*) AS n FROM structural_records").get() as { n: number }).n,
+      attributions: (raw.prepare("SELECT COUNT(*) AS n FROM structural_attributions").get() as { n: number }).n,
+      derived: (raw.prepare("SELECT COUNT(*) AS n FROM derived_records").get() as { n: number }).n,
+    };
     raw.close();
-    expect(before).toBe(1);
+    expect(before).toEqual({ structural: 1, attributions: 1, derived: 1 });
 
     // Re-open through the tool: it migrates 6 -> 7, adding the behaviour tables.
     const store = openStore(path, { now: "t" });
     expect(store.schemaVersion).toBe(SUPPORTED_SCHEMA_VERSION);
-    // The pre-existing structural row is conserved.
+    // Every pre-existing row is conserved across the migration.
     expect(store.get<{ n: number }>("SELECT COUNT(*) AS n FROM structural_records")!.n).toBe(1);
+    expect(store.get<{ n: number }>("SELECT COUNT(*) AS n FROM structural_attributions")!.n).toBe(1);
+    expect(store.get<{ n: number }>("SELECT COUNT(*) AS n FROM derived_records")!.n).toBe(1);
     // And the new behaviour tables exist and are usable.
     persistBehaviorModel(store, 1, { schemaVersion: "1.0.0", facts: [branch], relations: [] });
     expect(readBehaviorModel(store, 1).facts).toHaveLength(1);

@@ -23,6 +23,7 @@ import type {
   BehaviorRelationKind,
 } from "../contracts/behavior/schema.js";
 import { BEHAVIOR_SCHEMA_VERSION, validateBehaviorModel } from "../contracts/behavior/schema.js";
+import { stableStringify } from "../contracts/shared-fact/merge.js";
 
 export interface BehaviorPersistCounts {
   readonly facts: number;
@@ -74,6 +75,14 @@ export function persistBehaviorModel(
   const quarantined = new Set<FactId>(validation.quarantined);
 
   return store.transaction(() => {
+    // A snapshot's behaviour model is exactly this model: clear the snapshot's
+    // prior behaviour rows first, so re-persisting a smaller model leaves no stale
+    // fact behind and re-persisting the same model is an exact replace. All inside
+    // the one transaction, so a reader never sees the intermediate empty state.
+    store.run("DELETE FROM behavior_facts WHERE snapshot_id = ?", [snapshotId]);
+    store.run("DELETE FROM behavior_relations WHERE snapshot_id = ?", [snapshotId]);
+    store.run("DELETE FROM behavior_diagnostics WHERE snapshot_id = ?", [snapshotId]);
+
     for (const fact of model.facts) {
       const payload = fact.payload as Partial<BehaviorPayload>;
       store.run(
@@ -88,7 +97,7 @@ export function persistBehaviorModel(
           payload.scope ?? null,
           payload.activation ?? null,
           fact.schemaVersion,
-          JSON.stringify(fact),
+          stableStringify(fact),
           quarantined.has(fact.factId) ? 1 : 0,
         ],
       );
@@ -163,7 +172,9 @@ export interface BehaviorDiagnostic {
 export function readBehaviorDiagnostics(store: Store, snapshotId: number): readonly BehaviorDiagnostic[] {
   return store
     .all<{ fact_id: string | null; reason: string }>(
-      "SELECT fact_id, reason FROM behavior_diagnostics WHERE snapshot_id = ? ORDER BY fact_id, reason",
+      // COALESCE so a future null-fact_id (coverage-gap) diagnostic still sorts
+      // to a total order rather than falling to insertion order.
+      "SELECT fact_id, reason FROM behavior_diagnostics WHERE snapshot_id = ? ORDER BY COALESCE(fact_id, ''), reason",
       [snapshotId],
     )
     .map((row) => ({ factId: row.fact_id, reason: row.reason }));
