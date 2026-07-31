@@ -156,6 +156,41 @@ describe("classifyModuleCandidates", () => {
     expect(out.artifact.candidates.every((c) => c.classification === "unresolved")).toBe(true);
   });
 
+  it("fails closed on an async classifier rejection, not just a synchronous throw", async () => {
+    const dir = runDir();
+    const out = await classifyModuleCandidates(input, {
+      runDir: dir,
+      sourceSnapshotId: "snap",
+      classifier,
+      classify: () => Promise.reject(new Error("async model timeout")),
+    });
+    expect(out.artifact.candidates.every((c) => c.classification === "unresolved")).toBe(true);
+  });
+
+  it("honours an override supplied on a reused run — the reviewer's decision is not dropped", async () => {
+    const dir = runDir();
+    const first = countingClassifier();
+    const a = await classifyModuleCandidates(input, { runDir: dir, sourceSnapshotId: "snap", classifier, classify: first.fn });
+    expect(a.artifact.candidates.find((c) => c.candidateId === "cmp_2")!.classification).toBe("unresolved");
+
+    // Second run: same input + classifier identity (so the classifier is reused), but
+    // now a human override arrives. It must land despite the reuse.
+    const second = countingClassifier();
+    const b = await classifyModuleCandidates(input, {
+      runDir: dir,
+      sourceSnapshotId: "snap",
+      classifier,
+      classify: second.fn,
+      overrides: [{ candidateId: "cmp_2", override: { source: "reviewer@x", classification: "product-module", note: "confirmed" } }],
+    });
+    expect(b.reused).toBe(true);
+    expect(second.calls()).toBe(0); // classifier still not re-run
+    expect(b.artifact.candidates.find((c) => c.candidateId === "cmp_2")!.classification).toBe("product-module");
+    expect(moduleScopeCandidates(b.artifact).map((c) => c.candidateId)).toContain("cmp_2");
+    // and it was persisted
+    expect(readClassificationArtifact(dir)!.candidates.find((c) => c.candidateId === "cmp_2")!.classification).toBe("product-module");
+  });
+
   it("applies an explicit override and folds it into the result, not silently", async () => {
     const dir = runDir();
     const { fn } = countingClassifier();

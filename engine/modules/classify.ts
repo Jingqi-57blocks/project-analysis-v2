@@ -23,6 +23,7 @@ import type {
 } from "../contracts/module-classification/schema.js";
 import {
   MODULE_CLASSIFICATION_SCHEMA_VERSION,
+  artifactIdentity,
   candidateSetDigest,
   shouldReuse,
   unresolvedArtifact,
@@ -75,7 +76,8 @@ function applyOverrides(
     candidates: artifact.candidates.map((c) => {
       const override = byId.get(c.candidateId);
       if (override === undefined) return c;
-      return { ...c, classification: override.classification, status: "classified", override };
+      const status = override.classification === "unresolved" ? "unresolved" : "classified";
+      return { ...c, classification: override.classification, status, override };
     }),
   };
 }
@@ -87,9 +89,20 @@ export async function classifyModuleCandidates(
   const candidates = generateModuleCandidates(input);
   const digest = candidateSetDigest(candidates);
 
+  const overrides = options.overrides ?? [];
+
+  // Reuse governs only whether the classifier re-runs — the expensive step. Human
+  // overrides are a cheap layer applied every run, so a reviewer who supplies an
+  // override after an initial run still lands it without paying to re-classify. If
+  // the override changes the result, the artifact is re-persisted; a pure reuse
+  // rewrites nothing.
   const existing = readClassificationArtifact(options.runDir);
   if (existing !== null && shouldReuse(existing, digest, options.classifier)) {
-    return { artifact: existing, reused: true, diagnostics: [] };
+    const artifact = applyOverrides(existing, overrides);
+    if (artifactIdentity(artifact) !== artifactIdentity(existing)) {
+      writeClassificationArtifact(options.runDir, artifact);
+    }
+    return { artifact, reused: true, diagnostics: [] };
   }
 
   let raw: ModuleClassificationArtifact;
@@ -117,7 +130,7 @@ export async function classifyModuleCandidates(
     sourceSnapshotId: options.sourceSnapshotId,
     classifier: options.classifier,
   };
-  const artifact = applyOverrides(identified, options.overrides ?? []);
+  const artifact = applyOverrides(identified, overrides);
 
   writeClassificationArtifact(options.runDir, artifact);
   return { artifact, reused: false, diagnostics: validated.diagnostics };
