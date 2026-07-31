@@ -172,6 +172,10 @@ export function derive(input: DeriveInput): Derived {
   // over a project with no route reader can state the coverage rather than imply
   // completeness. This does not replace the route traces above; it accounts for
   // the entries those cannot see.
+  // No current provider emits type-relation records (the CodeGraph provider
+  // declares that capability absent), so the walk here is call-based today; the
+  // traversal accepts type relations and will follow them the moment a provider
+  // supplies them, without a change to this call.
   const entryTraced = buildEntryTraces({
     routes,
     symbols: gathered.symbols,
@@ -183,7 +187,7 @@ export function derive(input: DeriveInput): Derived {
       subject: "entry-traceability",
       note:
         `${t.reachable} of ${t.total} identified entries could be traced beyond themselves ` +
-        `(${Math.round(t.rate * 100)}%): ${t.precise} precise, ${t.candidate} candidate, ${t.structureRoot} structure-root`,
+        `(${Math.round(t.rate * 100)}%). Entries by class: ${t.precise} precise, ${t.candidate} candidate, ${t.structureRoot} structure-root`,
     });
   }
 
