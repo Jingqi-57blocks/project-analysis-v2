@@ -161,10 +161,11 @@ are, and never merge a declared fact with an inferred claim.
   a simpler approach was rejected. Not what the next line does.
 - **Leave working code alone.** No drive-by rewrites of something you happened
   to read.
-- **Keep files readable**, around 500 lines as a working ceiling. Four files are
-  past it — `engine/kb/query.ts`, `engine/providers/logic/provider.ts`,
-  `engine/render/fragments.ts`, `tests/render/roundtrip.test.ts`. Split them when
-  next touched; none of them is precedent.
+- **Keep files readable**, around 500 lines as a working ceiling. One file is past
+  it: `engine/kb/query.ts` at 1,142 lines, which is one class of sixty read methods
+  and cannot come down by moving anything — it needs delegating into several
+  readers, which is 57B-302 and a design change rather than a move. It is not
+  precedent.
 - **A CLI change updates its documentation in the same commit** — `README.md`
   and `.claude/skills/project-analysis/SKILL.md`. The skill is what a user's
   agent reads, so a stale command there is a broken tool, not a stale doc.
