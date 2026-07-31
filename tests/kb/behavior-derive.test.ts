@@ -186,6 +186,34 @@ describe("deriveDecisionBehavior", () => {
     expect((coded.payload as unknown as { errorCode: string | null }).errorCode).toBe("ErrorCodes.WKL_Forbidden");
   });
 
+  it("maps a rejecting (negated) condition to a guarded activation", () => {
+    const model = derive({ conditions: [condition("lv.Status", "!=", "closed", "rejects")] });
+    const fact = model.facts.find((f) => f.kind === "condition")!;
+    expect((fact.payload as unknown as { activation: string }).activation).toBe("guarded");
+    expect((fact.payload as unknown as { operator: string }).operator).toBe("!=");
+  });
+
+  it("does not collapse two ladder clauses that differ only in their full test", () => {
+    const base = condition("status", "==", 4);
+    const a = { ...base, fullTest: "status == 4 && flow == L1" };
+    const b = { ...base, fullTest: "status == 4 && flow == L2" };
+    const model = derive({ conditions: [a, b] });
+    expect(model.facts.filter((f) => f.kind === "condition")).toHaveLength(2);
+    expect(validateBehaviorModel(model).ok).toBe(true);
+  });
+
+  it("links a rule to the value set in its own root, not a same-named set elsewhere", () => {
+    const vsA: ValueSet = { ...valueSet("Status"), rootName: "svc-a", relPath: "a.go" };
+    const vsB: ValueSet = { ...valueSet("Status"), rootName: "svc-b", relPath: "b.go" };
+    const r: BusinessRule = { ...rule("s", "Status", ["x"]), rootName: "svc-a" };
+    const model = derive({ rules: [r], valueSets: [vsB, vsA] }); // svc-b iterated first
+    const link = model.relations.find((rel) => rel.kind === "rule-valueset")!;
+    const own = model.facts.find(
+      (f) => f.kind === "value-set" && f.evidence[0]!.provenance.source.rootName === "svc-a",
+    )!;
+    expect(link.to).toBe(own.factId);
+  });
+
   it("returns an empty, valid model for no input", () => {
     const model = derive();
     expect(model.facts).toEqual([]);

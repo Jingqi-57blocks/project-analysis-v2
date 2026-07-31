@@ -18,6 +18,7 @@
 
 import type { EvidenceRecord, ProviderAttribution } from "../contracts/shared-fact/evidence.js";
 import { factId, type FactId } from "../contracts/shared-fact/identity.js";
+import { joinKey } from "../contracts/shared-fact/serialization.js";
 import { declared, inferred, lineRef, type Provenance } from "../contracts/shared-fact/provenance.js";
 import {
   BEHAVIOR_SCHEMA_VERSION,
@@ -68,7 +69,13 @@ function conditionFact(c: ConditionRecord): BehaviorFact {
     factId: factId({
       family: "behavioral",
       kind: "condition",
-      discriminators: [c.rootName, c.source.relPath, String(c.source.startLine), c.subject, c.operator, String(c.literal)],
+      // literalKind and fullTest are part of identity: `status == 4` and
+      // `status == "4"` are different comparisons, and two clauses of one ladder
+      // share a line and comparison but differ in the whole test they belong to.
+      discriminators: [
+        c.rootName, c.source.relPath, String(c.source.startLine),
+        c.subject, c.operator, String(c.literal), c.literalKind, c.fullTest ?? "",
+      ],
     }),
     family: "behavioral",
     kind: "condition",
@@ -93,7 +100,7 @@ function guardFact(g: GuardRecord): BehaviorFact {
     factId: factId({
       family: "behavioral",
       kind: "guard",
-      discriminators: [g.rootName, g.source.relPath, String(g.source.startLine), g.test],
+      discriminators: [g.rootName, g.source.relPath, String(g.source.startLine), g.test, g.messageKind, g.message],
     }),
     family: "behavioral",
     kind: "guard",
@@ -137,7 +144,10 @@ function ruleFact(r: BusinessRule): BehaviorFact {
     factId: factId({
       family: "behavioral",
       kind: "business-rule",
-      discriminators: [r.rootName, r.relPath, String(r.startLine), r.subject, r.operator, String(r.literal)],
+      discriminators: [
+        r.rootName, r.relPath, String(r.startLine),
+        r.subject, r.operator, String(r.literal), typeof r.literal, r.fullTest ?? "",
+      ],
     }),
     family: "behavioral",
     kind: "business-rule",
@@ -196,7 +206,12 @@ function deriveDecision(d: DecisionRecord, facts: BehaviorFact[], relations: Beh
       factId: factId({
         family: "behavioral",
         kind: "condition",
-        discriminators: [d.rootName, d.source.relPath, String(branch.startLine), String(index), branch.test],
+        // Namespaced under the owning decision (its start/end), so a branch cannot
+        // collide with a same-line branch of a different decision.
+        discriminators: [
+          d.rootName, d.source.relPath, String(d.startLine), String(d.endLine),
+          String(index), String(branch.startLine), branch.test,
+        ],
       }),
       family: "behavioral",
       kind: "condition",
@@ -231,18 +246,25 @@ export function deriveDecisionBehavior(input: BehaviorDeriveInput): BehaviorMode
   for (const c of input.conditions) facts.push(conditionFact(c));
   for (const g of input.guards) facts.push(guardFact(g));
 
-  const valueSetIdByName = new Map<string, FactId>();
+  // Two indexes: exact (root + name) and name-only. A rule links to the value set
+  // in its own root when there is one, so two roots that both declare a `Status`
+  // set never cross-link; a name-only match is the fallback when no same-root set
+  // exists (a shared constant defined in one root, read in another).
+  const valueSetByExact = new Map<string, FactId>();
+  const valueSetByName = new Map<string, FactId>();
   for (const v of input.valueSets) {
     const fact = valueSetFact(v);
     facts.push(fact);
-    if (!valueSetIdByName.has(v.name)) valueSetIdByName.set(v.name, fact.factId);
+    const exact = joinKey([v.rootName, v.name]);
+    if (!valueSetByExact.has(exact)) valueSetByExact.set(exact, fact.factId);
+    if (!valueSetByName.has(v.name)) valueSetByName.set(v.name, fact.factId);
   }
 
   for (const r of input.rules) {
     const fact = ruleFact(r);
     facts.push(fact);
     if (r.valueSetName !== null) {
-      const target = valueSetIdByName.get(r.valueSetName);
+      const target = valueSetByExact.get(joinKey([r.rootName, r.valueSetName])) ?? valueSetByName.get(r.valueSetName);
       if (target !== undefined) relations.push({ kind: "rule-valueset", from: fact.factId, to: target, role: "reads" });
     }
   }
