@@ -5,3 +5,4 @@
 
 export * from "./schema.js";
 export * from "./leave.js";
+export * from "./sentinel.js";
