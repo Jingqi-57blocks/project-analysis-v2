@@ -127,7 +127,9 @@ function errorHandlingFact(e: ErrorHandlingRecord): BehaviorFact {
     factId: factId({
       family: "behavioral",
       kind: "error-handling",
-      discriminators: [e.rootName, e.source.relPath, String(e.source.startLine), e.scope, [...e.handles].sort().join(",")],
+      // Spread the sorted handles as their own discriminators (joinKey escapes each
+      // separately), so ["A","B"] and ["A,B"] cannot collide through a "," join.
+      discriminators: [e.rootName, e.source.relPath, String(e.source.startLine), e.scope, ...[...e.handles].sort()],
     }),
     family: "behavioral",
     kind: "error-handling",
@@ -137,8 +139,10 @@ function errorHandlingFact(e: ErrorHandlingRecord): BehaviorFact {
     payload: pl({
       scope: scopeOf(e.symbolId),
       activation: "conditional",
-      // The internal error types this handles — never a user-facing message.
-      handles: e.handles,
+      // The internal error types this handles — never a user-facing message. Sorted
+      // so the persisted payload is byte-stable however the record ordered them
+      // (handles are a set of types, not an ordered sequence).
+      handles: [...e.handles].sort(),
       catchAll: e.handles.length === 0,
       errorScope: e.scope,
     }),

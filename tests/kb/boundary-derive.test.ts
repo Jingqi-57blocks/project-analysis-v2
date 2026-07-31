@@ -90,10 +90,21 @@ describe("deriveBoundaryBehavior", () => {
   it("records internal error types on a typed handler and marks a catch-all", () => {
     const model = derive({ errorHandling: [errorHandling(["ValidationError", "NotFoundError"]), errorHandling([])] });
     const typed = model.facts.find((f) => (payloadOf(f).handles as string[]).length > 0)!;
-    expect(payloadOf(typed).handles).toEqual(["ValidationError", "NotFoundError"]);
+    expect(payloadOf(typed).handles).toEqual(["NotFoundError", "ValidationError"]); // sorted, stable
     expect(payloadOf(typed).catchAll).toBe(false);
     const catchAll = model.facts.find((f) => payloadOf(f).catchAll === true)!;
     expect(catchAll).toBeDefined();
+  });
+
+  it("does not collapse two handlers whose sorted handles could join to the same string", () => {
+    const model = derive({
+      errorHandling: [
+        { ...errorHandling(["A", "B"]), source: lineRef("svc", "a.go", 20) },
+        { ...errorHandling(["A,B"]), source: lineRef("svc", "a.go", 20) },
+      ],
+    });
+    expect(model.facts.filter((f) => f.kind === "error-handling")).toHaveLength(2);
+    expect(validateBehaviorModel(model).ok).toBe(true);
   });
 
   it("keeps a heuristic record's own (inferred) resolution — it does not upgrade to resolved", () => {
