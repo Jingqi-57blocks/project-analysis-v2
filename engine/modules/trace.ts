@@ -75,7 +75,7 @@ function entryKeyOf(route: RouteRecord): string {
  * *shallow* picture last: a reader learns more from "what does this touch
  * immediately" than from one arbitrary deep path through a helper.
  */
-function walk(
+export function walk(
   entry: SymbolRecord,
   edgesByCaller: ReadonlyMap<SymbolId, readonly CallEdgeRecord[]>,
   symbolsById: ReadonlyMap<SymbolId, SymbolRecord>,
