@@ -16,32 +16,43 @@ An issue is not finished when its tests pass. All eight steps, in order:
 1. **Branch from `feat/kb-truthfulness`**, named `57b-NNN`. Never from another
    issue branch. Confirm the base before cutting it.
 2. Code and tests. `pnpm test` and `pnpm run typecheck` green.
-3. **Review: one round, four readers in parallel.** Not sequential rounds. Six
-   rounds on 57B-278 found six blockers, and four of them were defects introduced
-   by the previous round's fix — a reviewer cannot find a defect that does not
-   exist yet, so rounds do not converge, they chase. Dispatch together:
-   - **claims** — enumerate every sentence the diff adds to a document, a note or
-     a declared limit, and verify each against the knowledge base and the target's
-     source. This class produced every blocker from rounds 3 to 6.
-   - **bounds** — every cap, slice and truncation: is it stated, is it counted, and
-     do two caps compound anywhere without saying so.
-   - **mutation** — revert each fix by hand and confirm a test fails; report every
-     survivor. Assertions that pass for the wrong reason count as survivors.
-   - **facts** — sample the rendered output against the target's real source, and
-     the change against git history and prior review comments on these files.
+3. **Review with the `code-review` plugin workflow**, at max effort rather than the
+   Sonnet and Haiku tiers its file names, and with its five passes dispatched
+   **concurrently** rather than by one agent in sequence — the serial run took
+   sixteen minutes for work that has no ordering between its parts:
+   (a) CLAUDE.md adherence, (b) a diff-only scan for real bugs, (c) git history and
+   blame of the modified code, (d) comments on prior PRs touching these files,
+   (e) the code comments in those files against what the change now does.
 
-   Opus, xhigh, and none of them filters by confidence: state the finding and its
-   evidence. Fix P0 and P1 only.
+   **Passes (d) and (e) are why this workflow replaced the ad-hoc one.** Six
+   adversarial rounds on 57B-278 missed two defects that (d) and (e) found at once:
+   a branch returning a subject line published as a rule the system enforces —
+   recorded as fixed on the sibling code path in PR #57's own comment — and a
+   presentation-value skip that checked the wrong node kind, under a declared limit
+   telling the reader such values could not appear.
+
+   **Act on P0 and P1 only**, but have the reader report anything from 50 up: its
+   own 80 threshold and its exclusion list ("test coverage", "lines the user did not
+   modify", "pre-existing") drop classes that have blocked most rounds here, and a
+   finding is worth seeing even when the answer is "not this issue".
+
+   **Post the result on the PR**, as review comments at the lines they concern,
+   each carrying where it now stands — fixed in a named commit, deferred to a named
+   issue, or open. The PR is the record; a review that lives only in a terminal
+   leaves the next reader to find the same things again.
 
    **Before dispatching, check my own new claims.** Render, and read every sentence
-   the change added against the data behind it. Twenty seconds against twenty
-   minutes, and it is the step whose absence caused four of the six rounds.
+   the change added against the data behind it. Four of six rounds on 57B-278 were
+   spent on sentences I wrote and never measured; twenty seconds against twenty
+   minutes.
 
-4. **One re-review after fixing**, by the reader whose findings were fixed, and
-   only that one. Verify every finding by execution rather than accepting or
-   dismissing it on reading: several were right in substance and wrong in cause.
-   A third round means the fixes are introducing defects, which is a signal to
-   slow down rather than to review again.
+4. **Re-review only where the fixes warrant it**, and that is a judgement to make
+   and state, not a ritual. Verify every finding by execution rather than accepting
+   or dismissing it on reading: several were right in substance and wrong in cause.
+   A fix that adds a sentence to a document needs the claim check of step 3 again; a
+   fix measured against a fresh run of the real target does not need a second
+   reader. A third round is a signal that the fixes are introducing defects, which
+   calls for slowing down rather than reviewing again.
 5. Commit subjects `57B-NNN: description`, whole-word identifiers, and never a
    deferred issue's identifier.
 6. **Open a PR into `feat/kb-truthfulness`.**
@@ -78,6 +89,14 @@ Nothing new is written in this phase.
   second time within the hour of writing it. It claims no base and calls no branch
   merged, because neither is in the graph. **Run it before cutting a branch and
   before step 6.**
+
+## Phase 0b — the split, before anything new is written
+
+- **57B-301** — the four files CLAUDE.md names, split as pure moves. Head of the
+  queue, not the end: `engine/render/fragments.ts` is 1,235 lines against a 500-line
+  ceiling and every issue below touches it, so each one lands in a file that cannot
+  be read and makes the next reviewer's job harder. As a move, no behaviour change
+  and no test change beyond import paths.
 
 ## Phase 1 — make the knowledge base tell the truth about what it already read
 

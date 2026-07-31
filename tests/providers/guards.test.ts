@@ -277,6 +277,99 @@ describe("a branch that returns markup", () => {
   });
 });
 
+describe("presentation is not a rule", () => {
+  it("skips a class list named by a property, not only by a JSX attribute", () => {
+    // `className: 'mx-4 my-2'` in a settings object reached a recovered
+    // specification as a rule, under a limit saying a class list could not.
+    const source = `function f(divider) {
+  if (divider) {
+    return { type: 'divider', className: 'mx-4 my-2' };
+  }
+}`;
+    expect(guards(source, "helper.tsx")).toEqual([]);
+  });
+
+  it("skips a styling property whose name it has not seen before", () => {
+    const source = `function f(row) {
+  if (row.resting) {
+    return { borderBottom: '1px solid #DDE3EE', wrapperClassName: 'p-2' };
+  }
+}`;
+    expect(guards(source, "styles.ts")).toEqual([]);
+  });
+
+  it("skips a colour returned with no name at all", () => {
+    // `return ['#40C585', 'rgba(64, 197, 133, 0.10)']` — a bare array, so no key
+    // introduces the value and only its shape can say what it is.
+    const source = `function getRoleColor(role) {
+  if (!role) {
+    return ['#40C585', 'rgba(64, 197, 133, 0.10)'];
+  }
+}`;
+    expect(guards(source, "hr-utilities.ts")).toEqual([]);
+  });
+
+  it("still reads a rejection that happens to contain a number", () => {
+    // The shape test requires every token to be CSS, so a sentence survives it.
+    const found = guards(
+      `function f(hours) {
+  if (hours != 8) {
+    return e.InvalidParamMsg("8 hours is permitted only.");
+  }
+}`,
+      "brdg.go",
+    );
+    expect(found[0]!.message).toBe("8 hours is permitted only.");
+  });
+});
+
+describe("how a branch leaves, which is not the same claim", () => {
+  it("records a thrown rejection as thrown", () => {
+    const found = guards(
+      `function f(user) {
+  if (!user.admin) {
+    throw new Error("Only an administrator may do this");
+  }
+}`,
+      "a.ts",
+    );
+    expect(found[0]!.exit).toBe("throw");
+  });
+
+  it("records a returned message as returned, because it may be a value", () => {
+    // `policyEmailSubject` returns one subject line per branch, and those lines
+    // were published as rules the system enforces beside twenty-five UI labels.
+    const found = guards(
+      `package svc
+func subject(p Params) string {
+	if p.NeedConfirm {
+		return fmt.Sprintf("[Action Required] %s — Please confirm by %s", p.Name, p.Due)
+	}
+	return ""
+}`,
+      "notifier.go",
+    );
+    expect(found[0]!.exit).toBe("return");
+  });
+
+  it("records a rejection that returns a response body as returned too", () => {
+    // Not a value: Express and Go reject by building one. The reader cannot tell
+    // the two apart, which is why it records what the branch did and says so.
+    const found = guards(
+      `package svc
+func f(p Project) error {
+	if p.IsPresaleOrEOR() {
+		return e.InvalidParamMsg("Leave is not supported for these projects")
+	}
+	return nil
+}`,
+      "svc.go",
+    );
+    expect(found[0]!.exit).toBe("return");
+    expect(found[0]!.message).toBe("Leave is not supported for these projects");
+  });
+});
+
 describe("what the reader says it cannot do", () => {
   /** The declared limits for the rule reader, which reach every report. */
   function ruleLimits(): readonly string[] {

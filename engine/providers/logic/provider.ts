@@ -173,16 +173,69 @@ const PLUMBING_TEST =
   /^(!?\w*(err|error)\w*)\s*(!=|==)\s*nil$|^!?ok$|^!?\w*ok$|(err|error)\s*(!=|==)\s*nil/i;
 
 /**
- * Attributes whose value is presentation, never a statement.
+ * Names whose value is presentation, never a statement.
  *
  * Named rather than inferred: a `title` or an `aria-label` on a rejected branch
- * often *is* the rule, so the exclusion has to be this narrow.
+ * often *is* the rule, so the exclusion has to be this narrow. The trailing
+ * pattern keeps it open where the world is — `wrapperClassName`, `inputClassName`
+ * and whatever the next component library invents.
  */
-const STYLING_ATTRIBUTES = new Set(["className", "class", "style"]);
+const STYLING_NAMES = new Set(["className", "class", "style", "styles", "css", "sx"]);
+const STYLING_NAME_PATTERN = /(ClassName|Margin|Padding|Color|Radius|Shadow|Width|Height)$/;
 
-function isStyling(attribute: SgNode): boolean {
-  const name = attribute.children()[0];
-  return name !== undefined && STYLING_ATTRIBUTES.has(name.text());
+function isStylingName(name: string): boolean {
+  return STYLING_NAMES.has(name) || STYLING_NAME_PATTERN.test(name);
+}
+
+/**
+ * CSS syntax, for values no key introduces.
+ *
+ * `getRoleColor` returns `['#40C585', 'rgba(64, 197, 133, 0.10)']` — a bare array,
+ * so nothing names those values and the name-based skip cannot see them. They
+ * reached a recovered specification as rules the system enforces.
+ *
+ * A closed set on purpose, and defensible as one: it enumerates CSS, not the
+ * conventions of any project. The test is that *every* token is one of these, so a
+ * sentence containing the word `none` is unaffected.
+ */
+const CSS_KEYWORDS = new Set([
+  "solid",
+  "dashed",
+  "dotted",
+  "none",
+  "auto",
+  "inherit",
+  "transparent",
+  "currentcolor",
+]);
+const CSS_TOKEN =
+  /^(?:#[0-9a-f]{3,8}|(?:rgba?|hsla?|var|calc)\(.*|-?[\d.]+(?:px|rem|em|%|vh|vw|fr|s|ms|deg)?|[\d.]+\)?,?)$/i;
+
+function isPresentationValue(raw: string): boolean {
+  const tokens = raw.split(/[\s,]+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+  return tokens.every(
+    (token) => CSS_TOKEN.test(token) || CSS_KEYWORDS.has(token.replace(/[(),]/g, "").toLowerCase()),
+  );
+}
+
+/**
+ * Whether a node names presentation and holds its value.
+ *
+ * Attributes *and* object properties: keyed on the attribute form alone, this
+ * missed `className: 'mx-4 my-2'` in a settings object, `borderBottom: '1px solid
+ * #DDE3EE'`, and `rootMargin: '-125px 0px 0px 0px'` — which was the first row of a
+ * recovered specification's rules table, under a declared limit telling the reader
+ * a class list could not appear there.
+ *
+ * Keyed on the *name*, so it stays safe for the case that made excluding object
+ * literals wholesale wrong: a rejection in Express or Go states its message by
+ * building a response body, and a response body's key is `message` or `error`,
+ * never `className`.
+ */
+function isStyling(node: SgNode): boolean {
+  const name = node.children()[0];
+  return name !== undefined && isStylingName(name.text().replace(/^["'`]|["'`]$/g, ""));
 }
 
 /**
@@ -221,11 +274,15 @@ function firstMessage(node: SgNode): string | null {
     // response body, so it lost "Invalid Authorization header" and "invalid
     // client". Noise and rules share that shape; styling attributes are the one
     // place they do not.
-    if (kind === "jsx_attribute" && isStyling(current)) continue;
+    if ((kind === "jsx_attribute" || kind === "pair" || kind === "property") && isStyling(current)) {
+      continue;
+    }
     if (kind.includes("string") && !kind.includes("template")) {
       const raw = current.text().replace(/^[`'"]|[`'"]$/g, "").trim();
       // A message, not a format verb, a key, or a single word like "id".
-      if (raw.length >= 6 && /\s/.test(raw) && !/^%[svd]/.test(raw)) return raw.slice(0, 160);
+      if (raw.length >= 6 && /\s/.test(raw) && !/^%[svd]/.test(raw) && !isPresentationValue(raw)) {
+        return raw.slice(0, 160);
+      }
     }
     for (const child of current.children()) stack.push(child);
   }
@@ -341,6 +398,7 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
     const stated = firstMessage(exit);
     const message = stated ?? errorCodeName(exit);
     if (message === null) continue;
+    const exitKind = (exit.kind() as string) === "throw_statement" ? "throw" : "return";
 
     const range = node.range();
     const key = `${relPath}:${range.start.line}:${message}`;
@@ -360,6 +418,7 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
       test,
       message,
       messageKind: stated === null ? "error-code" : "stated",
+      exit: exitKind,
       enclosingFunction: enclosingFunctionName(node),
       source,
       provenance: resolved(source, "high"),
@@ -582,6 +641,7 @@ export function logicCapabilities(): ProviderCapabilities {
         support: "partial",
         limits: [
           "an `if` that rejects is read as a rule, by the message it states or by the name of the error constant it *throws*; the text behind such a constant lives in a message catalogue this run does not read, so the rule is named rather than quoted",
+          "a branch that leaves with a message is read the same way whether it throws or returns, because a rejection in Express or Go states its message by building a response body; a branch that returns a value rather than refusing — one subject line per language, a label, a formatted heading — is therefore read as a rule too, and only the recorded exit distinguishes them",
           "a named error must be the thrown expression or its first argument, and its parts must be capitalised — so `raise PermissionDenied`, `return ErrNotFound` and `throw new ForbiddenException()` are all missed, and a gate that rejects through one of those is absent rather than reported",
           "the message is the rule as the code states it, not a resolution of what it means; two gates with the same message on different values read alike",
           "a message built from a template is quoted as the first run of its text that reads like a sentence, which may begin or end at an interpolation: `Already have a work log for ${proj.name}` is reported as `Already have a work log for`, and `entries[${i}].date must be YYYY-MM-DD` as `].date must be YYYY-MM-DD`. A message longer than 160 characters is cut. The rule is real in each case and its sentence is incomplete",

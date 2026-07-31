@@ -32,7 +32,6 @@ export const FRAME_EN: Glossary = {
   "col-steps-traced": "Steps established",
   "col-flow": "Flow",
   "col-id": "ID",
-  "col-tables": "Tables",
   // Not "Tables": the attribution is file-scoped, so the cell holds every table
   // touched anywhere in the handler's file. WCP's Title capability has one
   // endpoint reading `wcp_title` alone, and eleven tables in this cell, because
@@ -54,14 +53,21 @@ export const FRAME_EN: Glossary = {
   "col-stated-as": "Stated as",
   "message-kind-stated": "a message in the code",
   "message-kind-error-code": "a named error constant",
+  "exit-throw": "thrown",
+  "exit-return": "returned",
+  "exit-return-and-throw": "thrown in one place and returned in another",
+  // Every quantity here is measured at render time. Both halves used to be
+  // asserted: "the ones with no gap in them" was only a preference in the sort, and
+  // "most have at least one such step" was counted once, by hand, against one
+  // target.
   "prd-flows-lead":
-    "Up to two traced flows for each of the capabilities with the most of them, " +
-    "chosen as the clearest of each: a trace with no gap in it before one with a " +
-    "gap, and the one resting least on evidence from the handler's package rather " +
-    "than the handler itself. Most flows here have at least one such step, and " +
-    "every edge drawn from one says so. " +
-    "A step it could not resolve is drawn as a gap rather than left out, so a " +
-    "diagram never implies a hop that was not found.",
+    "{0} traced flows, at most two for each of the capabilities with the most of " +
+    "them, chosen as the clearest of each: a trace with no gap in it before one with " +
+    "a gap, and among those the one resting least on evidence from the handler's " +
+    "package rather than the handler itself. {1} {2} of those drawn carry at least " +
+    "one step observed only in the package, and every edge drawn from one says so.",
+  "prd-flows-all-whole": "None of them has a gap.",
+  "prd-flows-some-partial": "{0} of them still has a gap, no flow of that capability being whole.",
   "prd-flow-whole": "{0} flow(s), every step established",
   "prd-flow-partial": "{0} of {1} flow(s) have a step that could not be resolved",
   "prd-flow-entry": "Entry point `{0}`",
@@ -104,16 +110,28 @@ export const FRAME_EN: Glossary = {
     "No page here is joined to the component that draws it, so what a page is *for* — its goal, its main action, what it must not show — is absent by necessity rather than oversight. An address assembled at run time is not read at all and so cannot appear.",
   "prd-no-pages": "This system serves no client-side route table that could be read as a page map.",
   "prd-validation-lead":
-    "What the system refuses, quoted in the words it refuses with. Each row is a rule the code enforces; the message is the rule as the code states it, not an interpretation of what it means.",
+    "What the system refuses, quoted in the words it refuses with. The message is the rule as the code states it, not an interpretation of what it means. Read the last column before relying on a row: a thrown message is a refusal, while a returned one may be a refusal — a rejection in Express or Go states its message by building a response body — or may be a value the branch produces, such as a subject line or a label. This reader cannot tell those apart, so it says which the branch did and leaves the judgement where the evidence is.",
   "prd-validation-note":
-    "One row per message per repository: two gates stating the same message in one codebase collapse into one row, and a message enforced in two codebases appears under each, because the conditions are rarely the same rule twice. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all; a message a component states in its props is read as a rejection even where it is only a label; and a message built from a template is quoted as the first run of its text that reads like a sentence, which may begin or end at an interpolation.",
+    "One row per message per repository: two gates stating the same message in one codebase collapse into one row, and a message enforced in two codebases appears under each, because the conditions are rarely the same rule twice. A rule expressed through control flow rather than a rejection, or one whose message lives in a catalogue this run did not read, does not appear at all; a message a component states in its props is read as a rejection even where it is only a label, as is a value a branch returns; and a message built from a template is quoted as the first run of its text that reads like a sentence, which may begin or end at an interpolation.",
   "prd-no-validation": "No rejection with a stated message was read from this system.",
   "prd-absent-lead":
     "This specification was recovered from source. It states in mechanical detail what the system does, and the following cannot be recovered from code by any means — they are absent here because no codebase records them, not because the recovery fell short:",
-  "prd-absent-goal": "**What the product is for.** No statement of purpose, problem or intended outcome survives in source.",
+  // Not "no statement of purpose survives": the repositories' own documentation
+  // often states one, this engine reads it, and the opening section reports it.
+  // What no codebase holds is why any of it was worth building.
+  "prd-absent-goal":
+    "**What the product is for.** Source states what the system does, never why it " +
+    "was worth doing: no problem, no intended outcome, no argument for one design " +
+    "over another. Where a repository's own documentation describes itself, the " +
+    "opening section reports what it says — a description is not a statement of intent.",
   "prd-absent-users": "**Who uses it, and what for.** What the code checks before it acts can be recovered; who the people behind those checks are, and what they are trying to achieve, cannot.",
   "prd-absent-metrics": "**What success means.** No target, threshold or measure of success exists in code.",
-  "prd-absent-priority": "**What matters most.** No ranking of capabilities survives; every one below is stated at equal weight because that is all the evidence supports.",
+  // Not "stated at equal weight": the capabilities table is ordered by endpoint
+  // count and numbered from it, so F001 reads as first for a reason.
+  "prd-absent-priority":
+    "**What matters most.** No ranking by importance survives. Where this document " +
+    "orders capabilities it orders them by surface area — how many endpoints each " +
+    "answers — which is a measurement rather than a priority.",
   "prd-absent-risks": "**What the team was worried about.** Risks and assumptions are decisions and conversations, not artefacts.",
   "prd-absent-scope":
     "One section inverts. Read forwards, *out of scope* is a decision someone made; read backwards, everything in the code is in scope by definition. So the honest content of that section is not what anyone chose to leave out but what this analysis could not read — stated below and throughout, rather than omitted.",

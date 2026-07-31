@@ -5,6 +5,13 @@ description: Analyze any codebase into a knowledge base of checkable facts, then
 
 # Project Analysis
 
+> **The commands below are wrong and will fail.** There is no `render` command:
+> rendering is `pnpm run export -- --as <document>`, run twice — it prepares the
+> tasks on the first run and assembles once the answers are written. The documents
+> are `overview`, `capability`, `coverage` and `prd` (a recovered specification).
+> Read `scripts/export.ts` for the real interface until this file is rewritten
+> under 57B-286; a stale command here is a broken tool, not a stale doc.
+
 Two stages, and you must not blur them.
 
 1. **Code establishes the facts.** `analyze` reads the project into a SQLite knowledge base: routes, symbols, tables, business rules, flows, findings — each with a location, none of them written by you.

@@ -247,14 +247,9 @@ function versionOf(entry: StackEntry): string {
 /** How many addresses to list per area before summarising. */
 const PAGES_PER_AREA = 6;
 
-/** How many distinct rejection messages to name before summarising. */
 /**
  * How many distinct rejection messages to name per repository.
  *
- * High enough to print all of them on a real workspace: the format this follows
- * lists every validation message, and a sample of rules is not a specification.
- */
-/**
  * High enough to print every rule a real workspace states: WCP-V2's largest
  * service alone holds 493 distinct messages, and at 400 the recovered
  * specification ended that table with `and 93 more` — counted, but 93 of the
@@ -324,6 +319,8 @@ function flowTally(f: Glossary, flows: readonly FeatureFlowFact[]): string {
 interface Rule {
   message: string;
   kind: string;
+  /** How the branches stating it leave: thrown, returned, or both. */
+  exits: Set<string>;
   /**
    * The conditions under which this rule rejects, per repository.
    *
@@ -336,6 +333,22 @@ interface Rule {
   testsBy: Map<string, Set<string>>;
   /** Every `<root>/<path>` that states this rule, which is more than one often. */
   where: Set<string>;
+}
+
+/**
+ * How the rule was stated, and how the branch stating it leaves.
+ *
+ * The second half is the distinction the table was missing. A `throw` refuses to
+ * do the work; a `return` may refuse — Express and Go reject by building a response
+ * body — or may be a value, and this reader cannot tell which. `policyEmailSubject`
+ * returns one subject line per branch, and those lines were published as rules the
+ * system enforces beside twenty-five UI labels, with nothing to mark them.
+ */
+function statedAs(f: Glossary, rule: Rule): string {
+  const kind = t(f, `message-kind-${rule.kind}`);
+  if (rule.exits.size === 0) return kind;
+  const exits = [...rule.exits].sort().join("-and-");
+  return `${kind}, ${t(f, `exit-${exits}`)}`;
 }
 
 /**
@@ -812,9 +825,10 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       byFeature.set(flow.featureId, [...(byFeature.get(flow.featureId) ?? []), flow]);
     }
 
-    const parts = [t(f, "prd-flows-lead")];
     let drawn = 0;
+    const shown: FeatureFlowFact[] = [];
 
+    const body: string[] = [];
     const ordered = [...byFeature.entries()].sort(
       (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "en"),
     );
@@ -835,12 +849,28 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             a.entryKey.localeCompare(b.entryKey, "en"),
         )
         .slice(0, FLOWS_PER_FEATURE);
-      parts.push(`**${nameOf.get(featureId) ?? featureId}** — ${flowTally(f, own)}`);
+      body.push(`**${nameOf.get(featureId) ?? featureId}** — ${flowTally(f, own)}`);
       for (const flow of show) {
-        parts.push(`${t(f, "prd-flow-entry", flow.entryKey)}`, mermaid(flow.diagram));
+        body.push(`${t(f, "prd-flow-entry", flow.entryKey)}`, mermaid(flow.diagram));
+        shown.push(flow);
         drawn += 1;
       }
     }
+    // Measured, not asserted. Both sentences named a property of what was drawn —
+    // that every one has no gap, that most rest partly on package evidence — and
+    // neither was computed, so each was true of one target and unchecked anywhere.
+    const withGap = shown.filter((flow) => flow.partial).length;
+    const withPackageEvidence = shown.filter((flow) => vagueSteps(flow) > 0).length;
+    const parts = [
+      t(
+        f,
+        "prd-flows-lead",
+        shown.length,
+        withGap === 0 ? t(f, "prd-flows-all-whole") : t(f, "prd-flows-some-partial", withGap),
+        withPackageEvidence,
+      ),
+      ...body,
+    ];
     if (flows.length > drawn) {
       parts.push(t(f, "prd-flows-left-out", flows.length - drawn, flows.length, FLOWS_PER_FEATURE));
     }
@@ -1044,9 +1074,11 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
       const entry = byMessage.get(guard.message) ?? {
         message: guard.message,
         kind: guard.messageKind,
+        exits: new Set<string>(),
         testsBy: new Map<string, Set<string>>(),
         where: new Set<string>(),
       };
+      if (guard.exit !== undefined) entry.exits.add(guard.exit);
       if (guard.test !== null && guard.test !== "") {
         const tests = entry.testsBy.get(guard.rootName) ?? new Set<string>();
         tests.add(guard.test);
@@ -1096,7 +1128,7 @@ const FRAGMENTS: Readonly<Record<string, Fragment>> = {
             return [
               entry.message,
               conditions(f, entry.testsBy.get(rootName) ?? new Set()),
-              t(f, `message-kind-${entry.kind}`),
+              statedAs(f, entry),
               [
                 here.length === 1 ? here[0]! : t(f, "and-files", here[0]!, here.length - 1),
                 elsewhere > 0 ? t(f, "also-in-other-repositories", elsewhere) : null,

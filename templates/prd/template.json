@@ -111,7 +111,7 @@
     {
       "id": "permissions",
       "kind": "llm",
-      "heading": "Roles and What Each May Do",
+      "heading": "What the Code Checks Before Acting",
       "prompt": "prompts/permissions.md",
       "requires": [
         "auth-annotations",

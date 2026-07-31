@@ -1065,7 +1065,36 @@ describe("the recovered specification's tables", () => {
     expect(rendered).toContain("traced flow(s) are not drawn");
     expect(rendered).not.toContain("established in the handler itself");
     // And says a gap is what puts a flow last, not only where its steps came from.
-    expect(rendered).toContain("no gap in them");
+    expect(rendered).toContain("no gap in it");
+  });
+
+  it("counts how many drawn flows rest on package evidence, rather than asserting it", () => {
+    // "Most flows here have at least one such step" was counted by hand, once,
+    // against one target, and asserted for every render after.
+    const rendered = render("prd-flows", {
+      flows: [
+        flow("feat_A", "svc:GET /a", { vague: 1, steps: 3 }),
+        flow("feat_B", "svc:GET /b", { vague: 0, steps: 3 }),
+      ],
+      features: [feature("A", 1), feature("B", 1)],
+    });
+    expect(rendered).toContain("2 traced flows");
+    expect(rendered).toContain("1 of those drawn carry at least one step");
+  });
+
+  it("says whether any drawn flow has a gap, having looked", () => {
+    const whole = render("prd-flows", {
+      flows: [flow("feat_A", "svc:GET /a")],
+      features: [feature("A", 1)],
+    });
+    expect(whole).toContain("None of them has a gap");
+
+    const gapped = render("prd-flows", {
+      flows: [flow("feat_A", "svc:GET /a", { partial: true })],
+      features: [feature("A", 1)],
+    });
+    expect(gapped).toContain("1 of them still has a gap");
+    expect(gapped).not.toContain("None of them has a gap");
   });
 
   it("draws a complete trace before one with a gap", () => {

@@ -131,6 +131,18 @@ export interface GuardRecord {
    * being quoted to a reader as though it were a sentence.
    */
   readonly messageKind: "stated" | "error-code";
+  /**
+   * How the branch leaves the function: by throwing, or by returning.
+   *
+   * The two are not the same claim. A `throw` refuses to do the work. A `return`
+   * may refuse — Express and Go commonly reject by building a response body — or
+   * may simply be a value: `policyEmailSubject` returns one subject line per
+   * branch, and its returns were published to a rebuild team as rules the system
+   * enforces, beside twenty-five UI labels. Keeping the two apart lets a document
+   * state each for what it is; the sibling reader for named errors was gated on
+   * `throw` alone for this reason, and this one was not.
+   */
+  readonly exit: "throw" | "return";
   readonly enclosingFunction: string | null;
   readonly source: SourceRef;
   readonly provenance: Provenance;
