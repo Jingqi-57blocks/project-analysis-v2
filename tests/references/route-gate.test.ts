@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createCodeGraphProvider } from "../../engine/providers/codegraph/provider.js";
 import { createGinReader } from "../../engine/providers/frameworkroutes/readers/gin.js";
 import { walkRoot } from "../../engine/inventory/walk.js";
-import { resolveTarget } from "../../engine/targets/resolve.js";
+import { resolveTarget } from "../support/targets/resolve.js";
 import {
   everyRouteAccountedFor,
   gradeRoutes,

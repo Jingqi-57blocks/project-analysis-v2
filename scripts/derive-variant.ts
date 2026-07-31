@@ -11,9 +11,9 @@
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { deriveVariant } from "../engine/targets/derive.js";
-import { targetIds } from "../engine/targets/registry.js";
-import { resolveTarget } from "../engine/targets/resolve.js";
+import { deriveVariant } from "../tests/support/targets/derive.js";
+import { targetIds } from "../tests/support/targets/registry.js";
+import { resolveTarget } from "../tests/support/targets/resolve.js";
 
 interface Args {
   readonly target: string;

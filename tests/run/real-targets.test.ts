@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { digestDirectory } from "../../engine/targets/digest.js";
-import { resolveTarget } from "../../engine/targets/resolve.js";
+import { resolveTarget } from "../support/targets/resolve.js";
 import { runAnalyze } from "../../engine/run/analyze.js";
 import { getStatus } from "../../engine/run/status.js";
 import { openStore } from "../../engine/store/open.js";
