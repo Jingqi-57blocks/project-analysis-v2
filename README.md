@@ -13,16 +13,21 @@ designed so a template nobody has written yet still works against it.
 
 ## Status
 
-Early. See the [Linear project](https://linear.app/57blocks-prd/project/project-analysis-v2-39519a3d7a1d)
-for the current plan — M0 is the MVP demo.
+Under active development on the `feat/project-intelligence-v1` branch. See the
+[Linear project](https://linear.app/57blocks-prd/project/项目智能-v1-图优先分析与报告流水线-0fe80a5b5868)
+for the plan (milestones M0–M6). The versioned product, fact and acceptance
+contracts live in `engine/contracts/`; verify them with `pnpm verify:contracts`
+(see `docs/m0-contracts.md`).
 
 ## Layout
 
 ```
-engine/     deterministic analysis — filled in from MVP 2 onward
-templates/  prompt templates over the knowledge base
-fixtures/   demo workspaces used to develop and grade every stage
-scripts/    development tooling
+engine/            deterministic analysis and the knowledge base
+engine/contracts/  versioned product, fact and acceptance contracts
+templates/         prompt templates over the knowledge base
+truth-set/         frozen acceptance truth and target manifest (test data)
+scripts/           development tooling
+tests/             unit, contract and real-target tests
 ```
 
 ## Using it
@@ -44,8 +49,7 @@ directory it is pointed at, and offers no way to relocate it. Every run prints
 that path before writing, and records it in the knowledge base so the reports
 say so too. `--index-root` moves it, at the cost of indexing only what is
 under the directory you name; `--no-code-index` skips it and declares the
-missing symbols as a gap. Removing this exception entirely is
-[57B-225](https://linear.app/57blocks-prd/issue/57B-225).
+missing symbols as a gap.
 
 Everything after that reads the knowledge base. `export` produces the same
 bytes for the same run and needs no access to the source at all.
@@ -70,10 +74,9 @@ Requires Node 22+ and pnpm 10+.
 
 ```bash
 pnpm install
-pnpm test
 pnpm run typecheck
-pnpm run fixture:setup            # materialise a runnable copy of the demo fixture
-pnpm run fixture:setup -- --force # rebuild it, discarding local edits
+pnpm run verify:contracts   # validate the M0 contracts and the drift gate
+pnpm test
 ```
 
 ### Targets
@@ -83,9 +86,10 @@ fixture. A fixture is not per-target — analyzing a new project never requires 
 — but a synthetic workspace would be code written to be *convenient to analyze*,
 which flatters the tool and predicts nothing about real behavior.
 
-Known targets are declared in `engine/targets/registry.ts`. They live outside
-this repository and are **never vendored into it**. Paths are per-machine and
-overridable:
+Known targets are declared in `tests/support/targets/registry.ts` — isolated
+from the production engine, which never decides analysis behavior from a target
+literal. They live outside this repository and are **never vendored into it**.
+Paths are per-machine and overridable:
 
 ```bash
 PA_TARGET_WCP_V2=/somewhere/else pnpm test

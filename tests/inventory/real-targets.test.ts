@@ -2,7 +2,7 @@ import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { digestDirectory } from "../../engine/targets/digest.js";
-import { resolveTarget } from "../../engine/targets/resolve.js";
+import { resolveTarget } from "../support/targets/resolve.js";
 import { walkRoot } from "../../engine/inventory/walk.js";
 import { announceSkip } from "../support/targets.js";
 

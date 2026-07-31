@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { envVarFor, TARGETS, targetIds } from "../../engine/targets/registry.js";
-import { expandPath, resolveTarget } from "../../engine/targets/resolve.js";
+import { envVarFor, TARGETS, targetIds } from "../support/targets/registry.js";
+import { expandPath, resolveTarget } from "../support/targets/resolve.js";
 
 const KNOWN_ID = TARGETS[0]!.id;
 

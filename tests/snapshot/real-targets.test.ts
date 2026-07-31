@@ -5,7 +5,7 @@ import { analyzedRoots } from "../../engine/workspace/types.js";
 import { snapshotRoot } from "../../engine/snapshot/rootsnapshot.js";
 import { workspaceIdentity } from "../../engine/snapshot/identity.js";
 import { digestDirectory } from "../../engine/targets/digest.js";
-import { TARGETS } from "../../engine/targets/registry.js";
+import { TARGETS } from "../support/targets/registry.js";
 import { announceSkip, targetAvailability } from "../support/targets.js";
 
 /**

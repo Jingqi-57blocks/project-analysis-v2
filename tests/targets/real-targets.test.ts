@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TARGETS } from "../../engine/targets/registry.js";
+import { TARGETS } from "../support/targets/registry.js";
 import { announceSkip, targetAvailability } from "../support/targets.js";
 
 /**

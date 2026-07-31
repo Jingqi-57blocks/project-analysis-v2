@@ -1,5 +1,5 @@
-import { resolveTarget } from "../../engine/targets/resolve.js";
-import type { ResolvedTarget } from "../../engine/targets/types.js";
+import { resolveTarget } from "./targets/resolve.js";
+import type { ResolvedTarget } from "./targets/types.js";
 
 export interface TargetAvailability {
   readonly available: boolean;

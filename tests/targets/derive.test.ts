@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { deriveVariant } from "../../engine/targets/derive.js";
+import { deriveVariant } from "../support/targets/derive.js";
 
 let workDir: string;
 let sourceRoot: string;
