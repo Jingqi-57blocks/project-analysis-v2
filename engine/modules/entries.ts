@@ -8,15 +8,20 @@
  * which of the three an entry is keeps a report honest: a candidate entry is a
  * lead, not a confirmed endpoint.
  *
- * The bounded, cycle-aware traversal is `trace.ts`'s `walk`, reused here rather
- * than re-implemented — this module decides *where to start*, not how to walk.
+ * The traversal is bounded and cycle-aware — cycles, recursion and high fan-out
+ * make an unbounded walk a trap. It follows more than calls: a call edge and a
+ * type relation (a subtype to its supertype) are both ways one symbol reaches
+ * another, and each step records which kind of edge reached it and where that
+ * edge is in the source, so a later reader can go back to the evidence.
+ * (A `reference` is anchored to a location, not a from-symbol, so it is evidence
+ * for behaviour derivation rather than a traversable edge, and is not walked here.)
  */
 
-import type { CallEdgeRecord, SymbolRecord } from "../structural/code.js";
+import type { CallEdgeRecord, SymbolRecord, TypeRelationRecord } from "../structural/code.js";
 import type { RouteRecord } from "../structural/boundaries.js";
 import type { SymbolId } from "../structural/identity.js";
-import type { ResolutionClass } from "../structural/provenance.js";
-import { DEFAULT_LIMITS, type TraceLimits, type TraceStep, type TruncationReason, walk } from "./trace.js";
+import type { ResolutionClass, SourceRef } from "../structural/provenance.js";
+import { DEFAULT_LIMITS, type TraceLimits, type TruncationReason } from "./trace.js";
 
 /** How sure we are this is a way into the system. */
 export type EntryClass = "precise" | "candidate" | "structure-root";
@@ -42,6 +47,8 @@ export interface EntryInput {
   readonly routes: readonly RouteRecord[];
   readonly symbols: readonly SymbolRecord[];
   readonly callEdges: readonly CallEdgeRecord[];
+  /** Optional: subtype→supertype edges, walked alongside calls. */
+  readonly typeRelations?: readonly TypeRelationRecord[];
 }
 
 const CALLABLE: ReadonlySet<string> = new Set(["function", "method", "constructor"]);
@@ -51,17 +58,17 @@ function isCallable(symbol: SymbolRecord): boolean {
 }
 
 /**
- * The entries, strongest class first, in a stable order. A symbol is classified
+ * The entries, strongest class first, in a total order. A symbol is classified
  * once: a route handler is precise even if it is also exported, an exported
- * callable is a candidate even if it is also a graph root. This ordering is what
- * keeps the three sets disjoint.
+ * callable is a candidate even if it is also a graph root. That single-claim rule
+ * keeps the three sets disjoint; the sort breaks entryKey ties on the unique
+ * symbolId so input order never decides the result.
  */
 export function identifyEntries(input: EntryInput): readonly EntryPoint[] {
   const symbolsById = new Map(input.symbols.map((s) => [s.id, s] as const));
   const claimed = new Set<SymbolId>();
   const entries: EntryPoint[] = [];
 
-  // Precise: a route whose handler resolved to a symbol we hold.
   for (const route of input.routes) {
     const handler = route.handlerSymbolId ? symbolsById.get(route.handlerSymbolId) : undefined;
     if (handler === undefined || claimed.has(handler.id)) continue;
@@ -79,8 +86,6 @@ export function identifyEntries(input: EntryInput): readonly EntryPoint[] {
     });
   }
 
-  // Candidate: an exported callable no route claimed. A way in the language
-  // exposes, whether or not a framework registered it.
   for (const symbol of input.symbols) {
     if (claimed.has(symbol.id) || !isCallable(symbol) || symbol.visibility !== "public") continue;
     claimed.add(symbol.id);
@@ -97,8 +102,6 @@ export function identifyEntries(input: EntryInput): readonly EntryPoint[] {
     });
   }
 
-  // Structure root: a callable nothing in the graph calls. The weakest signal —
-  // used only when the stronger two did not already claim the symbol.
   const callees = new Set<SymbolId>();
   for (const edge of input.callEdges) {
     if (edge.calleeId !== null) callees.add(edge.calleeId);
@@ -119,7 +122,168 @@ export function identifyEntries(input: EntryInput): readonly EntryPoint[] {
     });
   }
 
-  return entries.sort((a, b) => (a.entryKey < b.entryKey ? -1 : a.entryKey > b.entryKey ? 1 : 0));
+  return entries.sort((a, b) =>
+    a.entryKey < b.entryKey
+      ? -1
+      : a.entryKey > b.entryKey
+        ? 1
+        : a.symbolId < b.symbolId
+          ? -1
+          : a.symbolId > b.symbolId
+            ? 1
+            : 0,
+  );
+}
+
+export type EntryEdgeKind = "call" | "type";
+
+/** One step, and the edge that reached it — its kind, source, and endpoints. */
+export interface EntryTraceStep {
+  readonly symbolId: SymbolId;
+  readonly name: string;
+  readonly depth: number;
+  readonly rootName: string;
+  readonly resolution: ResolutionClass;
+  /** Null for the entry itself; otherwise how this step was reached. */
+  readonly edgeKind: EntryEdgeKind | null;
+  readonly fromSymbolId: SymbolId | null;
+  /** Where the reaching edge is in the source. Null for the entry itself. */
+  readonly via: SourceRef | null;
+}
+
+/** A resolved or unresolved way out of one symbol, whatever its kind. */
+interface OutEdge {
+  readonly to: SymbolId | null;
+  readonly toName: string;
+  readonly kind: EntryEdgeKind;
+  readonly resolution: ResolutionClass;
+  readonly source: SourceRef;
+}
+
+function outEdgesBySource(input: EntryInput): ReadonlyMap<SymbolId, readonly OutEdge[]> {
+  const map = new Map<SymbolId, OutEdge[]>();
+  const add = (from: SymbolId, edge: OutEdge) => {
+    const list = map.get(from) ?? [];
+    list.push(edge);
+    map.set(from, list);
+  };
+  for (const call of input.callEdges) {
+    add(call.callerId, {
+      to: call.calleeId,
+      toName: call.calleeName,
+      kind: "call",
+      resolution: call.provenance.resolutionClass,
+      source: call.provenance.source,
+    });
+  }
+  for (const rel of input.typeRelations ?? []) {
+    add(rel.subtypeId, {
+      to: rel.supertypeId,
+      toName: rel.supertypeName,
+      kind: "type",
+      resolution: rel.provenance.resolutionClass,
+      source: rel.provenance.source,
+    });
+  }
+  return map;
+}
+
+interface WalkResult {
+  readonly steps: EntryTraceStep[];
+  readonly truncation: TruncationReason;
+  readonly detail: string | null;
+}
+
+/**
+ * Bounded breadth-first walk from an entry over the unified edge set. Breadth-first
+ * so a depth limit truncates the deep picture last; a back-edge to an ancestor is a
+ * cycle (a diamond is not); an unresolved target stops the walk from writing fiction.
+ */
+function walkGraph(
+  entry: SymbolRecord,
+  outBySource: ReadonlyMap<SymbolId, readonly OutEdge[]>,
+  symbolsById: ReadonlyMap<SymbolId, SymbolRecord>,
+  limits: TraceLimits,
+): WalkResult {
+  const steps: EntryTraceStep[] = [
+    {
+      symbolId: entry.id,
+      name: entry.name,
+      depth: 0,
+      rootName: entry.provenance.source.rootName,
+      resolution: entry.provenance.resolutionClass,
+      edgeKind: null,
+      fromSymbolId: null,
+      via: null,
+    },
+  ];
+  const visited = new Set<SymbolId>([entry.id]);
+  const parents = new Map<SymbolId, SymbolId>();
+  const isAncestor = (candidate: SymbolId, from: SymbolId): boolean => {
+    let current: SymbolId | undefined = from;
+    while (current !== undefined) {
+      if (current === candidate) return true;
+      current = parents.get(current);
+    }
+    return false;
+  };
+
+  const queue: { symbol: SymbolRecord; depth: number }[] = [{ symbol: entry, depth: 0 }];
+  let truncation: TruncationReason = "completed";
+  let detail: string | null = null;
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.depth >= limits.maxDepth) {
+      truncation = "max-depth";
+      detail = `stopped at depth ${limits.maxDepth}`;
+      continue;
+    }
+    const outgoing = outBySource.get(current.symbol.id) ?? [];
+    if (outgoing.length > limits.maxBranches) {
+      truncation = "max-branches";
+      detail = `${current.symbol.name} has ${outgoing.length} outgoing edges, above the branch limit`;
+      continue;
+    }
+    for (const edge of outgoing) {
+      if (edge.to === null) {
+        if (truncation === "completed") {
+          truncation = "unresolved-edge";
+          detail = `${edge.kind} to ${edge.toName} could not be resolved`;
+        }
+        continue;
+      }
+      if (visited.has(edge.to)) {
+        if (truncation === "completed" && isAncestor(edge.to, current.symbol.id)) {
+          truncation = "cycle";
+          detail = `${edge.toName} reaches back into its own caller chain`;
+        }
+        continue;
+      }
+      const callee = symbolsById.get(edge.to);
+      if (!callee) continue;
+      visited.add(edge.to);
+      parents.set(edge.to, current.symbol.id);
+      steps.push({
+        symbolId: callee.id,
+        name: callee.name,
+        depth: current.depth + 1,
+        rootName: callee.provenance.source.rootName,
+        resolution: edge.resolution,
+        edgeKind: edge.kind,
+        fromSymbolId: current.symbol.id,
+        via: edge.source,
+      });
+      if (steps.length >= limits.maxSteps) {
+        truncation = "max-steps";
+        detail = `stopped after ${limits.maxSteps} steps`;
+        return { steps, truncation, detail };
+      }
+      queue.push({ symbol: callee, depth: current.depth + 1 });
+    }
+  }
+
+  return { steps, truncation, detail };
 }
 
 export interface EntryTrace {
@@ -127,7 +291,7 @@ export interface EntryTrace {
   readonly entryClass: EntryClass;
   readonly entryKind: EntryKind;
   readonly entryRoot: string;
-  readonly steps: readonly TraceStep[];
+  readonly steps: readonly EntryTraceStep[];
   readonly truncation: TruncationReason;
   readonly truncationDetail: string | null;
   readonly partial: boolean;
@@ -139,7 +303,7 @@ export interface EntryTraceability {
   readonly precise: number;
   readonly candidate: number;
   readonly structureRoot: number;
-  /** Entries whose trace reached at least one call beyond the entry itself. */
+  /** Entries whose trace reached at least one edge beyond the entry itself. */
   readonly reachable: number;
   /** reachable / total, 0 when there are no entries. */
   readonly rate: number;
@@ -157,12 +321,7 @@ export interface EntryTraceResult {
  */
 export function buildEntryTraces(input: EntryInput, limits: TraceLimits = DEFAULT_LIMITS): EntryTraceResult {
   const symbolsById = new Map(input.symbols.map((s) => [s.id, s] as const));
-  const edgesByCaller = new Map<SymbolId, CallEdgeRecord[]>();
-  for (const edge of input.callEdges) {
-    const list = edgesByCaller.get(edge.callerId) ?? [];
-    list.push(edge);
-    edgesByCaller.set(edge.callerId, list);
-  }
+  const outBySource = outEdgesBySource(input);
 
   const entries = identifyEntries(input);
   const traces: EntryTrace[] = [];
@@ -175,7 +334,7 @@ export function buildEntryTraces(input: EntryInput, limits: TraceLimits = DEFAUL
     else counts.structureRoot += 1;
 
     const symbol = symbolsById.get(entry.symbolId)!;
-    const walked = walk(symbol, edgesByCaller, symbolsById, limits);
+    const walked = walkGraph(symbol, outBySource, symbolsById, limits);
     if (walked.steps.length > 1) reachable += 1;
     traces.push({
       entryKey: entry.entryKey,

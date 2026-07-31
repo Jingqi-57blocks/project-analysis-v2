@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildEntryTraces, identifyEntries, type EntryInput } from "../../engine/modules/entries.js";
 import { symbolId } from "../../engine/structural/identity.js";
 import { declared, inferred, lineRef } from "../../engine/structural/provenance.js";
-import type { CallEdgeRecord, SymbolRecord, Visibility } from "../../engine/structural/code.js";
+import type { CallEdgeRecord, SymbolRecord, TypeRelationRecord, Visibility } from "../../engine/structural/code.js";
 import type { RouteRecord } from "../../engine/structural/boundaries.js";
 
 function sym(name: string, visibility: Visibility = "unknown", relPath = "a.go"): SymbolRecord {
@@ -25,6 +25,16 @@ function edge(from: SymbolRecord, to: SymbolRecord | null, name?: string): CallE
     calleeId: to?.id ?? null,
     calleeName: to?.name ?? name ?? "unknown",
     provenance: declared(lineRef("svc", "a.go", 5)),
+  };
+}
+
+function typeRel(subtype: SymbolRecord, supertype: SymbolRecord): TypeRelationRecord {
+  return {
+    subtypeId: subtype.id,
+    supertypeId: supertype.id,
+    supertypeName: supertype.name,
+    relation: "extends",
+    provenance: declared(lineRef("svc", "a.go", 7)),
   };
 }
 
@@ -88,6 +98,16 @@ describe("identifyEntries", () => {
     expect(first).toEqual(second);
     expect(first).toEqual([...first].sort());
   });
+
+  it("orders entries with a colliding entryKey by identity, not input position", () => {
+    // Same qualified name in two files: distinct symbolId, identical entryKey.
+    const fooA = sym("Foo", "public", "a.go");
+    const fooB = sym("Foo", "public", "b.go");
+    expect(fooA.id).not.toBe(fooB.id);
+    const forward = identifyEntries({ routes: [], symbols: [fooA, fooB], callEdges: [] }).map((e) => e.symbolId);
+    const reversed = identifyEntries({ routes: [], symbols: [fooB, fooA], callEdges: [] }).map((e) => e.symbolId);
+    expect(forward).toEqual(reversed);
+  });
 });
 
 describe("buildEntryTraces", () => {
@@ -110,6 +130,29 @@ describe("buildEntryTraces", () => {
     expect(result.traceability.rate).toBeCloseTo(0.5);
     const handlerTrace = result.traces.find((t) => t.entryClass === "precise")!;
     expect(handlerTrace.steps.map((s) => s.name)).toContain("orderRepo");
+    // each non-entry step records the edge that reached it: kind, endpoints, source
+    const reached = handlerTrace.steps.find((s) => s.name === "orderService")!;
+    expect(reached.edgeKind).toBe("call");
+    expect(reached.fromSymbolId).toBe(handler.id);
+    expect(reached.via).not.toBeNull();
+    // the entry step itself has no reaching edge
+    expect(handlerTrace.steps[0]!.edgeKind).toBeNull();
+  });
+
+  it("walks a type relation as well as a call, tagging the edge kind", () => {
+    const base = sym("BaseController", "public");
+    const impl = sym("OrdersController", "public");
+    const input: EntryInput = {
+      routes: [],
+      symbols: [base, impl],
+      callEdges: [],
+      typeRelations: [typeRel(impl, base)],
+    };
+    const result = buildEntryTraces(input);
+    const implTrace = result.traces.find((t) => t.entryKey.includes("OrdersController"))!;
+    const step = implTrace.steps.find((s) => s.name === "BaseController")!;
+    expect(step.edgeKind).toBe("type");
+    expect(step.fromSymbolId).toBe(impl.id);
   });
 
   it("records an unresolved call rather than reporting no calls", () => {
