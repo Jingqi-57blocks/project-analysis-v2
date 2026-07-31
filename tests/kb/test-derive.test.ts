@@ -67,6 +67,14 @@ describe("deriveTestBehavior", () => {
     expect(notRun.coverage).toBe("not-run");
   });
 
+  it("does not collapse a resolved target with a named-only target of the same string", () => {
+    const asSymbol = rel({ targetSymbolId: "Approve" as unknown as typeof targetSym, targetName: "Approve" });
+    const asName = rel({ targetSymbolId: null, targetName: "Approve", provenance: unresolved(lineRef("svc", "a_test.go", 9), "x") });
+    const { model } = deriveTestBehavior({ testRelations: [asSymbol, asName], providerRan: true });
+    expect(model.facts).toHaveLength(2);
+    expect(validateBehaviorModel(model).ok).toBe(true);
+  });
+
   it("dedupes an identical relation rather than double-counting", () => {
     const r = rel();
     const { model } = deriveTestBehavior({ testRelations: [r, r], providerRan: true });

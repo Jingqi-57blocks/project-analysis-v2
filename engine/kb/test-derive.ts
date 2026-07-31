@@ -55,12 +55,16 @@ function ev(provenance: TestRelationRecord["provenance"]): EvidenceRecord {
 }
 
 function testFact(r: TestRelationRecord): BehaviorFact {
-  const target = r.targetSymbolId ?? r.targetName ?? "";
+  // Tag the target's kind so a resolved symbol id can never collide with a
+  // named-only target that happens to be the same string — the two live in
+  // different value spaces and stay distinct facts.
+  const target = r.targetSymbolId !== null ? r.targetSymbolId : (r.targetName ?? "");
+  const targetKind = r.targetSymbolId !== null ? "sym" : "name";
   return {
     factId: factId({
       family: "behavioral",
       kind: "test-relation",
-      discriminators: [r.rootName, r.testSymbolId, target, r.relation],
+      discriminators: [r.rootName, r.testSymbolId, targetKind, target, r.relation],
     }),
     family: "behavioral",
     kind: "test-relation",
