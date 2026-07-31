@@ -346,6 +346,67 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX derived_links_to ON derived_links(snapshot_id, to_kind, to_key, role);
     `,
   },
+  {
+    version: 7,
+    name: "behavior-model",
+    up: `
+      -- The M2 behaviour model (PI-9/PI-62), persisted in the same database and
+      -- under the same published_at atomic-publication semantics as every other
+      -- fact family — not a second store. A behaviour fact is a shared-fact
+      -- envelope, so its full JSON (family, evidence, provenance, payload) is kept
+      -- verbatim in payload: that is what lets an unknown kind or an unresolved
+      -- provenance round-trip losslessly. The columns beside it are denormalized
+      -- from that envelope only so a query need not parse every payload.
+      --
+      -- schema_version is the behaviour contract version the fact conformed to
+      -- when written, so a later reader can migrate an older behaviour fact rather
+      -- than misread it. quarantined marks a kind outside the known vocabulary:
+      -- kept and flagged, never dropped.
+      CREATE TABLE behavior_facts (
+        id              INTEGER PRIMARY KEY,
+        snapshot_id     INTEGER NOT NULL REFERENCES snapshots(id),
+        fact_id         TEXT    NOT NULL,
+        kind            TEXT    NOT NULL,
+        family          TEXT    NOT NULL,
+        scope           TEXT,
+        activation      TEXT,
+        schema_version  TEXT    NOT NULL,
+        payload         TEXT    NOT NULL,
+        quarantined     INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (snapshot_id, fact_id)
+      );
+      CREATE INDEX behavior_facts_kind ON behavior_facts(snapshot_id, kind);
+      CREATE INDEX behavior_facts_scope ON behavior_facts(snapshot_id, scope);
+
+      -- Relations between behaviour facts (and from a behaviour fact to a
+      -- structural one). Keyed by canonical FactId on both ends, deliberately not
+      -- foreign-keyed: the far end of a cross-family relation is a structural
+      -- record that does not live in this table.
+      CREATE TABLE behavior_relations (
+        id           INTEGER PRIMARY KEY,
+        snapshot_id  INTEGER NOT NULL REFERENCES snapshots(id),
+        kind         TEXT    NOT NULL,
+        from_id      TEXT    NOT NULL,
+        to_id        TEXT    NOT NULL,
+        role         TEXT    NOT NULL,
+        UNIQUE (snapshot_id, kind, from_id, to_id, role)
+      );
+      CREATE INDEX behavior_relations_from ON behavior_relations(snapshot_id, from_id);
+      CREATE INDEX behavior_relations_to ON behavior_relations(snapshot_id, to_id);
+
+      -- What was set aside or noted while building the model — a quarantined
+      -- unknown kind, a coverage gap. Persisted so an audit sees what the model
+      -- could not place, rather than that absence vanishing.
+      CREATE TABLE behavior_diagnostics (
+        id           INTEGER PRIMARY KEY,
+        snapshot_id  INTEGER NOT NULL REFERENCES snapshots(id),
+        fact_id      TEXT,
+        reason       TEXT    NOT NULL,
+        UNIQUE (snapshot_id, fact_id, reason)
+      );
+      CREATE INDEX behavior_diagnostics_snapshot ON behavior_diagnostics(snapshot_id);
+    `,
+  },
 ];
 
 export const SUPPORTED_SCHEMA_VERSION: number =
