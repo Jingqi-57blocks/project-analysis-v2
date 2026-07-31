@@ -16,5 +16,7 @@ export * from "./applicability.js";
 export * from "./identity.js";
 export * from "./evidence.js";
 export * from "./envelope.js";
+export * from "./merge.js";
+export * from "./versioning.js";
 export * from "./version.js";
 export * from "./examples.js";

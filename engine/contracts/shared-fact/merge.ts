@@ -1,0 +1,257 @@
+/**
+ * How facts describing one thing are merged, and how disagreement is kept.
+ *
+ * CodeGraph, source/AST providers and enrichers can each describe the same fact,
+ * disagree about it, or one can fail. The result must be a single canonical
+ * model in which every origin is recoverable and nothing was silently
+ * overwritten. Two rules make that hold:
+ *
+ * 1. Precedence is by evidence directness (declared > resolved > inferred >
+ *    unresolved), never by provider — ranking providers would bake in a vendor
+ *    preference, which is exactly what this architecture avoids.
+ * 2. At equal directness nothing "wins" by luck: the canonical value is chosen
+ *    by a deterministic order over the values themselves, so the merged result
+ *    does not depend on the order contributions arrived in. Every alternative is
+ *    retained as a conflict.
+ *
+ * The existing structural assembler (engine/structural/assemble.ts) implements
+ * rule 1 already but breaks ties by insertion order; M1 reconciles it to this
+ * contract's value-based tie-break.
+ */
+
+import type { FactEnvelope } from "./envelope.js";
+import type { FactId } from "./identity.js";
+import type { RawIdentity } from "./identity.js";
+import type { EvidenceRecord } from "./evidence.js";
+import { RESOLUTION_CLASSES, type ResolutionClass } from "./provenance.js";
+import { joinKey } from "./serialization.js";
+
+/** Marks a field absent from a payload, kept distinct from an explicit null. */
+const ABSENT = "#absent";
+
+/**
+ * Returns data with canonical (sorted) key order, so what a merge retains does
+ * not carry the input's key ordering into a downstream non-canonical serializer
+ * — otherwise shuffling providers would change the exported bytes.
+ */
+function canonical<T>(value: T): T {
+  return JSON.parse(stableStringify(value)) as T;
+}
+
+/** How an incoming fact's identity relates to one already held. */
+export type MatchClass =
+  /** Same canonical FactId — the same fact. */
+  | "exact"
+  /** Different ids known to denote one thing (an alias mapping supplies this). */
+  | "alias"
+  /** Possibly the same, not confirmed — kept apart until resolved. */
+  | "candidate"
+  /** Cannot be determined — never merged on a guess. */
+  | "unresolved";
+
+interface ConflictValue {
+  readonly value: string;
+  readonly providers: readonly string[];
+  readonly resolutionClass: ResolutionClass;
+}
+
+/** A field two contributions disagree on, with every value retained. */
+export interface FieldConflict {
+  readonly field: string;
+  readonly values: readonly ConflictValue[];
+}
+
+export interface MergedFact {
+  readonly envelope: FactEnvelope;
+  /** Values that did not become canonical, retained rather than dropped. */
+  readonly conflicts: readonly FieldConflict[];
+  /** Why the canonical value won, or null when nothing conflicted. */
+  readonly precedenceReason: string | null;
+}
+
+/** A fact marked replaced by another, retained rather than deleted. */
+export interface Tombstone {
+  readonly factId: FactId;
+  readonly supersededBy: FactId;
+  readonly reason: string;
+}
+
+function rank(cls: ResolutionClass): number {
+  return RESOLUTION_CLASSES.indexOf(cls);
+}
+
+/** Canonical JSON with sorted object keys, so equal data compares equal. */
+export function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
+}
+
+/** The strongest resolution any of a fact's evidence reached. */
+function directness(evidence: readonly EvidenceRecord[]): number {
+  let best = -1;
+  for (const record of evidence) best = Math.max(best, rank(record.provenance.resolutionClass));
+  return best;
+}
+
+function strongestClass(evidence: readonly EvidenceRecord[]): ResolutionClass {
+  let best: ResolutionClass = "unresolved";
+  for (const record of evidence) {
+    if (rank(record.provenance.resolutionClass) > rank(best)) best = record.provenance.resolutionClass;
+  }
+  return best;
+}
+
+function dedupeEvidence(evidence: readonly EvidenceRecord[]): EvidenceRecord[] {
+  const byKey = new Map<string, EvidenceRecord>();
+  for (const record of evidence) {
+    const key = joinKey([
+      record.attribution.providerId,
+      record.attribution.providerVersion,
+      stableStringify(record.provenance),
+      stableStringify(record.rawIdentity ?? null),
+    ]);
+    byKey.set(key, canonical(record));
+  }
+  return [...byKey.values()].sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1));
+}
+
+function dedupeRawIdentities(identities: readonly RawIdentity[]): RawIdentity[] {
+  const byKey = new Map<string, RawIdentity>();
+  for (const id of identities) byKey.set(joinKey([id.providerId, id.nativeId]), canonical(id));
+  return [...byKey.values()].sort((a, b) =>
+    a.providerId !== b.providerId ? (a.providerId < b.providerId ? -1 : 1) : a.nativeId < b.nativeId ? -1 : 1,
+  );
+}
+
+function providersOf(evidence: readonly EvidenceRecord[]): string[] {
+  const seen = new Set<string>();
+  for (const record of evidence) seen.add(record.attribution.providerId);
+  return [...seen].sort();
+}
+
+/**
+ * Merges a set of envelopes into canonical facts. The result is a pure function
+ * of the input *set*: grouping is by FactId, evidence and raw identities are
+ * unioned and sorted, the retained data is canonicalized, and the canonical
+ * payload is chosen by directness then by canonical value order — so shuffling
+ * the input cannot change the output, bytes included.
+ */
+export function mergeFacts(envelopes: readonly FactEnvelope[]): readonly MergedFact[] {
+  const groups = new Map<string, FactEnvelope[]>();
+  for (const envelope of envelopes) {
+    const list = groups.get(envelope.factId) ?? [];
+    list.push(envelope);
+    groups.set(envelope.factId, list);
+  }
+
+  const merged: MergedFact[] = [];
+  for (const [, group] of [...groups.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const evidence = dedupeEvidence(group.flatMap((e) => e.evidence));
+    const rawIdentities = dedupeRawIdentities(group.flatMap((e) => e.rawIdentities));
+
+    // Distinct payloads, each with its directness and the providers behind it.
+    const variants = new Map<
+      string,
+      { readonly payload: unknown; directness: number; class: ResolutionClass; providers: Set<string> }
+    >();
+    for (const envelope of group) {
+      const key = stableStringify(envelope.payload);
+      const d = directness(envelope.evidence);
+      const existing = variants.get(key);
+      if (existing) {
+        existing.directness = Math.max(existing.directness, d);
+        if (rank(strongestClass(envelope.evidence)) > rank(existing.class)) {
+          existing.class = strongestClass(envelope.evidence);
+        }
+        for (const p of providersOf(envelope.evidence)) existing.providers.add(p);
+      } else {
+        variants.set(key, {
+          payload: envelope.payload,
+          directness: d,
+          class: strongestClass(envelope.evidence),
+          providers: new Set(providersOf(envelope.evidence)),
+        });
+      }
+    }
+
+    const ranked = [...variants.entries()].sort((a, b) =>
+      b[1].directness !== a[1].directness ? b[1].directness - a[1].directness : a[0] < b[0] ? -1 : 1,
+    );
+    const winner = ranked[0]!;
+    // family/kind are identical across a group (both are embedded in the shared
+    // factId), but schemaVersion is metadata that could differ — pick the first
+    // by canonical order so the merged envelope never depends on input order.
+    const first = [...group].sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1))[0]!;
+
+    const conflicts = buildConflicts(ranked);
+    const precedenceReason =
+      ranked.length <= 1
+        ? null
+        : ranked[1]![1].directness < winner[1].directness
+          ? `kept the ${winner[1].class} value over the ${ranked[1]![1].class} one`
+          : "providers disagree at equal directness; kept the canonical-order value, alternatives retained as conflicts";
+
+    merged.push({
+      envelope: {
+        factId: first.factId,
+        family: first.family,
+        kind: first.kind,
+        schemaVersion: first.schemaVersion,
+        evidence,
+        rawIdentities,
+        payload: canonical(winner[1].payload),
+      },
+      conflicts,
+      precedenceReason,
+    });
+  }
+  return merged;
+}
+
+function buildConflicts(
+  ranked: readonly (readonly [string, { readonly payload: unknown; readonly class: ResolutionClass; readonly providers: Set<string> }])[],
+): FieldConflict[] {
+  if (ranked.length <= 1) return [];
+  const fields = new Set<string>();
+  for (const [, variant] of ranked) {
+    if (variant.payload && typeof variant.payload === "object" && !Array.isArray(variant.payload)) {
+      for (const field of Object.keys(variant.payload as Record<string, unknown>)) fields.add(field);
+    }
+  }
+
+  const conflicts: FieldConflict[] = [];
+  for (const field of [...fields].sort()) {
+    const byValue = new Map<string, ConflictValue>();
+    for (const [, variant] of ranked) {
+      const payload = variant.payload;
+      const isObject = payload !== null && typeof payload === "object" && !Array.isArray(payload);
+      // Presence is distinguished from an explicit null: a field one provider
+      // omits and another sets to null are two values, retained as a conflict —
+      // not collapsed to one, which would drop a variant and lie in the reason.
+      const value =
+        isObject && field in (payload as Record<string, unknown>)
+          ? stableStringify((payload as Record<string, unknown>)[field])
+          : ABSENT;
+      const existing = byValue.get(value);
+      const providers = [...variant.providers];
+      if (existing) {
+        byValue.set(value, {
+          value,
+          providers: [...new Set([...existing.providers, ...providers])].sort(),
+          resolutionClass:
+            rank(variant.class) > rank(existing.resolutionClass) ? variant.class : existing.resolutionClass,
+        });
+      } else {
+        byValue.set(value, { value, providers: providers.sort(), resolutionClass: variant.class });
+      }
+    }
+    if (byValue.size > 1) {
+      conflicts.push({ field, values: [...byValue.values()].sort((a, b) => (a.value < b.value ? -1 : 1)) });
+    }
+  }
+  return conflicts;
+}
