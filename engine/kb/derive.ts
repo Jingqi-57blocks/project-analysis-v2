@@ -16,6 +16,7 @@ import { inferBaseBindings, linkCallsScoped } from "../linking/binding.js";
 import { resolveHandlers } from "../linking/handlers.js";
 import { linkCalls, rootDependencies } from "../linking/link.js";
 import { buildTraces } from "../modules/trace.js";
+import { buildEntryTraces } from "../modules/entries.js";
 import { formModel, formModulesFromRoutes, qualifiedFile } from "../modules/form.js";
 import { detectFeatures } from "../modules/features.js";
 import { assembleFlows } from "../flows/assemble.js";
@@ -165,6 +166,31 @@ export function derive(input: DeriveInput): Derived {
     symbols: gathered.symbols,
     callEdges: gathered.callEdges,
   });
+
+  // Generic entry identification, measured on whatever this run actually is:
+  // how many candidate entries the call graph could follow. Recorded so a report
+  // over a project with no route reader can state the coverage rather than imply
+  // completeness. This does not replace the route traces above; it accounts for
+  // the entries those cannot see.
+  // No current provider emits type-relation records (the CodeGraph provider
+  // declares that capability absent), so the walk here is call-based today; the
+  // traversal accepts type relations and will follow them the moment a provider
+  // supplies them, without a change to this call.
+  const entryTraced = buildEntryTraces({
+    routes,
+    symbols: gathered.symbols,
+    callEdges: gathered.callEdges,
+  });
+  if (entryTraced.traceability.total > 0) {
+    const t = entryTraced.traceability;
+    notes.push({
+      subject: "entry-traceability",
+      note:
+        `${t.reachable} of ${t.total} identified entries could be traced beyond themselves ` +
+        `(${Math.round(t.rate * 100)}%). Entries by class: ${t.precise} precise, ${t.candidate} candidate, ${t.structureRoot} structure-root`,
+    });
+  }
+
   const formation = formModel(
     traced.traces,
     {
