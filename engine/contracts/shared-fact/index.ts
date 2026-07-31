@@ -14,6 +14,7 @@ export * from "./confidence.js";
 export * from "./activation.js";
 export * from "./applicability.js";
 export * from "./identity.js";
+export * from "./canonical.js";
 export * from "./evidence.js";
 export * from "./envelope.js";
 export * from "./merge.js";
