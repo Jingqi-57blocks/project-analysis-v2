@@ -9,4 +9,7 @@
 
 export * from "./target.js";
 export * from "./snapshot.js";
+export * from "./blocks.js";
+export * from "./catalog.js";
+export * from "./presets.js";
 export * from "./version.js";
