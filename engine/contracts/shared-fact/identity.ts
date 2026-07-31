@@ -24,6 +24,10 @@ export interface FactIdParts {
    * by the fact's own kind — a symbol by qualified name, a condition by its
    * location — and never a provider's own node id, so identity survives
    * swapping the provider that found it.
+   *
+   * A kind's keyer must keep a fixed type per position: serialization encodes a
+   * value, not its type, so `42` and `"42"` (or `null` and `""`) at one
+   * position would collapse to a single id.
    */
   readonly discriminators: readonly (string | number | null)[];
 }
