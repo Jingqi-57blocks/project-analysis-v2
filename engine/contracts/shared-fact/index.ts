@@ -16,6 +16,7 @@ export * from "./applicability.js";
 export * from "./identity.js";
 export * from "./canonical.js";
 export * from "./module-identity.js";
+export * from "./entity-identity.js";
 export * from "./evidence.js";
 export * from "./envelope.js";
 export * from "./merge.js";
