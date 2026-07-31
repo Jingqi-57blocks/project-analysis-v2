@@ -118,6 +118,26 @@ describe("deriveStateBehavior — transitions", () => {
     expect(diagnostics[0]!.kind).toBe("unresolved-target");
   });
 
+  it("keeps two transitions between the same states that differ only by guard", () => {
+    const { model } = deriveStateBehavior({
+      valueSets: [set()],
+      conditions: [],
+      changes: [change({ guard: null }), change({ guard: "isOwner" })],
+    });
+    expect(model.facts.filter((f) => f.kind === "transition")).toHaveLength(2);
+    expect(validateBehaviorModel(model).ok).toBe(true);
+  });
+
+  it("collapses an exact-duplicate change into one transition, keeping the model valid", () => {
+    const { model } = deriveStateBehavior({
+      valueSets: [set()],
+      conditions: [],
+      changes: [change(), change()],
+    });
+    expect(model.facts.filter((f) => f.kind === "transition")).toHaveLength(1);
+    expect(validateBehaviorModel(model)).toEqual({ ok: true, quarantined: [] });
+  });
+
   it("produces a valid model for states plus a transition together", () => {
     const { model } = deriveStateBehavior({
       valueSets: [set()],

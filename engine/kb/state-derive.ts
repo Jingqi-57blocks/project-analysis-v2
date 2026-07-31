@@ -79,7 +79,7 @@ function stateId(set: ValueSet, member: ValueSetMember): FactId {
   return factId({
     family: "behavioral",
     kind: "state",
-    discriminators: [set.rootName, set.relPath, set.name, member.name, String(member.value), typeof member.value],
+    discriminators: [set.rootName, set.relPath, String(set.startLine), set.name, member.name, String(member.value), typeof member.value],
   });
 }
 
@@ -111,6 +111,7 @@ export function deriveStateBehavior(input: BehaviorStateInput): BehaviorStateRes
   const relations: BehaviorRelation[] = [];
   const diagnostics: StateDiagnostic[] = [];
   const stateByKey = new Map<FactId, BehaviorFact>();
+  const seenTransitions = new Set<FactId>();
 
   const claimState = (set: ValueSet, member: ValueSetMember): FactId => {
     const id = stateId(set, member);
@@ -151,14 +152,25 @@ export function deriveStateBehavior(input: BehaviorStateInput): BehaviorStateRes
       continue;
     }
 
+    const transitionFactId = factId({
+      family: "behavioral",
+      kind: "transition",
+      // guard is part of identity — two transitions between the same states from
+      // the same trigger but under different guards are different transitions.
+      discriminators: [
+        change.rootName, change.field, from.member.name, to.member.name,
+        change.trigger, String(change.source.startLine), change.guard ?? "",
+      ],
+    });
+    // An exact-duplicate observation (a caller emitting the same change twice)
+    // collapses to one transition rather than a duplicate id the model rejects.
+    if (seenTransitions.has(transitionFactId)) continue;
+    seenTransitions.add(transitionFactId);
+
     const fromId = claimState(from.set, from.member);
     const toId = claimState(to.set, to.member);
     const transition: BehaviorFact = {
-      factId: factId({
-        family: "behavioral",
-        kind: "transition",
-        discriminators: [change.rootName, change.field, from.member.name, to.member.name, change.trigger, String(change.source.startLine)],
-      }),
+      factId: transitionFactId,
       family: "behavioral",
       kind: "transition",
       schemaVersion: BEHAVIOR_SCHEMA_VERSION,
