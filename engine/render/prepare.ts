@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 
 import type { KnowledgeBase } from "../kb/query.js";
-import { hasFragment, renderFragment, FragmentError } from "./fragments.js";
+import { fragmentNames, hasFragment, renderFragment, FragmentError } from "./fragments.js";
 import { isEmptyResult, resolveSelector } from "./selectors.js";
 import { readPrompt, type Section, type Template } from "./template.js";
 import {
@@ -214,7 +214,7 @@ export function prepare(options: PrepareOptions): PrepareResult {
     if (section.heading !== null) lines.push(`## ${localizeHeading(frame, section.heading)}`, "");
 
     if (section.kind === "code") {
-      if (!hasFragment(section.fragment)) throw new FragmentError(section.fragment);
+      if (!hasFragment(section.fragment)) throw new FragmentError(section.fragment, fragmentNames());
       const body = renderFragment(section.fragment, { data: lookup, params, kb, frame });
       lines.push(body === "" ? t(frame, "nothing-to-show") : body, "");
       codeSections += 1;

@@ -86,6 +86,28 @@ skips it and declares the missing symbols as a gap.
 Knowledge bases and report output go somewhere outside the target. Throwaway
 files go in a scratch directory, never in this repository.
 
+## What a document is for
+
+Every exported document exists so someone else understands the system quickly.
+**Complete and accurate on detail, and as short as that allows** — both goals, and
+nothing else is a goal.
+
+- **The system as it is.** Not why it was built, not the problem it solves, not who
+  feels which pain, not which parts matter most. A reader wants the shape of the
+  thing that exists.
+- **Do not enumerate the intent a codebase cannot hold.** A section listing product
+  goal, target users, success metrics, priority and risks as absences is an apology
+  that costs a reader time and says nothing about the system.
+- **No unnecessary words.** A lead explaining how to read a column, a note restating
+  what the table shows, a paragraph where a clause would do — cut it. Brevity is
+  half the point, not a preference.
+- **The reference PRD is a reference.** Take its major shape; reproducing its
+  structure produces a document too long to read, which defeats the purpose it was
+  written for.
+
+Never buy brevity with accuracy, and never drop a fact to save a line: that is the
+other goal, and the writer contract below is how it is kept.
+
 ## The writer contract
 
 This is the rule an agent breaks most easily, and the one that decides whether
@@ -161,10 +183,11 @@ are, and never merge a declared fact with an inferred claim.
   a simpler approach was rejected. Not what the next line does.
 - **Leave working code alone.** No drive-by rewrites of something you happened
   to read.
-- **Keep files readable**, around 500 lines as a working ceiling. Four files are
-  past it — `engine/kb/query.ts`, `engine/providers/logic/provider.ts`,
-  `engine/render/fragments.ts`, `tests/render/roundtrip.test.ts`. Split them when
-  next touched; none of them is precedent.
+- **Keep files readable**, around 500 lines as a working ceiling. One file is past
+  it: `engine/kb/query.ts` at 1,142 lines, which is one class of sixty read methods
+  and cannot come down by moving anything — it needs delegating into several
+  readers, which is 57B-302 and a design change rather than a move. It is not
+  precedent.
 - **A CLI change updates its documentation in the same commit** — `README.md`
   and `.claude/skills/project-analysis/SKILL.md`. The skill is what a user's
   agent reads, so a stale command there is a broken tool, not a stale doc.
