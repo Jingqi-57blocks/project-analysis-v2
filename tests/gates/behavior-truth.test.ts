@@ -71,6 +71,15 @@ describe("gradeBehaviorTruth — the real M2 ledger", () => {
     expect(report.passed).toBe(false);
     expect(report.mustFindFound).toBeLessThan(report.mustFindTotal);
   });
+
+  it("grades an absence-asserting item rather than dropping it as unsupported", () => {
+    const abs = m2.filter((i) => i.expectedStatus === "absent");
+    expect(abs.length).toBeGreaterThan(0);
+    const report = gradeBehaviorTruth(abs, model(), ROOT);
+    // an absence item with wcp-service-v2 evidence is honestly absent on an empty model
+    for (const r of report.results) expect(["found", "not-found", "unresolved"]).toContain(r.status);
+    expect(report.results.some((r) => r.status === "unsupported")).toBe(false);
+  });
 });
 
 describe("gradeBehaviorTruth — grading logic", () => {

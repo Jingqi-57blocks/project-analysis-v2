@@ -48,6 +48,9 @@ const OTHER_LANE: Readonly<Record<string, string>> = {
   object: "the datamodel/entity lane",
 };
 
+/** Every behaviour-lane kind — the set an absence assertion checks against. */
+const ALL_BEHAVIOR_KINDS: readonly string[] = [...new Set(Object.values(BEHAVIOR_LANE).flat())];
+
 export interface TruthItemResult {
   readonly truthId: string;
   readonly category: string;
@@ -74,7 +77,11 @@ export interface BehaviorGateReport {
   readonly passed: boolean;
 }
 
-/** A cited file, or any file under a cited directory (a path ending in "/"), matches. */
+/**
+ * A cited file, or any file under a cited directory (a path ending in "/"), matches.
+ * Matching is file-granular, like PI-65; narrowing an absence check to the cited
+ * line range lands with PI-13's real model, where facts carry lines to compare.
+ */
 function pathMatches(cited: string, actual: string): boolean {
   if (cited === actual) return true;
   const prefix = cited.endsWith("/") ? cited : `${cited}/`;
@@ -89,8 +96,8 @@ function locationsOf(fact: BehaviorFact): readonly { root: string; relPath: stri
 function laneOf(category: string): "behavior-semantics" | "side-effect" | "other" {
   const kinds = BEHAVIOR_LANE[category];
   if (kinds === undefined) return "other";
-  // The category's lane follows its first kind's owner; behaviour categories are
-  // homogeneous (a side-effect category maps only to side-effect kinds).
+  // A display tag only — it never feeds the pass. It follows the first mapped
+  // kind's owner (a category may mix kinds; the found-check considers all of them).
   const owner = ownerOf(kinds[0]!);
   return owner === "side-effect" ? "side-effect" : "behavior-semantics";
 }
@@ -126,22 +133,26 @@ export function gradeBehaviorTruth(
     const other = OTHER_LANE[item.category];
     if (other !== undefined) return { ...base, status: "unsupported" as const, detail: `owned by ${other}` };
 
-    const kinds = BEHAVIOR_LANE[item.category];
-    if (kinds === undefined) {
-      return { ...base, status: "unsupported" as const, detail: `category ${item.category} is outside the behaviour lane` };
-    }
-
     const inRoot = item.evidence.filter((e) => e.root === indexedRoot);
     if (inRoot.length === 0) {
       return { ...base, status: "unresolved" as const, detail: `no evidence in the indexed root ${indexedRoot}` };
     }
-
-    const hit = inRoot.some((e) => factAt(kinds, e.root, e.path));
     const cited = inRoot.map((e) => e.path).join(", ");
+
+    // An absence assertion checks that NO behaviour fact of any kind sits at the
+    // cited path; found means it is honestly absent. Handled before the category
+    // lane so a category whose only point is the absence (e.g. `absent`) is graded
+    // rather than dropped as "outside the lane".
     if (item.expectedStatus === "absent") {
-      // The item asserts the behaviour is NOT there; found means it is honestly absent.
-      return { ...base, status: hit ? "not-found" : "found", detail: `${hit ? "unexpectedly present at" : "honestly absent at"} ${cited}` };
+      const present = inRoot.some((e) => factAt(ALL_BEHAVIOR_KINDS, e.root, e.path));
+      return { ...base, status: present ? "not-found" : "found", detail: `${present ? "unexpectedly present at" : "honestly absent at"} ${cited}` };
     }
+
+    const kinds = BEHAVIOR_LANE[item.category];
+    if (kinds === undefined) {
+      return { ...base, status: "unsupported" as const, detail: `category ${item.category} is outside the behaviour lane` };
+    }
+    const hit = inRoot.some((e) => factAt(kinds, e.root, e.path));
     return { ...base, status: hit ? "found" : "not-found", detail: `${hit ? `${kinds.join("/")} at` : `no ${kinds.join("/")} at`} ${cited}` };
   });
 
