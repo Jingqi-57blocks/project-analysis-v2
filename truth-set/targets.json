@@ -1,0 +1,40 @@
+{
+  "version": "0.1.0",
+  "note": "Acceptance testing uses only WCP-V2 and angels-pizza. The spec's third, distinct no-route-reader backend is reconciled within these two: angels-pizza has no version control and its Vue-Router / React roots are not covered by any dedicated route reader, so it carries the generic-path generalization (noDedicatedReader).",
+  "targets": [
+    {
+      "id": "wcp-v2",
+      "defaultPath": "~/Documents/WCP-V2",
+      "vcs": "git",
+      "gates": ["M1", "M2", "M3", "M4", "M5", "M6"],
+      "selectionReason": "Known complex real business logic; the leave flow is the golden slice graded through M1-M4. TypeScript and Go, both route-definition styles, cross-root calls.",
+      "noDedicatedReader": false,
+      "forbiddenSpecialization": "No wcp-specific production code, prompt or registry entry; the target appears only in acceptance fixtures and this manifest.",
+      "roots": [
+        { "name": "wcp-service-v2", "language": "Go", "vcs": "git", "revision": "7db2ee8d2670993fe185d7293d6a315753602acd", "revisionKind": "git-sha", "dirty": false, "hasRouteReader": true, "note": "Gin; hosts the leave golden slice" },
+        { "name": "wcp-ui", "language": "TypeScript/React", "vcs": "git", "revision": "b86dfa27e95f2109dcd9bcbdec147b62dbc8312d", "revisionKind": "git-sha", "dirty": false, "hasRouteReader": true },
+        { "name": "wcp-service", "language": "JavaScript/Node", "vcs": "git", "revision": "9df6897542a15025dbda798f0c30d769c59c36ed", "revisionKind": "git-sha", "dirty": false, "hasRouteReader": true, "note": "Express; owns the leave DB schema/migrations" },
+        { "name": "wcp_review_service", "language": "Go", "vcs": "git", "revision": "272bbe725fe84d15973fff50b606184c88743fe6", "revisionKind": "git-sha", "dirty": false, "hasRouteReader": true, "note": "Gin" },
+        { "name": "wcp-auth", "language": "Go", "vcs": "git", "revision": "76e958d51b802c0a0619d11f21984fcf6ea6c895", "revisionKind": "git-sha", "dirty": false, "hasRouteReader": true, "note": "Gin" }
+      ]
+    },
+    {
+      "id": "angels-pizza",
+      "defaultPath": "~/Documents/angels-pizza",
+      "vcs": "none",
+      "gates": ["M5", "M6"],
+      "selectionReason": "Second real project: no version control, a different root count, and Vue-Router / React roots no dedicated route reader covers. Exercises the generic CodeGraph/AST path with no framework reader.",
+      "noDedicatedReader": true,
+      "forbiddenSpecialization": "No angels-pizza-specific production code, prompt or registry entry; the target appears only in acceptance fixtures and this manifest.",
+      "roots": [
+        { "name": "admin-backend", "language": "JavaScript/Node", "vcs": "none", "revision": "fc67740ea0dfd107b481899fc6e8776d53ca2a148ce55069194b32a0f44412c3", "revisionKind": "content-digest", "dirty": false, "hasRouteReader": true, "note": "Express" },
+        { "name": "backend", "language": "JavaScript/Node", "vcs": "none", "revision": "b61adc458ee5d44dc8c8a2300bdd3397e433cdef0af8fdb4554851b2dc98e0e9", "revisionKind": "content-digest", "dirty": false, "hasRouteReader": true, "note": "Express" },
+        { "name": "ionic-vue", "language": "TypeScript/Vue", "vcs": "none", "revision": "26cfdb72ee35520df532059217327558e08437fab2018c308372f31780410fca", "revisionKind": "content-digest", "dirty": false, "hasRouteReader": false, "note": "Ionic + Vue Router; no dedicated reader" },
+        { "name": "kitchen", "language": "JavaScript/React", "vcs": "none", "revision": "10bc0792ad16c07423cab87f00edb129467132ae62d73c30feeaa6100e64bf1f", "revisionKind": "content-digest", "dirty": false, "hasRouteReader": false, "note": "React, no react-router; no dedicated reader" },
+        { "name": "rider-app", "language": "TypeScript/Vue", "vcs": "none", "revision": "71ee62937bb18c3fa46d9ddd7e14090a8c22d18ee47fcec354b4da53c87177ec", "revisionKind": "content-digest", "dirty": false, "hasRouteReader": false, "note": "Vue Router; no dedicated reader" },
+        { "name": "web-admin", "language": "JavaScript/React", "vcs": "none", "revision": "b43b058678b798157e78ea287e6ce5cfe329d5c69b912cecb01b788a0251517d", "revisionKind": "content-digest", "dirty": false, "hasRouteReader": false, "note": "React, no react-router; no dedicated reader" },
+        { "name": "web-vue", "language": "TypeScript/Vue", "vcs": "none", "revision": "bd96612e1ae9f61d3d013c6b91d899aa14a0ac3176866cf9a46242b8e1c20a7f", "revisionKind": "content-digest", "dirty": false, "hasRouteReader": false, "note": "Vue Router; no dedicated reader" }
+      ]
+    }
+  ]
+}
