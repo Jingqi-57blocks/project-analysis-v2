@@ -7,9 +7,10 @@
  * notification fired. Those already come from several readers (outbound, uicalls,
  * datamodel usage, conventions); this is the adapter that lifts them into the
  * shared behaviour contract (PI-62) under one identity, not a second side-effect
- * model. Its kinds are exactly PI-12's owned set — outbound-call, data-access,
- * notification-call, transaction-boundary — disjoint from PI-11's decision/state
- * kinds by the contract's ownership check, so one fact is never extracted twice.
+ * model. Its kinds are four of PI-12's owned side-effect kinds — outbound-call,
+ * data-access, notification-call, transaction-boundary (auth-annotation, the fifth,
+ * is PI-39's) — disjoint from PI-11's decision/state kinds by the contract's
+ * ownership check, so one fact is never extracted twice.
  *
  * An external library call (`ExternalCallRecord`) is unified under `outbound-call`
  * with a `category` of `external-package`, distinct from a `service` HTTP/RPC call
@@ -17,9 +18,11 @@
  * network or a package boundary, and keeping it one kind is the point of the task.
  *
  * Each fact keeps its source record's own resolution and confidence, and carries
- * the caller symbol so a later pass can connect the effect to the entry, decision
- * or state that triggers it. A dynamic target or an undetermined operation is kept
- * as an unresolved finding, never dropped.
+ * the caller symbol where the record has one (data-access, transaction, outbound
+ * and external do; a notification record names no caller), so a later pass can
+ * connect the effect to the entry, decision or state that triggers it. A dynamic
+ * target or a dynamically-built table stays an unresolved finding, and an unknown
+ * operation is kept as `unknown`, never dropped.
  */
 
 import type { EvidenceRecord, ProviderAttribution } from "../contracts/shared-fact/evidence.js";
@@ -59,8 +62,13 @@ function scopeOf(symbolId: string | null): BehaviorScope {
   return symbolId !== null ? "symbol" : "module";
 }
 
+/**
+ * Location key including the column: two effects on one physical line are two
+ * facts, and the readers already carry the sub-line range (see `offsetRef`), so a
+ * line-only key would silently collapse a dynamic write beside a static one.
+ */
 function loc(p: Provenance): string {
-  return `${p.source.relPath}:${p.source.startLine ?? "?"}`;
+  return `${p.source.relPath}:${p.source.startLine ?? "?"}:${p.source.startColumn ?? "?"}`;
 }
 
 function dataAccessFact(d: DataAccessRecord): BehaviorFact {
@@ -93,7 +101,7 @@ function transactionFact(t: TransactionBoundaryRecord): BehaviorFact {
     factId: factId({
       family: "behavioral",
       kind: "transaction-boundary",
-      discriminators: [t.rootName, t.source.relPath, String(t.source.startLine), t.mechanism, t.propagation ?? ""],
+      discriminators: [t.rootName, loc(t.provenance), t.mechanism, t.propagation ?? ""],
     }),
     family: "behavioral",
     kind: "transaction-boundary",
@@ -169,7 +177,7 @@ function notificationFact(n: NotificationCallRecord): BehaviorFact {
     factId: factId({
       family: "behavioral",
       kind: "notification-call",
-      discriminators: [n.rootName, n.source.relPath, String(n.source.startLine), n.channel, n.mechanism],
+      discriminators: [n.rootName, loc(n.provenance), n.channel, n.mechanism],
     }),
     family: "behavioral",
     kind: "notification-call",

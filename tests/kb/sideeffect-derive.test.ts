@@ -119,6 +119,17 @@ describe("deriveSideEffectBehavior", () => {
     expect(model.facts).toHaveLength(1);
   });
 
+  it("keeps two dynamic effects on the same line but different columns distinct", () => {
+    const at = (col: number) => declared({ rootName: "svc", relPath: "a.go", startLine: 10, endLine: 10, startColumn: col, endColumn: null });
+    const model = derive({
+      dataAccess: [
+        dataAccess({ entity: null, operation: "unknown", mechanism: "gorm", provenance: at(5) }),
+        dataAccess({ entity: null, operation: "unknown", mechanism: "gorm", provenance: at(40) }),
+      ],
+    });
+    expect(model.facts).toHaveLength(2);
+  });
+
   it("returns an empty, valid model for no input", () => {
     const model = derive();
     expect(model.facts).toEqual([]);
