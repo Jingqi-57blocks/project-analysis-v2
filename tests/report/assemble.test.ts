@@ -9,6 +9,7 @@ import { executeAuthoredTasks } from "../../engine/report/execute.js";
 import { assembleReport, type AssembledBlock } from "../../engine/report/assemble.js";
 import { auditReport, accountDocuments } from "../../engine/report/audit.js";
 import { renderReport } from "../../engine/report/render.js";
+import { produceDualReport } from "../../engine/report/dual-report.js";
 import { fakeHost } from "./helpers/fake-host.js";
 
 const SNAPSHOT: AnalysisSnapshotIdentity = {
@@ -41,8 +42,8 @@ describe("assembleReport — ordered, complete, digest-stable", () => {
       expect(doc.sections.map((s) => s.sectionId)).toEqual(planDoc.sections.map((s) => s.sectionId)); // plan order preserved
       expect(doc.complete).toBe(true);
       expect(doc.missingRequired).toEqual([]);
-      // every block records its source slice digest
-      for (const s of doc.sections) for (const b of s.blocks) expect(typeof b.sliceDigest === "string" || b.sliceDigest === null).toBe(true);
+      // every block records its source slice digest — never null
+      for (const s of doc.sections) for (const b of s.blocks) expect(b.sliceDigest).toMatch(/^[0-9a-f]{64}$/);
     }
     expect(report.complete).toBe(true);
   });
@@ -54,6 +55,10 @@ describe("assembleReport — ordered, complete, digest-stable", () => {
     const lastTask = authoredTasks(e.plan).at(-1)!;
     const late = assembleReport(e.plan, e.slices, executeAuthoredTasks(e.plan, fakeHost({ flakyUntil: { [lastTask.taskId]: 1 } })).artifacts);
     expect(late.digest).toBe(clean.digest);
+    // and the actual rendered Markdown/HTML bytes are identical, not just the digest
+    const cleanMd = renderReport(clean, content).documents.map((d) => d.markdown);
+    const lateMd = renderReport(late, content).documents.map((d) => d.markdown);
+    expect(lateMd).toEqual(cleanMd);
   });
 
   it("leaves a document incomplete when a required authored block never validates", () => {
@@ -187,14 +192,74 @@ describe("renderReport — Markdown and HTML from one audited structure", () => 
   });
 });
 
-describe("module-only report assembles independently", () => {
-  it("assembles a module developer report with no project document", () => {
-    const e = compile([moduleTarget("leave", "developer")]);
+describe("auditReport — a shared claim is scoped per scope, not across scopes", () => {
+  it("does not flag a legal cross-scope request (project + module) as divergent", () => {
+    // a shared block (fact-ledger, known-issues) reads a scope-specific slice, so
+    // the project and module documents legitimately differ — this must not be a
+    // shared-claim-divergent finding.
+    const e = compile([projectTarget("product"), moduleTarget("leave", "developer")]);
     const report = assembleReport(e.plan, e.slices, executeAuthoredTasks(e.plan, fakeHost()).artifacts);
-    expect(report.documents).toHaveLength(1);
-    expect(report.documents[0]!.scope.kind).toBe("module");
-    expect(auditReport(report).ok).toBe(true);
-    const accounting = accountDocuments(report);
+    const audit = auditReport(report);
+    expect(audit.findings.filter((f) => f.kind === "shared-claim-divergent")).toEqual([]);
+    expect(audit.ok).toBe(true);
+  });
+
+  it("still flags a shared claim that diverges across audiences within one scope", () => {
+    const e = compile(BOTH); // both project scope
+    const report = assembleReport(e.plan, e.slices, executeAuthoredTasks(e.plan, fakeHost()).artifacts);
+    const tampered = {
+      ...report,
+      documents: report.documents.map((doc, i) =>
+        i === 0
+          ? doc
+          : {
+              ...doc,
+              sections: doc.sections.map((s) =>
+                s.sectionId !== "known-issues"
+                  ? s
+                  : { ...s, blocks: s.blocks.map((b) => (b.blockId === "known-issues.impact" ? { ...b, sliceDigest: "tampered".padEnd(64, "0") } : b)) },
+              ),
+            },
+      ),
+    };
+    const audit = auditReport(tampered);
+    expect(audit.findings.some((f) => f.kind === "shared-claim-divergent")).toBe(true);
+  });
+});
+
+describe("produceDualReport — assemble, audit and render wired as one fail-closed step", () => {
+  it("produces a complete, exportable report when the audit passes", () => {
+    const e = compile(BOTH);
+    const run = executeAuthoredTasks(e.plan, fakeHost());
+    const result = produceDualReport(e.plan, e.slices, run.artifacts, content);
+    expect(result.audit.ok).toBe(true);
+    expect(result.complete).toBe(true);
+    expect(result.exportable).toEqual(["project|developer", "project|product"]);
+    expect(result.rendered.documents).toHaveLength(2);
+  });
+
+  it("blocks completion and export when a required block is missing, but still renders a skeleton", () => {
+    const e = compile(BOTH);
+    const target = authoredTasks(e.plan)[0]!;
+    const run = executeAuthoredTasks(e.plan, fakeHost({ alwaysReject: new Set([target.taskId]) }));
+    const result = produceDualReport(e.plan, e.slices, run.artifacts, content);
+    expect(result.complete).toBe(false);
+    expect(result.exportable).toEqual([]); // a tainted set exports nothing formally
+    expect(result.rendered.documents.length).toBe(2); // the diagnostic skeleton is still produced
+    expect(result.rendered.documents.some((d) => d.markdown.includes("[gap:"))).toBe(true);
+  });
+});
+
+describe("module-only report assembles independently", () => {
+  it("assembles and renders a module developer report with no project document", () => {
+    const e = compile([moduleTarget("leave", "developer")]);
+    const run = executeAuthoredTasks(e.plan, fakeHost());
+    const result = produceDualReport(e.plan, e.slices, run.artifacts, content);
+    expect(result.assembled.documents).toHaveLength(1);
+    expect(result.assembled.documents[0]!.scope.kind).toBe("module");
+    expect(result.audit.ok).toBe(true);
+    expect(result.rendered.documents[0]!.markdown.startsWith("# Module leave — Developer report")).toBe(true);
+    const accounting = accountDocuments(result.assembled);
     expect(accounting[0]!.printed).toBe(accounting[0]!.blocks); // fully printed
   });
 });

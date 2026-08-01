@@ -41,7 +41,7 @@ export interface AssembledBlock {
   readonly sliceScope: Scope;
   /** The materialized slice this block reads and its digest — the block's source of record. */
   readonly sliceKey: string;
-  readonly sliceDigest: string | null;
+  readonly sliceDigest: string;
   /** A deterministic block is always accounted; an authored one only when its artifact validated. */
   readonly validated: boolean;
   readonly artifactRef: string | null;
@@ -115,8 +115,15 @@ function assembleDocument(
   const sections: AssembledSection[] = doc.sections.map((section) => {
     const blocks: AssembledBlock[] = section.blocks.map((block) => {
       const taskId = block.task?.taskId ?? null;
-      const sliceKey = sliceKeyByRef.get(joinKey([doc.documentId, section.sectionId, block.blockId])) ?? block.factSlice.sliceKey;
-      const sliceDigest = digestByKey.get(sliceKey) ?? null;
+      // The block's materialized slice must be present — fall through to nothing. A
+      // missing reference or digest means the plan and slices were not compiled
+      // together; fail closed rather than record a null "source of record" that
+      // would make two different slices indistinguishable to the audit.
+      const refKey = joinKey([doc.documentId, section.sectionId, block.blockId]);
+      const sliceKey = sliceKeyByRef.get(refKey);
+      if (sliceKey === undefined) throw new Error(`plan and slices are mismatched: no materialized slice for ${refKey}`);
+      const sliceDigest = digestByKey.get(sliceKey);
+      if (sliceDigest === undefined) throw new Error(`plan and slices are mismatched: no digest for slice ${sliceKey}`);
 
       // A deterministic block needs no host and is always accounted; an authored
       // block is accounted only when its task produced a validated artifact.

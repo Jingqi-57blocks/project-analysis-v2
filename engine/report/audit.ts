@@ -13,6 +13,11 @@
  * claim resolves to one identity in every document, a deterministic block is reused
  * by digest, an authored block never crosses audiences, every slice stays in its
  * document's scope, and no required block is missing.
+ *
+ * The boundary is precise for an authored shared claim (e.g. `known-issues.impact`):
+ * this checks the two documents read the *same* slice identity, not that their
+ * authored prose agrees — two audiences authoring contradictory text over one slice
+ * is a content divergence the M4 fresh-run content match owns, not a structural one.
  */
 
 import { createHash } from "node:crypto";
@@ -55,7 +60,7 @@ function scopeId(scope: AssembledBlock["sliceScope"]): string {
 
 /** The identity a shared claim must hold across every document that carries it. */
 function sharedIdentity(block: AssembledBlock): string {
-  return joinKey([block.blockId, block.outputSchemaId, block.sliceKey, block.sliceDigest ?? ""]);
+  return joinKey([block.blockId, block.outputSchemaId, block.sliceKey, block.sliceDigest]);
 }
 
 export function auditReport(report: AssembledReport): AuditReport {
@@ -64,18 +69,23 @@ export function auditReport(report: AssembledReport): AuditReport {
     doc.sections.flatMap((s) => s.blocks.map((block) => ({ documentId: doc.documentId, block }))),
   );
 
-  // 1. A shared claim resolves to one identity in every document that carries it.
-  const sharedById = new Map<string, BlockAt[]>();
+  // 1. A shared claim resolves to one identity across the audiences of a scope. It
+  //    is shared across audiences (product vs developer), not across scopes — the
+  //    same block reads a scope-specific slice, so a project and a module document
+  //    legitimately differ. Partition by (blockId, scope) so a cross-scope request
+  //    is not flagged, while a genuine cross-audience divergence within a scope is.
+  const sharedByGroup = new Map<string, BlockAt[]>();
   for (const at of allBlocks) {
     if (!at.block.carriesSharedClaim) continue;
-    const list = sharedById.get(at.block.blockId) ?? [];
+    const key = joinKey([at.block.blockId, scopeId(at.block.sliceScope)]);
+    const list = sharedByGroup.get(key) ?? [];
     list.push(at);
-    sharedById.set(at.block.blockId, list);
+    sharedByGroup.set(key, list);
   }
-  for (const [blockId, group] of [...sharedById.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+  for (const [key, group] of [...sharedByGroup.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
     const identities = new Set(group.map((g) => sharedIdentity(g.block)));
     if (identities.size > 1) {
-      findings.push({ kind: "shared-claim-divergent", detail: `${blockId} resolves to ${identities.size} identities across documents` });
+      findings.push({ kind: "shared-claim-divergent", detail: `${group[0]!.block.blockId} resolves to ${identities.size} identities within ${key}` });
     }
   }
 
@@ -114,7 +124,7 @@ export function auditReport(report: AssembledReport): AuditReport {
   const detSeen = new Map<string, number>();
   for (const at of allBlocks) {
     if (at.block.kind !== "deterministic") continue;
-    const key = joinKey([at.block.blockId, at.block.sliceDigest ?? ""]);
+    const key = joinKey([at.block.blockId, at.block.sliceDigest]);
     detSeen.set(key, (detSeen.get(key) ?? 0) + 1);
   }
   const deterministicReuse = [...detSeen.values()].filter((n) => n > 1).length;
@@ -122,7 +132,7 @@ export function auditReport(report: AssembledReport): AuditReport {
   return {
     ok: findings.length === 0,
     findings,
-    sharedClaimBlocks: sharedById.size,
+    sharedClaimBlocks: sharedByGroup.size,
     deterministicReuse,
     digest: digest(findings),
   };
