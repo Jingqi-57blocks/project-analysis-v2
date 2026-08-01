@@ -261,10 +261,31 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     // Derive and persist the behaviour model from the extracted evidence. This was
     // the base-layer gap the PI-19 baseline surfaced: the derivers existed but were
     // never run over an analysis, so no behaviour facts reached the knowledge base.
+    //
+    // Behaviour derivation must not take down an otherwise-complete run: the
+    // structural KB is already extracted, derived and persisted. If the behaviour
+    // validator or persist fails-closed, record the reason as a gap and still
+    // publish the structural knowledge base rather than aborting the whole run.
     timer.time(
       "behavior",
-      () => persistBehaviorModel(store, handle!.snapshotId, assembleBehaviorModel(behaviorInputFrom(rootFacts)).model),
-      (counts) => ({ items: counts.facts }),
+      () => {
+        try {
+          return persistBehaviorModel(store, handle!.snapshotId, assembleBehaviorModel(behaviorInputFrom(rootFacts)).model).facts;
+        } catch (behaviorError) {
+          // The behaviour model is snapshot-level; attribute its failure to the
+          // first root so the NOT NULL foreign key holds, and record why.
+          const firstRootId = handle!.roots[0]?.id;
+          if (firstRootId !== undefined) {
+            store.run(
+              `INSERT INTO extraction_failures (snapshot_id, source_root_id, provider_id, scope, reason)
+               VALUES (?, ?, 'behavior', 'behavior-model', ?)`,
+              [handle!.snapshotId, firstRootId, behaviorError instanceof Error ? behaviorError.message : String(behaviorError)],
+            );
+          }
+          return 0;
+        }
+      },
+      (facts) => ({ items: facts }),
     );
 
     timer.time(

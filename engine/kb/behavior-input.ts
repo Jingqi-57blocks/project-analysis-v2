@@ -1,19 +1,21 @@
 /**
  * The bridge from a run's extracted structural evidence to the behaviour derivers'
- * input (PI-20).
+ * input (PI-81).
  *
- * The analysis extracts conditions, validations, auth annotations, error handling,
- * discarded errors, data access, transactions and outbound calls into the
- * structural model, but never fed them to the behaviour derivers — so a fresh run
- * derived no behaviour facts. This gathers the model into the derivers' input so
- * `assembleBehaviorModel` can run over a real analysis.
+ * The analysis extracts the behaviour evidence — conditions, decisions, guards,
+ * value sets, auth annotations, validations, error handling, discarded errors,
+ * data access, transactions, outbound and notification calls — into the structural
+ * model, but never fed them to the behaviour derivers, so a fresh run derived no
+ * behaviour facts. This gathers the model into the derivers' input so
+ * `assembleBehaviorModel` runs over a real analysis, and derives the business rules
+ * from the conditions the same way the structural pipeline does.
  *
- * It maps only the evidence the generic extraction already produces. Three behaviour
- * fact families the golden slice needs are not extracted anywhere yet and stay empty
- * here — notification calls, state transitions and test relations — each its own
- * generic-extractor sub-issue; a whitelist of names would not be a generic capability.
+ * Two families the generic extraction does not produce yet stay empty here — state
+ * transitions (PI-83) and test relations (PI-84) — each its own generic-extractor
+ * sub-issue; a whitelist of names would not be a generic capability.
  */
 
+import { stateRule } from "../semantics/rules.js";
 import type { RootFacts } from "./extract.js";
 import { gatherRecords } from "./gather.js";
 import type { AssembleInput } from "./behavior-assemble.js";
@@ -22,19 +24,19 @@ import type { AssembleInput } from "./behavior-assemble.js";
 export function behaviorInputFrom(roots: readonly RootFacts[]): AssembleInput {
   const g = gatherRecords(roots);
   const valueSets = roots.flatMap((r) => r.valueSets);
+  // Conditions become business rules once value sets explain their values — the
+  // same mapping the structural derive uses, so the two agree.
+  const rules = g.conditions.map((condition) => stateRule(condition, valueSets));
   return {
-    // Conditions and value sets are extracted; decisions/guards/business-rules are
-    // not a separate structural kind, so they are empty (the deriver reads rules
-    // from conditions).
-    decisions: { conditions: g.conditions, decisions: [], guards: [], rules: [], valueSets },
-    // State value sets and conditions are extracted; observed transitions (field →
-    // value changes) are not — that extractor is a sub-issue.
+    decisions: { conditions: g.conditions, decisions: g.decisions, guards: g.guards, rules, valueSets },
+    // State value sets and conditions are extracted; observed transitions (a field
+    // set to an enum value) are not yet — that extractor is PI-83.
     states: { valueSets, conditions: g.conditions },
     boundary: { auth: g.authAnnotations, validations: g.validations, errorHandling: g.errorHandling, discarded: g.discarded },
-    // Data access, transactions and outbound calls are extracted; external-call and
-    // notification-call classification is not — a sub-issue, not a name whitelist.
-    sideEffects: { dataAccess: g.dataAccess, transactions: g.transactions, outbound: g.calls, external: [], notifications: [] },
-    // Test relations are not linked yet — a sub-issue. providerRan false discloses it.
+    // Data access, transactions, outbound and notification calls are extracted;
+    // no provider emits external-call, so it stays empty.
+    sideEffects: { dataAccess: g.dataAccess, transactions: g.transactions, outbound: g.calls, external: [], notifications: g.notifications },
+    // Test relations are not linked yet — PI-84. providerRan false discloses it.
     tests: { testRelations: [], providerRan: false },
   };
 }
