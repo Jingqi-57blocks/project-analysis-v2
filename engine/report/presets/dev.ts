@@ -86,7 +86,7 @@ export type PresetValidation = { readonly ok: true } | { readonly ok: false; rea
 
 /**
  * Validate that the developer preset is complete and consistent: every required
- * question maps to a real section; every product section answers a question; both
+ * question maps to a real section; every developer section answers a question; both
  * developer presets resolve; every authored-required block has a contract; and
  * every contract names a real catalog block with the matching output schema and
  * fact kinds. A gap here means a document that cannot be finished, so it fails closed.
@@ -100,6 +100,10 @@ export function validateDevPreset(): PresetValidation {
 
   const questionSections = new Set(DEV_QUESTIONS.map((q) => q.sectionId));
   const contractByBlock = new Map(DEV_AUTHORED_BLOCKS.map((b) => [b.blockId, b] as const));
+  // A duplicate block id would collapse in the Map (last wins) and could mask a
+  // fact-kind mismatch on the shadowed entry, since only the forward loop checks
+  // fact kinds. Reject the duplicate outright rather than trust Map iteration.
+  if (contractByBlock.size !== DEV_AUTHORED_BLOCKS.length) reasons.push("DEV_AUTHORED_BLOCKS contains a duplicate block id");
   const sections = [...devPresetSections("project"), ...devPresetSections("module")];
   const seen = new Set<string>();
   for (const section of sections) {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { sectionById } from "../../../engine/contracts/report/catalog.js";
 import type { SectionApplicabilityDecision } from "../../../engine/report/applicability.js";
+import { KNOWN_ISSUES_IMPACT_BLOCK, PM_EFFECTS_AUTHORED_BLOCKS } from "../../../engine/report/content/effects.js";
 import {
   DEV_AUTHORED_BLOCKS,
   DEV_QUESTIONS,
@@ -43,10 +44,18 @@ describe("every authored block in the developer preset has a contract", () => {
     }
   });
 
-  it("the shared known-issues impact block is the same contract the product report uses", () => {
+  it("the shared known-issues impact block is the same contract OBJECT the product report uses", () => {
     const impact = sectionById("known-issues")!.blocks.find((b) => b.id === "known-issues.impact")!;
     const contract = DEV_AUTHORED_BLOCKS.find((b) => b.blockId === "known-issues.impact")!;
-    expect(contract.outputSchemaId).toBe(impact.outputSchemaId); // problem-impact.v1 — no re-mint, shared ledger
+    expect(contract.outputSchemaId).toBe(impact.outputSchemaId); // problem-impact.v1
+    // object identity, not merely the same schema — a future re-minted copy would fail this
+    expect(contract).toBe(KNOWN_ISSUES_IMPACT_BLOCK);
+    expect(PM_EFFECTS_AUTHORED_BLOCKS).toContain(KNOWN_ISSUES_IMPACT_BLOCK); // one ledger across both audiences
+  });
+
+  it("has no duplicate contract block id (a duplicate could mask a fact-kind mismatch)", () => {
+    const ids = DEV_AUTHORED_BLOCKS.map((b) => b.blockId);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("carries no contract that the developer preset does not need", () => {
