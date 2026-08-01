@@ -60,13 +60,17 @@ describe("eligibleStateSets", () => {
 });
 
 describe("observeChangesInFile — Go write contexts", () => {
+  // Genuine writes: an assignment RHS, a `:=` RHS, a struct-literal keyed value and
+  // a keyed value of an update map (`Updates(map{"status": M})` — the cron TR-11
+  // shape). Bare call arguments are reads (see the block below).
   const source = `package leave
 
 func Approve(tx *gorm.DB, lv *Leave) {
 	leave.Status = constant.LvApprovedC.Uint8()
 	nextStatus := constant.LvWaitingL1ApproveC
-	updateLvStatus(tx, lv.ID, constant.LvWaitingL2ApproveC.Uint8())
-	m := map[string]uint8{"status": constant.LvWaitingL3ApproveC.Uint8()}
+	tx.Model(lv).Updates(map[string]interface{}{"status": constant.LvWaitingL2ApproveC.Uint8()})
+	_ = model.Leave{Status: constant.LvWaitingL3ApproveC.Uint8()}
+	_ = nextStatus
 }
 `;
 
@@ -85,15 +89,15 @@ func Approve(tx *gorm.DB, lv *Leave) {
     expect(changes.some((o) => o.toValue === 1)).toBe(true);
   });
 
-  it("keeps a direct call argument (updateLvStatus(tx, id, M.Uint8()))", () => {
+  it("keeps an update-map keyed value (Updates(map{\"status\": M})) — the cron write shape", () => {
     expect(changes.some((o) => o.toValue === 2)).toBe(true);
   });
 
-  it("keeps a keyed composite-literal value (\"status\": M)", () => {
+  it("keeps a struct-literal keyed value (model.Leave{Status: M})", () => {
     expect(changes.some((o) => o.toValue === 3)).toBe(true);
   });
 
-  it("emits every write as a to-only observation of its set, and nothing else", () => {
+  it("emits every genuine write as a to-only observation of its set, and nothing else", () => {
     expect(changes.map((o) => o.toValue).sort((a, b) => Number(a) - Number(b))).toEqual([1, 2, 3, 4]);
     expect(changes.every((o) => o.field === "LvStatusC" && o.fromValue === null && o.guard === null)).toBe(true);
   });
@@ -106,6 +110,44 @@ func Check(lv *Leave) {
 	if lv.Status == constant.LvApprovedC.Uint8() {
 		return
 	}
+}
+`;
+    expect(observeChangesInFile("svc", "service.go", source, [lvStatus])).toEqual([]);
+  });
+
+  it("does not observe a bare call argument (updateLvStatus(tx, id, M.Uint8()))", () => {
+    // A member handed to a call is as often read as written; a to-only transition
+    // asserted from it would be a false fact.
+    const source = `package leave
+func Approve(tx *gorm.DB, lv *Leave) {
+	updateLvStatus(tx, lv.ID, constant.LvWaitingL2ApproveC.Uint8())
+}
+`;
+    expect(observeChangesInFile("svc", "service.go", source, [lvStatus])).toEqual([]);
+  });
+
+  it("does not observe a query filter argument (Where(\"status = ?\", M))", () => {
+    const source = `package leave
+func List(tx *gorm.DB) {
+	tx.Where("status = ?", constant.LvApprovedC.Uint8()).Find(&rows)
+}
+`;
+    expect(observeChangesInFile("svc", "service.go", source, [lvStatus])).toEqual([]);
+  });
+
+  it("does not observe a format argument (Sprintf(\"%d\", M.Uint8()))", () => {
+    const source = `package leave
+func Label() string {
+	return fmt.Sprintf("%d", constant.LvApprovedC.Uint8())
+}
+`;
+    expect(observeChangesInFile("svc", "service.go", source, [lvStatus])).toEqual([]);
+  });
+
+  it("does not observe a membership-test argument (funk.Contains(list, M))", () => {
+    const source = `package leave
+func Has(list []uint8) bool {
+	return funk.Contains(list, constant.LvApprovedC.Uint8())
 }
 `;
     expect(observeChangesInFile("svc", "service.go", source, [lvStatus])).toEqual([]);
@@ -157,6 +199,15 @@ describe("observeChangesInFile — a second, angels-shaped target (TS enum)", ()
     expect(changes[0]!.toValue).toBe("delivered");
     expect(changes[0]!.trigger).toBe("deliver");
     expect(changes[0]!.fromValue).toBeNull();
+  });
+
+  it("does not observe a JS membership-test argument (list.includes(M))", () => {
+    const eligible = eligibleStateSets([orderStatus], [condition("o.status", "processing", "web")]);
+    const source = `function isTerminal(o: Order, done: string[]) {
+  return done.includes(OrderStatus.Delivered);
+}
+`;
+    expect(observeChangesInFile("web", "src/order.ts", source, eligible)).toEqual([]);
   });
 });
 

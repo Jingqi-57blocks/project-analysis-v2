@@ -81,10 +81,6 @@ function setKey(set: ValueSet): string {
   return `${set.rootName}\0${set.relPath}\0${String(set.startLine)}\0${set.name}`;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** Two nodes are the same span — used in place of reference equality. */
 function sameNode(a: SgNode, b: SgNode): boolean {
   const ra = a.range();
@@ -142,6 +138,16 @@ function goKeyedValueElement(keyed: SgNode): SgNode | null {
  * Whether a member reference sits in a write/value context — a change *into* the
  * member — rather than a read of it. Climbs out through value-preserving wrappers
  * and classifies at the first structural parent that settles the question.
+ *
+ * A write is a member on the value side of an assignment/declaration, or a keyed
+ * value of a composite literal (`Model{Status: M}`, `map{"status": M}`) — a
+ * record or update payload being built with that state. Deliberately NOT a bare
+ * call argument: `updateLvStatus(tx, id, M)`, `Where("status = ?", M)`,
+ * `Sprintf("%d", M)`, `Contains(list, M)` all hand the member to a call that as
+ * often reads it (a query filter, a format arg) as writes it, and a to-only
+ * transition asserted from a read is a false fact. The cited state writes survive
+ * because the code also assigns them (`leave.Status = M`, `nextStatus := M`) or
+ * builds them into an update map (`Updates(map{"status": M}`).
  */
 function isWriteContext(ref: SgNode): boolean {
   let child = ref;
@@ -164,10 +170,10 @@ function isWriteContext(ref: SgNode): boolean {
         parent = parent.parent();
         continue;
       }
-      // Otherwise it is an argument handed to the call — a value use.
-      return true;
+      // Otherwise it is being handed to a call — as likely a read as a write.
+      return false;
     }
-    if (kind === "argument_list" || kind === "arguments") return true;
+    if (kind === "argument_list" || kind === "arguments") return false;
 
     // Assignment / declaration: a write only when the member is on the value side.
     if (kind === "assignment_statement" || kind === "short_var_declaration") {
@@ -266,6 +272,9 @@ export function observeChangesInFile(
 }
 
 function compareObservations(a: StateChangeObservation, b: StateChangeObservation): number {
+  // rootName leads so observations from two roots that share a relPath never tie.
+  const byRoot = cmp(a.rootName, b.rootName);
+  if (byRoot !== 0) return byRoot;
   const byPath = cmp(a.source.relPath, b.source.relPath);
   if (byPath !== 0) return byPath;
   const byLine = (a.source.startLine ?? 0) - (b.source.startLine ?? 0);
@@ -300,13 +309,16 @@ export function observeStateChanges(input: StateTransitionObserveInput): StateTr
       try {
         content = readFileSync(join(rootPath, relPath), "utf8");
       } catch (error) {
-        notes.push(`state-transition observer: could not read ${root.rootName}/${relPath}: ${errorMessage(error)}`);
+        // Only the repo-relative identity and a machine-neutral error kind — never
+        // the raw fs message, which carries the absolute path and would make a
+        // persisted diagnostic diverge across machines.
+        notes.push(`state-transition observer: could not read ${root.rootName}/${relPath}: ${error instanceof Error ? error.name : "read error"}`);
         continue;
       }
       try {
         changes.push(...observeChangesInFile(root.rootName, relPath, content, eligible));
       } catch (error) {
-        notes.push(`state-transition observer: could not scan ${root.rootName}/${relPath}: ${errorMessage(error)}`);
+        notes.push(`state-transition observer: could not scan ${root.rootName}/${relPath}: ${error instanceof Error ? error.name : "scan error"}`);
       }
     }
   }
