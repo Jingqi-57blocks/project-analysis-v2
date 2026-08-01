@@ -62,6 +62,14 @@ const GAP_DISPOSITIONS: ReadonlySet<Disposition> = new Set<Disposition>([
   "unsupported",
 ]);
 
+/**
+ * A hard gap owned by the facet that produced it: the fact should be there and is
+ * not. `unsupported`/`unresolved` are NOT hard gaps — they are a facet declining to
+ * grade the item ("not my lane" / "no evidence in my root"), so they must never
+ * override a real verdict an owning facet already gave.
+ */
+const HARD_GAPS: ReadonlySet<Disposition> = new Set<Disposition>(["missing", "wrong", "provider-failure"]);
+
 const LAYER_BY_FACET: Readonly<Record<Exclude<TruthFacet, "M4">, ResponsibilityLayer>> = {
   M1: "codegraph",
   M2: "deriver",
@@ -118,17 +126,45 @@ export interface GapEntry {
   readonly disposition: Disposition;
   readonly layer: ResponsibilityLayer;
   readonly criticality: string;
+  /** The cited source locations the gap concerns, from the truth item — the evidence a fix works from. */
+  readonly evidence: readonly string[];
   readonly detail: string;
+}
+
+/** The frozen revision and clean/dirty state of one analysed root, as this run saw it. */
+export interface RootRevision {
+  readonly name: string;
+  readonly commitSha: string | null;
+  readonly dirty: boolean;
 }
 
 export interface RunManifest {
   readonly snapshotIdentity: string;
+  readonly analysisSnapshotId: number;
+  /** The KB snapshot the behaviour model was read from — must be this run's. */
+  readonly behaviorSnapshotId: number;
+  /** Nodes the structural gate actually read — zero means it graded an empty/absent index. */
+  readonly codeIndexNodeCount: number;
   readonly truthVersion: string;
   readonly pipelineVersion: string;
   readonly structuralRoot: string;
+  /** The revisions this run measured, recorded so a reader can check them against the frozen target manifest. */
+  readonly rootRevisions: readonly RootRevision[];
   readonly reportDocuments: readonly string[];
-  /** True when the three gates graded the same source snapshot as this run. */
-  readonly identitiesMatch: boolean;
+  /**
+   * A real check, not a tautology: the behaviour gate read this run's KB snapshot and
+   * the structural gate read a populated index. The three gates run inline over one
+   * analysis, so they share the snapshot by construction — this catches the ways that
+   * construction can still degrade (a stale/empty index, a mismatched snapshot id).
+   */
+  readonly gatesGradedThisRun: boolean;
+}
+
+/** Per-gate must-find coverage — surfaced so the baseline records rates, not only per-item buckets. */
+export interface GateCoverage {
+  readonly structuralMustFind: readonly [found: number, total: number];
+  readonly behaviorMustFind: readonly [found: number, total: number];
+  readonly reportMustPrint: readonly [printed: number, total: number];
 }
 
 export interface FreshBaseline {
@@ -136,11 +172,12 @@ export interface FreshBaseline {
   readonly total: number;
   readonly dispositions: readonly ItemDisposition[];
   readonly counts: Readonly<Record<Disposition, number>>;
+  readonly coverage: GateCoverage;
   /** The gaps, most-critical first then by id — the input to PI-20. */
   readonly gapLedger: readonly GapEntry[];
   readonly projectLevelDocuments: number;
   readonly projectLevelTasks: number;
-  /** The measurement is valid: buckets conserve, the module-only request has zero project footprint, and the gate identities match. This is not "the analysis found everything". */
+  /** The measurement is valid: buckets conserve, the module-only request has zero project footprint, and the gates graded this run. This is not "the analysis found everything". */
   readonly wellFormed: boolean;
   /** The golden slice actually passed: all three layered gates passed on this fresh run. False while any layer has an unclosed gap. */
   readonly goldenSlicePassed: boolean;
@@ -165,6 +202,9 @@ function disposeItem(
   report: ReportGateReport,
 ): { disposition: Disposition; layer: ResponsibilityLayer; detail: string } {
   let deepest: { disposition: Disposition; layer: ResponsibilityLayer; detail: string } | null = null;
+  // The first facet that declined to grade the item — used only if no facet gave a
+  // real verdict, and attributed to no layer (a disclaiming facet does not own it).
+  let softFallback: { disposition: Disposition; layer: ResponsibilityLayer; detail: string } | null = null;
 
   for (const facet of FACET_ORDER) {
     if (!item.facets.includes(facet)) continue;
@@ -185,14 +225,22 @@ function disposeItem(
       detail = r.detail;
     }
 
-    // A gap at this layer is where the item's flow broke — attribute it here and stop.
-    if (GAP_DISPOSITIONS.has(disposition) || disposition === "not-applicable") {
+    // A hard gap is where the flow broke — attribute it to this layer and stop. A
+    // not-applicable at any layer is a valid exclusion — also final.
+    if (HARD_GAPS.has(disposition) || disposition === "not-applicable") {
       return { disposition, layer, detail };
+    }
+    // A facet declining to grade (unsupported = not my lane; unresolved = no evidence
+    // in my root) must not override a real verdict from an owning facet. Keep the
+    // first as a fallback, blaming no layer, and keep looking.
+    if (disposition === "unsupported" || disposition === "unresolved") {
+      softFallback ??= { disposition, layer: "none", detail };
+      continue;
     }
     deepest = { disposition, layer, detail };
   }
 
-  return deepest ?? { disposition: "not-applicable", layer: "none", detail: "no gate in scope graded this item" };
+  return deepest ?? softFallback ?? { disposition: "not-applicable", layer: "none", detail: "no gate in scope graded this item" };
 }
 
 const CRITICALITY_RANK: Readonly<Record<string, number>> = { critical: 0, normal: 1 };
@@ -208,21 +256,31 @@ export function aggregateFreshBaseline(input: BaselineInputs): FreshBaseline {
   const counts = Object.fromEntries(DISPOSITIONS.map((d) => [d, 0])) as Record<Disposition, number>;
   for (const d of dispositions) counts[d.disposition] += 1;
 
+  // Each gap carries the truth item's own cited evidence — the source locations a fix works from.
+  const evidenceById = new Map(
+    input.truthItems.map((it) => [it.id, it.evidence.map((e) => `${e.root}/${e.path}${e.lines === undefined ? "" : `:${e.lines}`}`)] as const),
+  );
   const gapLedger: GapEntry[] = dispositions
     .filter((d) => GAP_DISPOSITIONS.has(d.disposition))
-    .map((d) => ({ truthId: d.truthId, disposition: d.disposition, layer: d.layer, criticality: d.criticality, detail: d.detail }))
+    .map((d) => ({ truthId: d.truthId, disposition: d.disposition, layer: d.layer, criticality: d.criticality, evidence: evidenceById.get(d.truthId) ?? [], detail: d.detail }))
     .sort((a, b) => {
       const ra = CRITICALITY_RANK[a.criticality] ?? 9;
       const rb = CRITICALITY_RANK[b.criticality] ?? 9;
       return ra !== rb ? ra - rb : a.truthId < b.truthId ? -1 : a.truthId > b.truthId ? 1 : 0;
     });
 
+  const coverage: GateCoverage = {
+    structuralMustFind: [input.structural.mustFindFound, input.structural.mustFindTotal],
+    behaviorMustFind: [input.behavior.mustFindFound, input.behavior.mustFindTotal],
+    reportMustPrint: [input.report.mustPrintPrinted, input.report.mustPrintTotal],
+  };
+
   const bucketsConserve = dispositions.length === input.truthItems.length && Object.values(counts).reduce((a, b) => a + b, 0) === dispositions.length;
   const wellFormed =
     bucketsConserve &&
     input.projectLevelDocuments === 0 &&
     input.projectLevelTasks === 0 &&
-    input.manifest.identitiesMatch;
+    input.manifest.gatesGradedThisRun;
   // The golden slice passes only when every layered gate passed on this fresh run —
   // a gap in any layer (a missing structural fact, an underived behaviour fact, an
   // unprinted report claim) means it did not, however well-formed the measurement.
@@ -233,11 +291,12 @@ export function aggregateFreshBaseline(input: BaselineInputs): FreshBaseline {
     total: dispositions.length,
     dispositions,
     counts,
+    coverage,
     gapLedger,
     projectLevelDocuments: input.projectLevelDocuments,
     projectLevelTasks: input.projectLevelTasks,
     wellFormed,
     goldenSlicePassed,
-    digest: digest({ manifest: input.manifest, dispositions, projectLevelDocuments: input.projectLevelDocuments, projectLevelTasks: input.projectLevelTasks }),
+    digest: digest({ manifest: input.manifest, dispositions, coverage, projectLevelDocuments: input.projectLevelDocuments, projectLevelTasks: input.projectLevelTasks }),
   };
 }

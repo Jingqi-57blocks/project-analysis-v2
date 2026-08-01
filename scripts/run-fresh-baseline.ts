@@ -29,7 +29,7 @@ import { gradeBehaviorTruth } from "../engine/gates/behavior-truth.js";
 import { gradeReportTruth } from "../engine/gates/report-truth.js";
 import { aggregateFreshBaseline, type RunManifest } from "../engine/gates/fresh-baseline.js";
 import { compileExecutablePlan } from "../engine/report/plan.js";
-import { projectLevelFootprint } from "../engine/report/combination.js";
+import { projectLevelFootprint, verifyDedup } from "../engine/report/combination.js";
 import { moduleTarget } from "../engine/contracts/report/target.js";
 import { authoredTasks, type GenerationParams } from "../engine/contracts/report/pipeline.js";
 import type { AnalysisSnapshotIdentity } from "../engine/contracts/report/snapshot.js";
@@ -73,26 +73,31 @@ const snapshot: AnalysisSnapshotIdentity = {
   configIdentity: analysis.identity,
 };
 const params: GenerationParams = { executorKind: "host-agent", modelId: "unbound-m4", language: "en" };
-const executable = compileExecutablePlan({
-  request: [moduleTarget(MODULE, "product"), moduleTarget(MODULE, "developer")],
-  snapshot,
-  params,
-  analysisRunId: analysis.runId,
-});
+const request = [moduleTarget(MODULE, "product"), moduleTarget(MODULE, "developer")];
+const executable = compileExecutablePlan({ request, snapshot, params, analysisRunId: analysis.runId });
 const validatedTaskIds = new Set(authoredTasks(executable.plan).map((t) => t.taskId));
 const report = gradeReportTruth(itemsForFacet(ledger, "M3"), executable, validatedTaskIds, MODULE);
 const footprint = projectLevelFootprint(executable);
+const dedup = verifyDedup(request, executable);
 
 // 5. Aggregate the three receipts into one baseline.
 const manifest: RunManifest = {
   snapshotIdentity: analysis.identity,
+  analysisSnapshotId: analysis.snapshotId,
+  behaviorSnapshotId: analysis.snapshotId, // the snapshot the behaviour model was read from
+  codeIndexNodeCount: nodes.length,
   truthVersion: ledger.manifest.version,
   pipelineVersion: "1.0.0",
   structuralRoot: ROOT,
+  rootRevisions: analysis.roots.map((r) => ({ name: r.name, commitSha: r.commitSha, dirty: r.dirty === true })),
   reportDocuments: [...executable.plan.documents.map((d) => d.documentId)].sort(),
-  identitiesMatch:
-    structural.indexedRoot === ROOT && behavior.indexedRoot === ROOT && snapshot.sourceIdentity === analysis.identity,
+  // A real check: the structural gate read a populated index, the behaviour model
+  // came from this run's KB snapshot, and the report request materialized without a
+  // dedup/scope violation. Not vacuously true — a stale/empty index or a dedup
+  // failure flips it.
+  gatesGradedThisRun: nodes.length > 0 && behavior.indexedRoot === ROOT && dedup.ok,
 };
+if (!dedup.ok) console.error("report request dedup/scope violation:", JSON.stringify(dedup.violations));
 
 const baseline = aggregateFreshBaseline({
   truthItems: ledger.items,
@@ -113,9 +118,14 @@ console.log(
     `observed ${c.observed}, printed ${c.printed}, counted ${c.counted}, unresolved ${c.unresolved}, ` +
     `missing ${c.missing}, wrong ${c.wrong}, not-applicable ${c["not-applicable"]}, provider-failure ${c["provider-failure"]}, unsupported ${c.unsupported}`,
 );
+const cov = baseline.coverage;
+console.log(
+  `coverage — structural must-find ${cov.structuralMustFind[0]}/${cov.structuralMustFind[1]}, ` +
+    `behaviour must-find ${cov.behaviorMustFind[0]}/${cov.behaviorMustFind[1]}, report must-print ${cov.reportMustPrint[0]}/${cov.reportMustPrint[1]}`,
+);
 console.log(
   `gaps ${baseline.gapLedger.length}; project-level docs ${baseline.projectLevelDocuments}, tasks ${baseline.projectLevelTasks}; ` +
-    `identities match ${baseline.manifest.identitiesMatch}; well-formed ${baseline.wellFormed}; golden-slice passed ${baseline.goldenSlicePassed}`,
+    `gates graded this run ${baseline.manifest.gatesGradedThisRun}; well-formed ${baseline.wellFormed}; golden-slice passed ${baseline.goldenSlicePassed}`,
 );
 console.log(`report -> ${out}`);
 for (const g of baseline.gapLedger.slice(0, 25)) console.log(`  gap ${g.truthId} [${g.criticality}] ${g.disposition} @ ${g.layer} — ${g.detail}`);

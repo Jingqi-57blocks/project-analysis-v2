@@ -79,11 +79,15 @@ function report(results: { truthId: string; status: ReportGateReport["results"][
 
 const MANIFEST: RunManifest = {
   snapshotIdentity: "snap-1",
+  analysisSnapshotId: 1,
+  behaviorSnapshotId: 1,
+  codeIndexNodeCount: 100,
   truthVersion: "0.1.0",
   pipelineVersion: "1.0.0",
   structuralRoot: "wcp-service-v2",
+  rootRevisions: [{ name: "wcp-service-v2", commitSha: "7db2ee8d", dirty: false }],
   reportDocuments: ["module:leave|developer", "module:leave|product"],
-  identitiesMatch: true,
+  gatesGradedThisRun: true,
 };
 
 describe("aggregateFreshBaseline — layered attribution", () => {
@@ -119,6 +123,41 @@ describe("aggregateFreshBaseline — layered attribution", () => {
     expect(byId.get("D-printed")).toMatchObject({ disposition: "printed", layer: "report" });
   });
 
+  it("keeps an owning facet's verdict when a later facet disclaims the item (not its lane)", () => {
+    // a role item: M1 (structural) owns and finds it; M2 (behaviour) disclaims it as
+    // unsupported ("owned by the structural lane"). The disclaimer must not override
+    // the found verdict — it stays observed @ codegraph, not unsupported @ deriver.
+    const items = [item("T-ROLE-01", ["M1", "M2"], "critical")];
+    const baseline = aggregateFreshBaseline({
+      truthItems: items,
+      structural: structural([{ truthId: "T-ROLE-01", status: "found" }]),
+      behavior: behavior([{ truthId: "T-ROLE-01", status: "unsupported" }]),
+      report: report([]),
+      manifest: MANIFEST,
+      projectLevelDocuments: 0,
+      projectLevelTasks: 0,
+    });
+    expect(baseline.dispositions[0]).toMatchObject({ disposition: "observed", layer: "codegraph" });
+    expect(baseline.gapLedger).toEqual([]); // not a phantom deriver gap
+  });
+
+  it("attributes an item every graded facet disclaims to no layer, not the disclaiming one", () => {
+    // an object item: only M2, which disclaims it to the datamodel lane. It is an
+    // honest gap, but blamed on no pipeline layer.
+    const items = [item("T-OBJ-01", ["M2"], "normal")];
+    const baseline = aggregateFreshBaseline({
+      truthItems: items,
+      structural: structural([]),
+      behavior: behavior([{ truthId: "T-OBJ-01", status: "unsupported" }]),
+      report: report([]),
+      manifest: MANIFEST,
+      projectLevelDocuments: 0,
+      projectLevelTasks: 0,
+    });
+    expect(baseline.dispositions[0]).toMatchObject({ disposition: "unsupported", layer: "none" });
+    expect(baseline.gapLedger.map((g) => g.truthId)).toEqual(["T-OBJ-01"]); // still an honest gap
+  });
+
   it("conserves the total across the disposition buckets", () => {
     const items = [item("A", ["M1"]), item("B", ["M2"]), item("C", ["M3"])];
     const baseline = aggregateFreshBaseline({
@@ -150,8 +189,8 @@ describe("aggregateFreshBaseline — layered attribution", () => {
     const projectLeak = aggregateFreshBaseline({ truthItems: items, structural: structural([]), behavior: b, report: report([]), manifest: MANIFEST, projectLevelDocuments: 1, projectLevelTasks: 0 });
     expect(projectLeak.wellFormed).toBe(false); // module-only request must have zero project documents
 
-    const identityDrift = aggregateFreshBaseline({ truthItems: items, structural: structural([]), behavior: b, report: report([]), manifest: { ...MANIFEST, identitiesMatch: false }, projectLevelDocuments: 0, projectLevelTasks: 0 });
-    expect(identityDrift.wellFormed).toBe(false);
+    const gatesDidNotGrade = aggregateFreshBaseline({ truthItems: items, structural: structural([]), behavior: b, report: report([]), manifest: { ...MANIFEST, gatesGradedThisRun: false }, projectLevelDocuments: 0, projectLevelTasks: 0 });
+    expect(gatesDidNotGrade.wellFormed).toBe(false);
   });
 
   it("separates a well-formed measurement from a passing golden slice", () => {
