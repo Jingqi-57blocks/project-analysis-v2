@@ -195,14 +195,37 @@ describe("validateBehaviorModel", () => {
     if (!r.ok) expect(r.reasons.join()).toContain("not a state");
   });
 
-  it("rejects a transition with only one endpoint", () => {
+  it("rejects a transition with only a from-state and no to-state", () => {
     const r = validateBehaviorModel({
       schemaVersion: "1.0.0",
       facts: [trans, stateA],
       relations: [{ kind: "transition-endpoint", from: trans.factId, to: stateA.factId, role: "from-state" }],
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reasons.join()).toContain("exactly one from-state and one to-state");
+    if (!r.ok) expect(r.reasons.join()).toContain("exactly one to-state and at most one from-state");
+  });
+
+  it("accepts a to-only transition — one to-state and no from-state", () => {
+    const r = validateBehaviorModel({
+      schemaVersion: "1.0.0",
+      facts: [trans, stateB],
+      relations: [{ kind: "transition-endpoint", from: trans.factId, to: stateB.factId, role: "to-state" }],
+    });
+    expect(r).toEqual({ ok: true, quarantined: [] });
+  });
+
+  it("rejects a transition with two from-states", () => {
+    const r = validateBehaviorModel({
+      schemaVersion: "1.0.0",
+      facts: [trans, stateA, stateB],
+      relations: [
+        { kind: "transition-endpoint", from: trans.factId, to: stateA.factId, role: "from-state" },
+        { kind: "transition-endpoint", from: trans.factId, to: stateB.factId, role: "from-state" },
+        { kind: "transition-endpoint", from: trans.factId, to: stateB.factId, role: "to-state" },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reasons.join()).toContain("at most one from-state");
   });
 
   it("rejects an orphan transition with no endpoint relations at all", () => {

@@ -105,9 +105,14 @@ describe("deriveStateBehavior — transitions", () => {
     expect((t.payload as unknown as { activation: string }).activation).toBe("guarded");
   });
 
-  it("records an undeterminable-start transition as a diagnostic, not a fabricated fact", () => {
+  it("emits a to-only transition when the start is undeterminable, keeping the note", () => {
     const { model, diagnostics } = deriveStateBehavior({ valueSets: [set()], conditions: [], changes: [change({ fromValue: null, toValue: 2 })] });
-    expect(model.facts.some((f) => f.kind === "transition")).toBe(false);
+    const transition = model.facts.find((f) => f.kind === "transition")!;
+    expect(transition).toBeDefined();
+    const endpoints = model.relations.filter((r) => r.kind === "transition-endpoint" && r.from === transition.factId);
+    expect(endpoints.map((r) => r.role)).toEqual(["to-state"]);
+    expect(validateBehaviorModel(model)).toEqual({ ok: true, quarantined: [] });
+    // the missing origin is still recorded, so a reader can see the start was not stated
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0]!.kind).toBe("undeterminable-start");
   });

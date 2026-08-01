@@ -10,9 +10,11 @@
  * `assembleBehaviorModel` runs over a real analysis, and derives the business rules
  * from the conditions the same way the structural pipeline does.
  *
- * Two families the generic extraction does not produce yet stay empty here — state
- * transitions (PI-83) and test relations (PI-84) — each its own generic-extractor
- * sub-issue; a whitelist of names would not be a generic capability.
+ * State transitions are observed generically from the source (PI-83): a value-set
+ * member of a state-bearing set used in a write/value context is a change into
+ * that state. Test relations (PI-84) are the one family still empty here — its own
+ * generic-extractor sub-issue; a whitelist of names would not be a generic
+ * capability.
  */
 
 import { stateRule } from "../semantics/rules.js";
@@ -20,6 +22,7 @@ import type { RootFacts } from "./extract.js";
 import { gatherRecords } from "./gather.js";
 import type { AssembleInput } from "./behavior-assemble.js";
 import { deriveNotificationsForRoots } from "./notification-reachability.js";
+import { observeStateChanges } from "./state-transition-observe.js";
 
 /**
  * Where the code graph lives, and which root each name maps to, so the
@@ -60,11 +63,21 @@ export function behaviorInputFrom(
     ...(opts.rootPaths === undefined ? {} : { rootPaths: opts.rootPaths }),
   });
 
+  // Observe state changes generically — a value-set member of a state-bearing set
+  // used in a write/value context — so the state deriver has transitions to build.
+  // Fails open per file; without root paths it scans nothing and adds only notes.
+  const observed = observeStateChanges({
+    roots,
+    valueSets,
+    conditions: g.conditions,
+    ...(opts.rootPaths === undefined ? {} : { rootPaths: opts.rootPaths }),
+  });
+
   const input: AssembleInput = {
     decisions: { conditions: g.conditions, decisions: g.decisions, guards: g.guards, rules, valueSets },
     // State value sets and conditions are extracted; observed transitions (a field
-    // set to an enum value) are not yet — that extractor is PI-83.
-    states: { valueSets, conditions: g.conditions },
+    // set to an enum value in a write context) come from the generic observer.
+    states: { valueSets, conditions: g.conditions, changes: observed.changes },
     boundary: { auth: g.authAnnotations, validations: g.validations, errorHandling: g.errorHandling, discarded: g.discarded },
     // Data access, transactions, outbound and notification calls are extracted;
     // no provider emits external-call, so it stays empty. The reverse-reachability
@@ -79,5 +92,5 @@ export function behaviorInputFrom(
     // Test relations are not linked yet — PI-84. providerRan false discloses it.
     tests: { testRelations: [], providerRan: false },
   };
-  return { input, notes: reached.notes };
+  return { input, notes: [...reached.notes, ...observed.notes] };
 }
