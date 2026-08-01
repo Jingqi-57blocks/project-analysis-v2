@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { sectionById } from "../../../engine/contracts/report/catalog.js";
+import type { SectionApplicabilityDecision } from "../../../engine/report/applicability.js";
 import {
   PM_AUTHORED_BLOCKS,
   PM_QUESTIONS,
   PROJECT_BUSINESS_PATHS_BLOCK,
   PROJECT_CROSS_MODULE_RULES_BLOCK,
   pmPresetSections,
+  pmQuestionCoverage,
   validatePmPreset,
 } from "../../../engine/report/presets/pm.js";
 
@@ -48,6 +50,40 @@ describe("every authored block in the PM preset has a contract", () => {
     const rules = sectionById("project-objects-lifecycle")!.blocks.find((b) => b.id === "project-objects-lifecycle.rules")!;
     expect(PROJECT_BUSINESS_PATHS_BLOCK.outputSchemaId).toBe(paths.outputSchemaId);
     expect(PROJECT_CROSS_MODULE_RULES_BLOCK.outputSchemaId).toBe(rules.outputSchemaId);
+  });
+});
+
+describe("every product section answers a PM question (reverse coverage)", () => {
+  it("no section in either product preset is without a question", () => {
+    const questionSections = new Set(PM_QUESTIONS.map((q) => q.sectionId));
+    const sections = new Set([...pmPresetSections("project"), ...pmPresetSections("module")].map((s) => s.id));
+    for (const id of sections) expect(questionSections.has(id), `section ${id}`).toBe(true);
+  });
+});
+
+describe("pmQuestionCoverage — every question answered or a structured reason", () => {
+  const decision = (sectionId: string, applicability: "included" | "not-applicable" | "unknown", reason: string): SectionApplicabilityDecision => ({
+    sectionId,
+    applicability,
+    state: applicability === "included" ? "found" : applicability === "not-applicable" ? "not-applicable" : "unknown",
+    reason,
+    evidence: [],
+  });
+
+  it("maps each question to its section's applicability, defaulting to unknown", () => {
+    const decisions = {
+      "project-boundary": decision("project-boundary", "included", "found the module map"),
+      "module-recovery": decision("module-recovery", "not-applicable", "this project has no recovery flows"),
+      // no decision for the rest → unknown with a stated reason
+    };
+    const coverage = pmQuestionCoverage(decisions);
+    expect(coverage.length).toBe(PM_QUESTIONS.length);
+    const byQ = new Map(coverage.map((c) => [c.sectionId, c]));
+    expect(byQ.get("project-boundary")!.applicability).toBe("included");
+    expect(byQ.get("module-recovery")!.applicability).toBe("not-applicable"); // not conflated with unknown
+    const undecided = byQ.get("identity")!;
+    expect(undecided.applicability).toBe("unknown");
+    expect(undecided.reason.length).toBeGreaterThan(0); // a stated reason, never silently answered
   });
 });
 

@@ -13,11 +13,20 @@
  */
 
 import type { FactKind } from "../../contracts/shared-fact/families.js";
+import type { SectionApplicability } from "../../contracts/shared-fact/applicability.js";
 import { type SectionDefinition, sectionById } from "../../contracts/report/catalog.js";
 import { MODULE_PRODUCT_DETAIL, PROJECT_PRODUCT, resolveSections } from "../../contracts/report/presets.js";
+import type { SectionApplicabilityDecision } from "../applicability.js";
 import { PM_STRUCTURE_AUTHORED_BLOCKS } from "../content/boundary.js";
 import { PM_FLOWS_AUTHORED_BLOCKS } from "../content/flows.js";
 import { PM_EFFECTS_AUTHORED_BLOCKS } from "../content/effects.js";
+
+/** Set-equality over fact kinds — order-independent, duplicate-tolerant. */
+function sameKinds(a: readonly FactKind[], b: readonly FactKind[]): boolean {
+  const bs = new Set(b);
+  const as = new Set(a);
+  return as.size === bs.size && [...as].every((k) => bs.has(k));
+}
 
 export interface AuthoredBlockContract {
   readonly blockId: string;
@@ -127,18 +136,28 @@ export function validatePmPreset(): PresetValidation {
     return undefined;
   };
 
-  // Every authored-required block in the preset must have a contract.
+  // Every product section must answer at least one required question, and every
+  // authored-required block in it must have a contract whose schema and fact
+  // kinds match the catalog.
+  const questionSections = new Set(PM_QUESTIONS.map((q) => q.sectionId));
   const contractByBlock = new Map(PM_AUTHORED_BLOCKS.map((b) => [b.blockId, b] as const));
   const seen = new Set<string>();
   for (const section of [...pmPresetSections("project"), ...pmPresetSections("module")]) {
     if (seen.has(section.id)) continue;
     seen.add(section.id);
+    if (!questionSections.has(section.id)) reasons.push(`section ${section.id} answers no PM question`);
     for (const block of section.blocks) {
       if (block.kind !== "authored-required") continue;
       const contract = contractByBlock.get(block.id);
-      if (contract === undefined) reasons.push(`authored block ${block.id} has no PM content contract`);
-      else if (contract.outputSchemaId !== block.outputSchemaId) {
+      if (contract === undefined) {
+        reasons.push(`authored block ${block.id} has no PM content contract`);
+        continue;
+      }
+      if (contract.outputSchemaId !== block.outputSchemaId) {
         reasons.push(`authored block ${block.id} schema ${contract.outputSchemaId} ≠ catalog ${block.outputSchemaId}`);
+      }
+      if (!sameKinds(contract.inputFactKinds, block.inputFactKinds)) {
+        reasons.push(`authored block ${block.id} input fact kinds differ from the catalog`);
       }
     }
   }
@@ -151,4 +170,33 @@ export function validatePmPreset(): PresetValidation {
   }
 
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
+}
+
+export interface PmQuestionStatus {
+  readonly questionId: string;
+  readonly sectionId: string;
+  readonly applicability: SectionApplicability;
+  readonly reason: string;
+}
+
+/**
+ * Bind each required PM question to its section's applicability, so every question
+ * is either answered (`included`) or carries a structured `not-applicable` /
+ * `unknown` reason — the two never conflated. A section with no applicability
+ * decision is `unknown` with a stated reason, never silently treated as answered.
+ * The decisions come from PI-41 via the plan compiler (PI-15); this projects them
+ * onto the product-manager questions.
+ */
+export function pmQuestionCoverage(
+  decisionsBySection: Readonly<Record<string, SectionApplicabilityDecision>>,
+): readonly PmQuestionStatus[] {
+  return PM_QUESTIONS.map((q) => {
+    const decision = decisionsBySection[q.sectionId];
+    return {
+      questionId: q.id,
+      sectionId: q.sectionId,
+      applicability: decision?.applicability ?? "unknown",
+      reason: decision?.reason ?? "no applicability decision was made for this section",
+    };
+  });
 }
