@@ -131,6 +131,18 @@ export interface GuardRecord {
    * being quoted to a reader as though it were a sentence.
    */
   readonly messageKind: "stated" | "error-code";
+  /**
+   * Whether the guarded branch *rejects* — throws, or returns an error — rather
+   * than returning a value.
+   *
+   * Every guard here leaves the function (that is what makes its message a rule),
+   * but leaving is not the same as rejecting: `if u == OTTypePay { return "OT Pay" }`
+   * returns a display label, `return q.Where("id != ?", id)` returns a query. Those
+   * messages are data, not rules a request must satisfy. A validation is a rule, so
+   * only a rejection may be promoted to one; the guard fact keeps both, since a
+   * value-returning branch is still a decision.
+   */
+  readonly rejects: boolean;
   readonly enclosingFunction: string | null;
   readonly source: SourceRef;
   readonly provenance: Provenance;

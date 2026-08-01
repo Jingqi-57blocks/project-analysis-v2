@@ -23,6 +23,7 @@ import { gatherRecords } from "./gather.js";
 import type { AssembleInput } from "./behavior-assemble.js";
 import { deriveNotificationsForRoots } from "./notification-reachability.js";
 import { observeStateChanges } from "./state-transition-observe.js";
+import { observeAuthorization, promoteGuardValidations } from "./boundary-observe.js";
 import { deriveTestRelations } from "../providers/tests/provider.js";
 
 /** Lexicographic string order, for deterministic per-root iteration. */
@@ -77,6 +78,15 @@ export function behaviorInputFrom(
     ...(opts.rootPaths === undefined ? {} : { rootPaths: opts.rootPaths }),
   });
 
+  // Observe authorization generically — a role value-set member read in a comparison
+  // or handed to a call is a permission gate — so the boundary deriver has genuine
+  // auth-annotation facts for the imperative role checks. Fails open per file.
+  const observedAuth = observeAuthorization({
+    roots,
+    valueSets,
+    ...(opts.rootPaths === undefined ? {} : { rootPaths: opts.rootPaths }),
+  });
+
   // Link tests to the production code they exercise. The reader takes the model
   // view gatherRecords already built (symbols + call edges); SymbolId embeds the
   // root name, so partition per root and derive each independently.
@@ -120,7 +130,16 @@ export function behaviorInputFrom(
     // State value sets and conditions are extracted; observed transitions (a field
     // set to an enum value in a write context) come from the generic observer.
     states: { valueSets, conditions: g.conditions, changes: observed.changes },
-    boundary: { auth: g.authAnnotations, validations: g.validations, errorHandling: g.errorHandling, discarded: g.discarded },
+    // Auth and validations join the conventions-extracted records with the ones
+    // observed from imperative signals (PI-86): role-membership checks and guards
+    // that reject with a stated message. deriveBoundaryBehavior dedups by factId, so
+    // overlap with an existing record is harmless.
+    boundary: {
+      auth: [...g.authAnnotations, ...observedAuth.auth],
+      validations: [...g.validations, ...promoteGuardValidations(g.guards)],
+      errorHandling: g.errorHandling,
+      discarded: g.discarded,
+    },
     // Data access, transactions, outbound and notification calls are extracted;
     // no provider emits external-call, so it stays empty. The reverse-reachability
     // records join the directly-matched sinks under the same notification kind.
@@ -137,5 +156,5 @@ export function behaviorInputFrom(
     // index could not be trusted to have shown them.
     tests: { testRelations, providerRan: testProviderRan },
   };
-  return { input, notes: [...reached.notes, ...observed.notes, ...testNotes] };
+  return { input, notes: [...reached.notes, ...observed.notes, ...observedAuth.notes, ...testNotes] };
 }

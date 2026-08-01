@@ -256,6 +256,83 @@ function firstArgumentOf(node: SgNode): SgNode | null {
   );
 }
 
+const CALL_KINDS = new Set<string>(["call_expression", "call"]);
+
+/**
+ * Value/query-builder methods whose result is data, not an error — a subset of the
+ * ORM/SQL-builder vocabulary. A branch that returns one of these
+ * (`return q.Where("id != ?", id)`) returns a query, not a rejection. Library
+ * vocabulary, never a project's own method name, so it is the same basis the state
+ * observer uses for read verbs.
+ */
+const VALUE_BUILDER_METHODS = new Set<string>([
+  "where", "not", "or", "first", "find", "findone", "findbyid", "take", "last",
+  "preload", "joins", "having", "group", "order", "limit", "offset", "count",
+  "pluck", "scan", "select", "distinct", "model", "table", "raw", "session",
+  "clauses", "query",
+]);
+
+/** Literals a branch returns as a value — a bare one in the error slot is not a raised error. */
+const RETURN_VALUE_LITERAL_KINDS = new Set<string>([
+  "interpreted_string_literal", "raw_string_literal", "string", "string_literal",
+  "template_string", "int_literal", "float_literal", "number", "rune_literal",
+  "imaginary_literal", "true", "false",
+]);
+
+/** The operand expressions of a return, unwrapping Go's `expression_list`. */
+function returnOperands(ret: SgNode): SgNode[] {
+  const kids = ret.children().filter((child) => {
+    const kind = child.kind() as string;
+    return kind !== "return" && kind !== ";";
+  });
+  const first = kids[0];
+  if (first !== undefined && (first.kind() as string) === "expression_list") {
+    return first.children().filter((child) => (child.kind() as string) !== ",");
+  }
+  return kids;
+}
+
+/** The final segment of a call's callee (its method), lowercased, or null when not a call. */
+function outerCallMethod(node: SgNode): string | null {
+  if (!CALL_KINDS.has(node.kind() as string)) return null;
+  const callee = node.field("function")?.text() ?? "";
+  if (callee === "") return null;
+  return (callee.split(".").pop() ?? callee).toLowerCase();
+}
+
+/**
+ * Whether an exit *rejects* — throws, or returns an error — rather than returning a
+ * value.
+ *
+ * A throw always rejects. For a return, the last operand is the error slot (Go's
+ * `return v, err` idiom): a `nil` or a bare value literal there is a value return,
+ * not a rejection — `return "OT Pay"`, `return Sucs(...), nil`. A lone value-builder
+ * call returns data — `return q.Where("id != ?", id)`. Everything else raises an
+ * error: `return nil, e.InvalidParamMsg("...")`, `return res.status(400).json(...)`,
+ * `throw new Error("...")`. Keyed on shape and library vocabulary, so it holds across
+ * Go's multi-value returns and the single-value returns of the script languages.
+ */
+function isRejectionExit(exit: SgNode): boolean {
+  const kind = exit.kind() as string;
+  if (kind === "throw_statement") return true;
+  if (kind !== "return_statement") return false;
+
+  const operands = returnOperands(exit);
+  if (operands.length === 0) return false;
+
+  const errorSlot = operands[operands.length - 1]!;
+  const slotText = errorSlot.text().trim();
+  if (slotText === "nil" || slotText === "null" || slotText === "undefined" || slotText === "") return false;
+  if (RETURN_VALUE_LITERAL_KINDS.has(errorSlot.kind() as string)) return false;
+
+  // A single value-builder call is data being returned, not an error being raised.
+  if (operands.length === 1) {
+    const method = outerCallMethod(errorSlot);
+    if (method !== null && VALUE_BUILDER_METHODS.has(method)) return false;
+  }
+  return true;
+}
+
 /**
  * The gates a capability enforces that are not literal comparisons.
  *
@@ -316,6 +393,7 @@ export function guardsIn(root: SgNode, rootName: string, relPath: string): Guard
       test,
       message,
       messageKind: stated === null ? "error-code" : "stated",
+      rejects: isRejectionExit(exit),
       enclosingFunction: enclosingFunctionName(node),
       source,
       provenance: resolved(source, "high"),
