@@ -13,6 +13,9 @@ import { extractRoot, type RootFacts } from "../kb/extract.js";
 import { derive } from "../kb/derive.js";
 import { recordDerived } from "../kb/persist.js";
 import { countDerived } from "../kb/kinds.js";
+import { assembleBehaviorModel } from "../kb/behavior-assemble.js";
+import { persistBehaviorModel } from "../kb/behavior-persist.js";
+import { behaviorInputFrom } from "../kb/behavior-input.js";
 import { recordAssembledModel, recordCapabilities } from "../structural/persist.js";
 import { recordEvidence } from "../semantic/persist.js";
 import { PhaseTimer, recordPhaseMetrics } from "./metrics.js";
@@ -253,6 +256,15 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
         return written;
       },
       (written) => ({ items: written }),
+    );
+
+    // Derive and persist the behaviour model from the extracted evidence. This was
+    // the base-layer gap the PI-19 baseline surfaced: the derivers existed but were
+    // never run over an analysis, so no behaviour facts reached the knowledge base.
+    timer.time(
+      "behavior",
+      () => persistBehaviorModel(store, handle!.snapshotId, assembleBehaviorModel(behaviorInputFrom(rootFacts)).model),
+      (counts) => ({ items: counts.facts }),
     );
 
     timer.time(
