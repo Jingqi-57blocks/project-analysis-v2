@@ -72,8 +72,10 @@ describe("deriveNotificationReachability — reverse-reaching a send sink to its
     const result = deriveNotificationReachability({ rootName: ROOT, sinks: [sink("h.go", 15)], snapshot });
 
     // Sorted by (relPath, startLine, mechanism): handler (line 1) before helper (line 12).
+    // The helper contains the send and keeps its channel; the handler only reaches
+    // it, so its channel is "unknown" — it is not itself proven to send on "push".
     expect(result.notifications.map(at)).toEqual([
-      { relPath: "h.go", startLine: 1, mechanism: "reaches:messaging().send", channel: "push" },
+      { relPath: "h.go", startLine: 1, mechanism: "reaches:messaging().send", channel: "unknown" },
       { relPath: "h.go", startLine: 12, mechanism: "messaging().send", channel: "push" },
     ]);
     // Every attributed record is a low-confidence inference.

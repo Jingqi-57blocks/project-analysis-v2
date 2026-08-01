@@ -32,11 +32,19 @@ export interface BehaviorInputOptions {
   readonly rootPaths?: ReadonlyMap<string, string>;
 }
 
+/** The derivers' input, plus the notes the reachability pass disclosed (bounds it
+ * hit, an absent or degraded index) so the caller can record them rather than let
+ * a silent cap pass for full coverage. */
+export interface BehaviorInput {
+  readonly input: AssembleInput;
+  readonly notes: readonly string[];
+}
+
 /** Build the behaviour derivers' input from a run's extracted structural evidence. */
 export function behaviorInputFrom(
   roots: readonly RootFacts[],
   opts: BehaviorInputOptions = {},
-): AssembleInput {
+): BehaviorInput {
   const g = gatherRecords(roots);
   const valueSets = roots.flatMap((r) => r.valueSets);
   // Conditions become business rules once value sets explain their values — the
@@ -52,7 +60,7 @@ export function behaviorInputFrom(
     ...(opts.rootPaths === undefined ? {} : { rootPaths: opts.rootPaths }),
   });
 
-  return {
+  const input: AssembleInput = {
     decisions: { conditions: g.conditions, decisions: g.decisions, guards: g.guards, rules, valueSets },
     // State value sets and conditions are extracted; observed transitions (a field
     // set to an enum value) are not yet — that extractor is PI-83.
@@ -71,4 +79,5 @@ export function behaviorInputFrom(
     // Test relations are not linked yet — PI-84. providerRan false discloses it.
     tests: { testRelations: [], providerRan: false },
   };
+  return { input, notes: reached.notes };
 }

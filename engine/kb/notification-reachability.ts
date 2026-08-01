@@ -36,9 +36,21 @@ import { joinKey } from "../contracts/shared-fact/serialization.js";
 import { inferred, lineRef } from "../structural/provenance.js";
 import type { NotificationCallRecord } from "../structural/rules.js";
 
-/** Reverse-reachability defaults. A hub with more callers than this is a shared
- * utility, not a notification path — attributed but never expanded through. */
-export const DEFAULT_MAX_HOPS = 4;
+/**
+ * Reverse-reachability defaults.
+ *
+ * `maxHops` is deliberately shallow: a function that *directly* calls a send
+ * helper (or is one hop above it) is a credible trigger of that notification;
+ * beyond that the walk stops finding handlers and starts finding plumbing —
+ * a `main`/`init` bootstrap or a channel-consumer goroutine that merely wires the
+ * sender up. Two hops keeps the handler a reader looks under (verified: a
+ * controller that calls a model that sends) without labelling the app bootstrap
+ * a notification site.
+ *
+ * A hub with more callers than `maxFanIn` is a shared utility, not a notification
+ * path — attributed but never expanded through.
+ */
+export const DEFAULT_MAX_HOPS = 2;
 export const DEFAULT_MAX_FAN_IN = 32;
 
 /** CodeGraph's edge kind for a call, and the callable raw kinds a function is. */
@@ -156,10 +168,15 @@ export function deriveNotificationReachability(
     const start = node.startLine;
     if (start === null) return;
     const mechanism = isSinkNode ? sinkMechanism : `reaches:${sinkMechanism}`;
+    // The function that literally contains the send call knows the channel; a
+    // caller that merely reaches it does not — it may reach several sinks of
+    // different channels, and copying the sink's channel onto it would read as a
+    // claim the caller sends on that channel. Reached records carry "unknown".
+    const recordChannel = isSinkNode ? channel : "unknown";
     const source = lineRef(input.rootName, node.filePath, start, node.endLine ?? start);
-    records.set(joinKey([node.filePath, start, channel, mechanism]), {
+    records.set(joinKey([node.filePath, start, recordChannel, mechanism]), {
       rootName: input.rootName,
-      channel,
+      channel: recordChannel,
       mechanism,
       source,
       provenance: inferred(source, "low"),
