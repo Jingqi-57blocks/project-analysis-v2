@@ -6,7 +6,7 @@ import {
   compileReportPlan,
 } from "../../engine/contracts/report/pipeline.js";
 import type { AnalysisSnapshotIdentity } from "../../engine/contracts/report/snapshot.js";
-import { projectTarget } from "../../engine/contracts/report/target.js";
+import { moduleTarget, projectTarget } from "../../engine/contracts/report/target.js";
 import { type SliceCompileContext, materializeSlices } from "../../engine/report/slice.js";
 import {
   type BlockArtifact,
@@ -18,6 +18,7 @@ import {
   assembleValidatedBlocks,
   compileExecutionBundles,
   planRetry,
+  previewExecution,
 } from "../../engine/report/bundle.js";
 
 const SNAPSHOT: AnalysisSnapshotIdentity = {
@@ -92,6 +93,49 @@ describe("compileExecutionBundles — deterministic, bounded grouping", () => {
     for (const f of bundlePlan.failures) expect(f.failure).toBe("budget-exceeded");
     // nothing was silently bundled over the cap
     for (const b of bundlePlan.bundles) expect(b.inputBytes).toBeLessThanOrEqual(10);
+  });
+
+  it("never merges across scope — a project and a module target stay in separate bundles", () => {
+    const { plan, slices } = planAndSlices([projectTarget("developer"), moduleTarget("leave", "developer")]);
+    const bundlePlan = compileExecutionBundles(plan, slices);
+    const scopes = new Set(bundlePlan.bundles.map((b) => b.scopeId));
+    // both scopes appear, and no bundle mixes them
+    expect(scopes.has("project")).toBe(true);
+    expect(scopes.has("module:leave")).toBe(true);
+    const byDoc = new Map(plan.documents.map((d) => [d.documentId, d.scope.kind === "project" ? "project" : `module:${d.scope.moduleId}`] as const));
+    for (const bundle of bundlePlan.bundles) {
+      expect(bundle.scopeId).toBe(byDoc.get(bundle.documentId));
+    }
+  });
+});
+
+describe("previewExecution — budget-aware, before any model runs", () => {
+  it("reports the budget-compiled bundle count and reconciles with accounting", () => {
+    const { plan, slices } = planAndSlices([projectTarget("product")]);
+    const preview = previewExecution(plan, slices);
+    const bundlePlan = compileExecutionBundles(plan, slices);
+    // the preview's bundle count is the execution truth — the compiled count
+    expect(preview.bundleCount).toBe(bundlePlan.bundles.length);
+    expect(preview.authoredBlockCount).toBeGreaterThan(0);
+    expect(preview.deterministicBlockCount).toBeGreaterThan(0);
+    expect(preview.splitBundleCount).toBe(0); // default cap keeps one bundle
+    expect(preview.failedBlockCount).toBe(0);
+    expect(preview.tokenEstimate).toBe(Math.ceil(preview.estimatedInputBytes / 4));
+    expect(preview.policyId).toBe("standard-v1");
+    expect(preview.maxConcurrency).toBe(STANDARD_V1_LIMITS.maxConcurrency);
+  });
+
+  it("counts the splits and their reasons under a tight cap", () => {
+    const { plan, slices } = planAndSlices([projectTarget("product")]);
+    const preview = previewExecution(plan, slices, { ...STANDARD_V1_LIMITS, bundleInputByteCap: 600 });
+    expect(preview.bundleCount).toBeGreaterThan(1);
+    expect(preview.splitBundleCount).toBeGreaterThan(0);
+    expect(preview.splitReasons.length).toBe(preview.splitBundleCount);
+  });
+
+  it("is deterministic", () => {
+    const { plan, slices } = planAndSlices();
+    expect(previewExecution(plan, slices)).toEqual(previewExecution(plan, slices));
   });
 });
 
@@ -187,9 +231,28 @@ describe("assembleValidatedBlocks — validated artifacts only; complete or not"
     }));
     const result = assembleValidatedBlocks(plan, artifacts);
     expect(result.complete).toBe(false);
-    expect(result.missingRequired).toContain(tasks[0]!.blockId);
+    expect(result.missingRequired).toContain(tasks[0]!.taskId);
     // the unvalidated block contributes no artifact
-    expect(result.artifactByBlock[tasks[0]!.blockId]).toBeUndefined();
+    expect(result.artifactByTask[tasks[0]!.taskId]).toBeUndefined();
+  });
+
+  it("does not let a validated shared block in one document mask a failure in another", () => {
+    // known-issues.impact is a shared authored block: same blockId in every
+    // document, distinct taskIds. A validated copy must not mask a failed copy.
+    const { plan } = planAndSlices([projectTarget("product"), projectTarget("developer")]);
+    const tasks = authoredTasks(plan);
+    const shared = tasks.filter((t) => t.blockId === "known-issues.impact");
+    expect(shared.length).toBe(2);
+    const failed = shared[0]!;
+    const artifacts: BlockArtifact[] = tasks.map((t) => ({
+      blockId: t.blockId,
+      taskId: t.taskId,
+      validated: t.taskId !== failed.taskId,
+      artifactRef: t.taskId !== failed.taskId ? `artifact/${t.taskId}` : null,
+    }));
+    const result = assembleValidatedBlocks(plan, artifacts);
+    expect(result.complete).toBe(false);
+    expect(result.missingRequired).toContain(failed.taskId);
   });
 });
 

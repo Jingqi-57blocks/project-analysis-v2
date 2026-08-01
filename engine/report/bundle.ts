@@ -103,6 +103,15 @@ function authoredBlockViews(plan: ReportPlan, slices: MaterializedSlices): Autho
     for (const section of document.sections) {
       for (const block of section.blocks) {
         if (block.task === undefined) continue;
+        const sliceKey = fullKeyByBlock.get(joinKey([document.documentId, section.sectionId, block.blockId]));
+        if (sliceKey === undefined) {
+          // The slices must be materialized from this same plan; a miss means the
+          // caller passed a mismatched table. Fail closed rather than pack the
+          // block free against the narrow (unmaterialized) key.
+          throw new Error(
+            `no materialized slice for ${document.documentId}/${section.sectionId}/${block.blockId} — plan and slices are mismatched`,
+          );
+        }
         views.push({
           documentId: document.documentId,
           audience: document.audience,
@@ -111,7 +120,7 @@ function authoredBlockViews(plan: ReportPlan, slices: MaterializedSlices): Autho
           sectionId: section.sectionId,
           blockId: block.blockId,
           taskId: block.task.taskId,
-          sliceKey: fullKeyByBlock.get(joinKey([document.documentId, section.sectionId, block.blockId])) ?? block.factSlice.sliceKey,
+          sliceKey,
           // V1 affinity: all authored blocks in one document/audience/scope/wave
           // are bundle-compatible. A distinct affinity would keep blocks apart
           // without changing content identity; none is needed in V1.
@@ -262,6 +271,68 @@ export function compileExecutionBundles(
 }
 
 // ---------------------------------------------------------------------------
+// The pre-execution preview — budget-aware, machine-readable, before any model runs.
+// ---------------------------------------------------------------------------
+
+export interface ExecutionPreview {
+  readonly documentCount: number;
+  readonly deterministicBlockCount: number;
+  readonly authoredBlockCount: number;
+  readonly sliceCount: number;
+  /** Budget-compiled bundles — the count the host will actually run. */
+  readonly bundleCount: number;
+  /** Bundles produced by a group split (splitIndex > 0). */
+  readonly splitBundleCount: number;
+  /** Blocks that failed closed at compile — a single block over the input cap. */
+  readonly failedBlockCount: number;
+  /** Estimated input volume the host receives: each bundle carries its slice union. */
+  readonly estimatedInputBytes: number;
+  readonly tokenEstimate: number;
+  readonly tokenEstimatorVersion: string;
+  readonly dependencyWaves: number;
+  readonly maxConcurrency: number;
+  readonly maxRetries: number;
+  readonly splitReasons: readonly string[];
+  readonly policyId: string;
+}
+
+/**
+ * A machine-readable preview of what a run will do, before any model runs, over
+ * the budget-compiled bundles. Its `bundleCount` is the execution truth — the
+ * count the host runs — as opposed to the coarse pre-budget count on the plan.
+ * Deterministic over the plan, slices and policy.
+ */
+export function previewExecution(
+  plan: ReportPlan,
+  slices: MaterializedSlices,
+  limits: PolicyLimits = STANDARD_V1_LIMITS,
+): ExecutionPreview {
+  const bundlePlan = compileExecutionBundles(plan, slices, limits);
+  const blocks = plan.documents.flatMap((d) => d.sections.flatMap((s) => s.blocks));
+  const authoredBlockCount = blocks.filter((b) => b.task !== undefined).length;
+  const estimatedInputBytes = bundlePlan.bundles.reduce((sum, b) => sum + b.inputBytes, 0);
+  const waves = new Set(plan.documents.flatMap((d) => d.sections.map((s) => s.wave)));
+
+  return {
+    documentCount: plan.documents.length,
+    deterministicBlockCount: blocks.length - authoredBlockCount,
+    authoredBlockCount,
+    sliceCount: slices.slices.length,
+    bundleCount: bundlePlan.bundles.length,
+    splitBundleCount: bundlePlan.bundles.filter((b) => b.splitIndex > 0).length,
+    failedBlockCount: bundlePlan.failures.length,
+    estimatedInputBytes,
+    tokenEstimate: Math.ceil(estimatedInputBytes / 4),
+    tokenEstimatorVersion: limits.tokenEstimatorVersion,
+    dependencyWaves: waves.size,
+    maxConcurrency: limits.maxConcurrency,
+    maxRetries: limits.maxRetries,
+    splitReasons: bundlePlan.splitReasons,
+    policyId: limits.policyId,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Execution: per-block validation, retry-only-failed, receipts and accounting.
 // ---------------------------------------------------------------------------
 
@@ -379,9 +450,10 @@ export interface BlockArtifact {
 export interface AssemblyResult {
   /** False if any required authored block never validated — the run is not complete. */
   readonly complete: boolean;
+  /** Task ids of required authored blocks with no validated artifact. */
   readonly missingRequired: readonly string[];
-  /** blockId → artifactRef, validated blocks only. */
-  readonly artifactByBlock: Readonly<Record<string, string>>;
+  /** taskId → artifactRef, validated blocks only. */
+  readonly artifactByTask: Readonly<Record<string, string>>;
 }
 
 /**
@@ -390,6 +462,11 @@ export interface AssemblyResult {
  * leaves the run incomplete (a deterministic partial is allowed, a placeholder is
  * not). Only validated artifacts are consumed, and each is a separate per-block
  * file, so assembly never races on one document.
+ *
+ * Keyed by task id, not block id: a shared authored block (e.g. the problem
+ * ledger) carries the same block id in every document, so keying by block id
+ * would let one document's validated artifact mask another's failure or bleed one
+ * audience's prose into another. Task id folds the document, so it is unique.
  */
 export function assembleValidatedBlocks(
   plan: ReportPlan,
@@ -397,17 +474,17 @@ export function assembleValidatedBlocks(
 ): AssemblyResult {
   const validated = new Map<string, string>();
   for (const artifact of artifacts) {
-    if (artifact.validated && artifact.artifactRef !== null) validated.set(artifact.blockId, artifact.artifactRef);
+    if (artifact.validated && artifact.artifactRef !== null) validated.set(artifact.taskId, artifact.artifactRef);
   }
 
   const requiredAuthored = plan.documents
     .flatMap((d) => d.sections.flatMap((s) => s.blocks))
-    .filter((b) => b.task !== undefined)
-    .map((b) => b.blockId);
+    .map((b) => b.task?.taskId)
+    .filter((id): id is string => id !== undefined);
 
   const missingRequired = [...new Set(requiredAuthored.filter((id) => !validated.has(id)))].sort();
-  const artifactByBlock: Record<string, string> = {};
-  for (const id of [...validated.keys()].sort()) artifactByBlock[id] = validated.get(id)!;
+  const artifactByTask: Record<string, string> = {};
+  for (const id of [...validated.keys()].sort()) artifactByTask[id] = validated.get(id)!;
 
-  return { complete: missingRequired.length === 0, missingRequired, artifactByBlock };
+  return { complete: missingRequired.length === 0, missingRequired, artifactByTask };
 }
