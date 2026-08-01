@@ -13,8 +13,8 @@
     },
     {
       "id": "truth-leave",
-      "version": "0.2.0",
-      "digest": "3d0c92329d2b3bb83d2fd3f4aad993e7ed204bcc09898985c568f1d57b50f49c"
+      "version": "0.3.0",
+      "digest": "dca6eea8435ee8d67c1ff8a3a546cd521c2936a41a71102f4d5cd3fabb044b7f"
     },
     {
       "id": "sentinel-angels-pizza",
@@ -32,5 +32,5 @@
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "f1786c0fdacffb19871ec33fbef5f34e9486b3e7853100e77b4bebfaa25bdb59"
+  "bundleDigest": "aa8fa986c58843126a7cc9db468731d0e6fdafb7606179c6a83726df550777dc"
 }

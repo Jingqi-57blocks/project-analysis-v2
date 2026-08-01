@@ -127,3 +127,49 @@ describe("gradeBehaviorTruth — grading logic", () => {
     expect(failing.passed).toBe(false);
   });
 });
+
+describe("gradeBehaviorTruth — a test-relation absence needs the coverage receipt (PI-84)", () => {
+  const LEAVE = "internal/handlers/leave/service.go";
+  const testAbsent = (over: Partial<TruthItem> = {}) =>
+    item({
+      id: "T-TEST",
+      category: "test-relation",
+      expectedStatus: "absent",
+      mustFind: true,
+      evidence: [{ root: ROOT, path: LEAVE, lines: "1" }],
+      ...over,
+    });
+
+  it("(i) covered + no test fact at the path (other facts present) → found", () => {
+    // A non-test behaviour fact at the same path does not count against a
+    // test-relation absence: the check is kind-scoped to test-relation facts.
+    const report = gradeBehaviorTruth([testAbsent()], model([fact("state", LEAVE)]), ROOT, "covered");
+    expect(report.results[0]!.status).toBe("found");
+  });
+
+  it("(ii) not-run → not-found (no free absence pass without an attested reader)", () => {
+    const report = gradeBehaviorTruth([testAbsent()], model(), ROOT, "not-run");
+    expect(report.results[0]!.status).toBe("not-found");
+    expect(report.results[0]!.detail).toContain("reader not-run");
+  });
+
+  it("(iii) covered + a test fact at the path → not-found", () => {
+    const report = gradeBehaviorTruth([testAbsent()], model([fact("test-relation", LEAVE)]), ROOT, "covered");
+    expect(report.results[0]!.status).toBe("not-found");
+  });
+
+  it("leaves the broad `absent` category (ALL_BEHAVIOR_KINDS) unchanged — never gated on the reader", () => {
+    // T-BEHAV-ABS-01-style: category `absent` is not in the behaviour lane, so it
+    // falls back to every kind and stays confirmable from the model alone. Its
+    // grading must be identical to before PI-84 even at the default not-run.
+    const abs = item({
+      id: "T-ABS",
+      category: "absent",
+      expectedStatus: "absent",
+      mustFind: false,
+      evidence: [{ root: ROOT, path: "internal/x.go", lines: "1" }],
+    });
+    expect(gradeBehaviorTruth([abs], model(), ROOT).results[0]!.status).toBe("found");
+    expect(gradeBehaviorTruth([abs], model([fact("data-access", "internal/x.go")]), ROOT).results[0]!.status).toBe("not-found");
+  });
+});

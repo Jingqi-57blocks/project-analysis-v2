@@ -2,7 +2,7 @@
   "manifest": {
     "targetId": "wcp-v2",
     "module": "leave",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "roots": [
       {
         "name": "wcp-service-v2",
@@ -2349,7 +2349,7 @@
         }
       ],
       "expectedResolution": "observed",
-      "expectedStatus": "found",
+      "expectedStatus": "absent",
       "criticality": "normal",
       "mustFind": true,
       "mustPrint": true,

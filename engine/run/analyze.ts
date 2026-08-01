@@ -16,6 +16,7 @@ import { countDerived } from "../kb/kinds.js";
 import { assembleBehaviorModel } from "../kb/behavior-assemble.js";
 import { persistBehaviorModel } from "../kb/behavior-persist.js";
 import { behaviorInputFrom } from "../kb/behavior-input.js";
+import type { TestCoverage } from "../kb/test-derive.js";
 import { recordAssembledModel, recordCapabilities } from "../structural/persist.js";
 import { recordEvidence } from "../semantic/persist.js";
 import { PhaseTimer, recordPhaseMetrics } from "./metrics.js";
@@ -266,6 +267,10 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     // structural KB is already extracted, derived and persisted. If the behaviour
     // validator or persist fails-closed, record the reason as a gap and still
     // publish the structural knowledge base rather than aborting the whole run.
+    // Hoisted out of the phase closure so it can reach the AnalysisResult return.
+    // Defaults to "not-run": if behaviour derivation fails-closed below, a caller
+    // that cannot attest the reader ran gets no free test-absence pass at the gate.
+    let testCoverage: TestCoverage = "not-run";
     timer.time(
       "behavior",
       () => {
@@ -277,7 +282,9 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
             ...(codeIndexPath === undefined ? {} : { codeIndexPath }),
           };
           const { input, notes } = behaviorInputFrom(rootFacts, behaviorOpts);
-          const facts = persistBehaviorModel(store, handle!.snapshotId, assembleBehaviorModel(input).model).facts;
+          const assembled = assembleBehaviorModel(input);
+          testCoverage = assembled.testCoverage;
+          const facts = persistBehaviorModel(store, handle!.snapshotId, assembled.model).facts;
           // Record the reachability pass's coverage notes (bounds it hit, an absent
           // or degraded index) as fact-less behaviour diagnostics, so a cap or a
           // missing index is auditable rather than passing for full coverage.
@@ -287,6 +294,13 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
               [handle!.snapshotId, note],
             );
           }
+          // A fact-less receipt: whether the test-relation reader ran for this
+          // snapshot, kept distinct from finding no tests. The gate reads it to
+          // decide whether a test-relation absence is confirmable.
+          store.run(
+            `INSERT INTO behavior_diagnostics (snapshot_id, fact_id, reason) VALUES (?, NULL, ?)`,
+            [handle!.snapshotId, `test-coverage: ${testCoverage}`],
+          );
           return facts;
         } catch (behaviorError) {
           // The behaviour model is snapshot-level; attribute its failure to the
@@ -323,6 +337,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       roots: rootResults,
       providerReport,
       codeIndexPath: codeIndexPath ?? null,
+      testCoverage,
     };
   } catch (error) {
     // A failed run's phase timings are still worth having — they show where
