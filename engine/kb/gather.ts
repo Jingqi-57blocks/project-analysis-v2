@@ -27,8 +27,11 @@ import type {
 } from "../structural/dependencies.js";
 import type {
   ConditionRecord,
+  DecisionRecord,
   DiscardedErrorRecord,
   ErrorHandlingRecord,
+  GuardRecord,
+  NotificationCallRecord,
   TransactionBoundaryRecord,
   ValidationRuleRecord,
 } from "../structural/rules.js";
@@ -53,6 +56,9 @@ export interface GatheredRecords {
   readonly errorHandling: readonly ErrorHandlingRecord[];
   readonly authAnnotations: readonly AuthAnnotationRecord[];
   readonly conditions: readonly ConditionRecord[];
+  readonly decisions: readonly DecisionRecord[];
+  readonly guards: readonly GuardRecord[];
+  readonly notifications: readonly NotificationCallRecord[];
   readonly discarded: readonly DiscardedErrorRecord[];
   readonly containment: readonly ModuleContainmentRecord[];
   readonly dependencies: readonly PackageDependencyRecord[];
@@ -85,6 +91,9 @@ interface Buckets {
   errorHandling: ErrorHandlingRecord[];
   authAnnotations: AuthAnnotationRecord[];
   conditions: ConditionRecord[];
+  decisions: DecisionRecord[];
+  guards: GuardRecord[];
+  notifications: NotificationCallRecord[];
   discarded: DiscardedErrorRecord[];
   containment: ModuleContainmentRecord[];
   dependencies: PackageDependencyRecord[];
@@ -107,6 +116,9 @@ function emptyBuckets(): Buckets {
     errorHandling: [],
     authAnnotations: [],
     conditions: [],
+    decisions: [],
+    guards: [],
+    notifications: [],
     discarded: [],
     containment: [],
     dependencies: [],
@@ -154,6 +166,15 @@ function sortInto(buckets: Buckets, model: AssembledModel, generated: ReadonlySe
         break;
       case "condition":
         buckets.conditions.push(assembled.record as ConditionRecord);
+        break;
+      case "decision":
+        buckets.decisions.push(assembled.record as DecisionRecord);
+        break;
+      case "guard":
+        buckets.guards.push(assembled.record as GuardRecord);
+        break;
+      case "notification-call":
+        buckets.notifications.push(assembled.record as NotificationCallRecord);
         break;
       case "discarded-error":
         buckets.discarded.push(assembled.record as DiscardedErrorRecord);

@@ -143,6 +143,7 @@ describe("runAnalyze — happy path", () => {
         "extract",
         "derive",
         "persist",
+        "behavior",
         "publish",
       ]);
 
@@ -349,6 +350,7 @@ describe("runAnalyze — drift between capture and publish", () => {
         "extract",
         "derive",
         "persist",
+        "behavior",
       ]);
     } finally {
       store.close();
