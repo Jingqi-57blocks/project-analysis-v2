@@ -153,6 +153,17 @@ func Has(list []uint8) bool {
     expect(observeChangesInFile("svc", "service.go", source, [lvStatus])).toEqual([]);
   });
 
+  it("does not observe a keyed value under a query builder (Where(map{\"status\": M}))", () => {
+    // Structurally identical to the Updates map above, but handed to a read verb —
+    // a filter, not a state write. This is the ~30 spurious StatusC WHERE emissions.
+    const source = `package leave
+func Find(tx *gorm.DB) {
+	tx.Table("leaves").Where(map[string]interface{}{"status": constant.LvApprovedC.Uint8()}).First(&x)
+}
+`;
+    expect(observeChangesInFile("svc", "service.go", source, [lvStatus])).toEqual([]);
+  });
+
   it("does not observe an element of an unkeyed slice literal ([]uint8{M, ...})", () => {
     const source = `package constant
 var InProgress = []uint8{LvWaitingL1ApproveC, LvWaitingL2ApproveC, LvApprovedC}
@@ -205,6 +216,15 @@ describe("observeChangesInFile — a second, angels-shaped target (TS enum)", ()
     const eligible = eligibleStateSets([orderStatus], [condition("o.status", "processing", "web")]);
     const source = `function isTerminal(o: Order, done: string[]) {
   return done.includes(OrderStatus.Delivered);
+}
+`;
+    expect(observeChangesInFile("web", "src/order.ts", source, eligible)).toEqual([]);
+  });
+
+  it("does not observe an object keyed value under a query read (find({status: M}))", () => {
+    const eligible = eligibleStateSets([orderStatus], [condition("o.status", "processing", "web")]);
+    const source = `async function load(Model: any) {
+  return Model.find({ status: OrderStatus.Delivered });
 }
 `;
     expect(observeChangesInFile("web", "src/order.ts", source, eligible)).toEqual([]);

@@ -57,6 +57,25 @@ const REFERENCE_LEAF_KINDS = new Set<string>(["identifier", "field_identifier", 
 /** `a.b` — Go `selector_expression`, JS/TS `member_expression`. */
 const SELECTOR_KINDS = new Set<string>(["selector_expression", "member_expression"]);
 const CALL_KINDS = new Set<string>(["call_expression", "call"]);
+
+/**
+ * Library-standard query/read builder verbs. A keyed composite value handed to one
+ * of these (`Where(map{"status": M})`, `find({status: M})`) is a *filter*, not a
+ * state write — the member is being matched, not assigned. This is ORM/SQL-builder
+ * vocabulary (gorm, database/sql builders, Mongoose), never a project's own method
+ * name, so keying on it is the same basis the notification-reachability deriver
+ * uses for standard send sinks. A blocklist, so an unrecognized call defaults to a
+ * write; write verbs (`Updates`, `Create`, `Save`) are deliberately absent — the
+ * cron `Updates(map{"status": M})` must stay a genuine transition.
+ */
+const READ_BUILDER_METHODS = new Set<string>([
+  // gorm / SQL query builders
+  "where", "not", "or", "first", "find", "take", "last", "preload", "joins",
+  "having", "group", "order", "limit", "offset", "count", "pluck", "scan",
+  "select", "distinct",
+  // Mongoose / JS document reads
+  "findone", "findbyid", "countdocuments", "exists",
+]);
 /**
  * Wrappers that pass a value through unchanged, so the context that decides
  * read-vs-write is the one around them: `(M)`, `M.Uint8()`'s receiver chain, an
@@ -134,6 +153,45 @@ function goKeyedValueElement(keyed: SgNode): SgNode | null {
   return elements.length >= 2 ? elements[elements.length - 1]! : null;
 }
 
+/** The method a call names: the final segment of a selector callee, or a bare name. */
+function callMethodName(call: SgNode): string | null {
+  const fn = fieldNode(call, "function");
+  if (fn === null) return null;
+  if (SELECTOR_KINDS.has(fn.kind() as string)) {
+    const method = fieldNode(fn, "field") ?? fieldNode(fn, "property");
+    return method === null ? null : method.text();
+  }
+  return fn.text();
+}
+
+/**
+ * Whether the nearest call a keyed composite value is *handed to* is a query/read
+ * builder (`Where`, `find`, …), which makes the value a filter, not a state write.
+ * Climbs to the first enclosing call in whose arguments the value sits — a call on
+ * which the value is only the receiver (`Model{...}.Save()`) is a construction, so
+ * it is skipped. No enclosing call (a plain `x := Model{...}`) defaults to a write.
+ */
+function underReadBuilderCall(from: SgNode): boolean {
+  let child = from;
+  let current: SgNode | null = from.parent();
+  while (current !== null) {
+    if (CALL_KINDS.has(current.kind() as string)) {
+      const fn = fieldNode(current, "function");
+      // The value is the call's receiver, not an argument — a construction, keep going.
+      if (fn !== null && sameNode(fn, child)) {
+        child = current;
+        current = current.parent();
+        continue;
+      }
+      const method = callMethodName(current);
+      return method !== null && READ_BUILDER_METHODS.has(method.toLowerCase());
+    }
+    child = current;
+    current = current.parent();
+  }
+  return false;
+}
+
 /**
  * Whether a member reference sits in a write/value context — a change *into* the
  * member — rather than a read of it. Climbs out through value-preserving wrappers
@@ -148,6 +206,12 @@ function goKeyedValueElement(keyed: SgNode): SgNode | null {
  * transition asserted from a read is a false fact. The cited state writes survive
  * because the code also assigns them (`leave.Status = M`, `nextStatus := M`) or
  * builds them into an update map (`Updates(map{"status": M}`).
+ *
+ * The one exception to the keyed-value rule: a keyed value handed to a standard
+ * query/read builder (`Where(map{"status": M})`, `find({status: M})`) is a filter,
+ * not a write — see `READ_BUILDER_METHODS`. A `map{"status": M}` is otherwise
+ * indistinguishable from an update payload, so the enclosing verb is the only
+ * honest signal, and it is library vocabulary rather than a project name.
  */
 function isWriteContext(ref: SgNode): boolean {
   let child = ref;
@@ -189,16 +253,19 @@ function isWriteContext(ref: SgNode): boolean {
       return value !== null && sameNode(value, child);
     }
 
-    // Keyed composite-literal value: `Field: M`, `"status": M`. The key is a read.
+    // Keyed composite-literal value: `Field: M`, `"status": M`. The key is a read,
+    // and a value handed to a query builder (`Where(map{"status": M})`) is a filter.
     if (kind === "pair") {
       const value = fieldNode(parent, "value");
-      return value !== null && sameNode(value, child);
+      if (value === null || !sameNode(value, child)) return false;
+      return !underReadBuilderCall(parent);
     }
     if (kind === "literal_element") {
       const grandparent = parent.parent();
       if (grandparent !== null && (grandparent.kind() as string) === "keyed_element") {
         const value = goKeyedValueElement(grandparent);
-        return value !== null && sameNode(value, parent);
+        if (value === null || !sameNode(value, parent)) return false;
+        return !underReadBuilderCall(parent);
       }
       // A bare literal_element directly in a literal_value is an unkeyed slice/
       // array/struct element — membership-list noise, a read.
