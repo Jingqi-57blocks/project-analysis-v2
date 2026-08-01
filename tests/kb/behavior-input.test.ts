@@ -8,8 +8,10 @@ describe("behaviorInputFrom — the bridge from extracted evidence to the behavi
     // always has a complete input. Conditions, decisions, guards, rules, value sets,
     // auth, validations, error handling, data access, transactions, outbound and
     // notification calls are all wired (empty here only because there are no roots).
-    const input = behaviorInputFrom([]);
+    const { input, notes } = behaviorInputFrom([]);
 
+    // No index passed and no roots — reachability adds nothing and says so.
+    expect(notes).toEqual(["notification-reachability: no code index available — no reverse-reachability attributed"]);
     expect(input.decisions.conditions).toEqual([]);
     expect(input.decisions.decisions).toEqual([]);
     expect(input.decisions.guards).toEqual([]);

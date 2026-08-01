@@ -2,7 +2,7 @@
   "manifest": {
     "targetId": "wcp-v2",
     "module": "leave",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "roots": [
       {
         "name": "wcp-service-v2",
@@ -1140,7 +1140,6 @@
     {
       "id": "T-BEHAV-NOTIF-01",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1149,7 +1148,8 @@
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "226-232, 241-247"
+          "lines": "226-232, 241-247",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",
@@ -1174,7 +1174,6 @@
     {
       "id": "T-BEHAV-NOTIF-02",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1183,7 +1182,8 @@
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "428-434"
+          "lines": "428-434",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",
@@ -1208,7 +1208,6 @@
     {
       "id": "T-BEHAV-NOTIF-03",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1217,7 +1216,8 @@
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "790-800, 861"
+          "lines": "790-800, 861",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",
@@ -1242,7 +1242,6 @@
     {
       "id": "T-BEHAV-NOTIF-04",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1251,7 +1250,8 @@
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "1282-1292, 1488-1508"
+          "lines": "1282-1292, 1488-1508",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",
@@ -1276,7 +1276,6 @@
     {
       "id": "T-BEHAV-NOTIF-05",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1286,12 +1285,13 @@
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/service.go",
           "lines": "697",
-          "note": "broadcastBuilder constructed/executed in the Approved branch of Approve; draft cited :677 (the notification-block comment) -- corrected to :697"
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         },
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "1646-1675, 1730-1740"
+          "lines": "1646-1675, 1730-1740",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",
@@ -1316,7 +1316,6 @@
     {
       "id": "T-BEHAV-NOTIF-06",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1325,7 +1324,8 @@
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "1378-1417"
+          "lines": "1378-1417",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",
@@ -1350,7 +1350,6 @@
     {
       "id": "T-BEHAV-NOTIF-07",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1359,7 +1358,8 @@
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "1004-1020, 1094-1107"
+          "lines": "1004-1020, 1094-1107",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",
@@ -1384,7 +1384,6 @@
     {
       "id": "T-BEHAV-NOTIF-08",
       "facets": [
-        "M2",
         "M3"
       ],
       "category": "notification",
@@ -1393,12 +1392,14 @@
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/service.go",
-          "lines": "700-722"
+          "lines": "700-722",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         },
         {
           "root": "wcp-service-v2",
           "path": "internal/handlers/leave/notification.go",
-          "lines": "1789"
+          "lines": "1789",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
         }
       ],
       "expectedResolution": "observed",

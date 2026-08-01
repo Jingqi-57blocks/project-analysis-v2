@@ -11,6 +11,8 @@ import {
   validateOwnership,
 } from "../../engine/contracts/behavior/schema.js";
 import { type SideEffectDeriveInput, deriveSideEffectBehavior } from "../../engine/kb/sideeffect-derive.js";
+import type { TruthItem } from "../../engine/contracts/truth/schema.js";
+import { gradeBehaviorTruth } from "../../engine/gates/behavior-truth.js";
 
 const sym = symbolId({ rootName: "svc", relPath: "a.go", kind: "function", qualifiedName: "Handler", signature: null });
 const payloadOf = (f: { payload: unknown }) => f.payload as Record<string, unknown>;
@@ -134,5 +136,50 @@ describe("deriveSideEffectBehavior", () => {
     const model = derive();
     expect(model.facts).toEqual([]);
     expect(validateBehaviorModel(model).ok).toBe(true);
+  });
+});
+
+describe("a handler-located notification-call (as reverse-reachability synthesizes) grades FOUND", () => {
+  const HANDLER_PATH = "src/handlers/order.js";
+
+  function truthItem(over: Partial<TruthItem> = {}): TruthItem {
+    return {
+      id: "T-NOTIFY",
+      facets: ["M2"],
+      category: "notification",
+      claim: "the order handler sends a push notification",
+      evidence: [{ root: "svc", path: HANDLER_PATH }],
+      expectedResolution: "observed",
+      expectedStatus: "found",
+      criticality: "critical",
+      mustFind: true,
+      mustPrint: true,
+      requiredScope: ["module"],
+      requiredAudience: ["developer"],
+      ...over,
+    };
+  }
+
+  it("finds the notification at the handler path the reacher record carries", () => {
+    // What the reachability deriver synthesizes for a handler that reaches a send
+    // sink: a notification record at the handler's file+line, mechanism prefixed
+    // `reaches:`, at low confidence.
+    const reacher = notification({
+      channel: "push",
+      mechanism: "reaches:messaging().send",
+      source: lineRef("svc", HANDLER_PATH, 1),
+      provenance: inferred(lineRef("svc", HANDLER_PATH, 1), "low"),
+    });
+    const model = derive({ notifications: [reacher] });
+
+    const report = gradeBehaviorTruth([truthItem()], model, "svc");
+    expect(report.results[0]!.status).toBe("found");
+    expect(report.passed).toBe(true);
+  });
+
+  it("is honestly not-found when no notification fact sits at the handler path", () => {
+    const elsewhere = notification({ source: lineRef("svc", "src/other.js", 9), provenance: inferred(lineRef("svc", "src/other.js", 9), "low") });
+    const report = gradeBehaviorTruth([truthItem()], derive({ notifications: [elsewhere] }), "svc");
+    expect(report.results[0]!.status).toBe("not-found");
   });
 });

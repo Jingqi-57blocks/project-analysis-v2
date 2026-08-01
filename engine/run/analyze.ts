@@ -270,7 +270,24 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       "behavior",
       () => {
         try {
-          return persistBehaviorModel(store, handle!.snapshotId, assembleBehaviorModel(behaviorInputFrom(rootFacts)).model).facts;
+          // The code index (when one was built) lets the notification-reachability
+          // deriver reverse-reach send sinks to the handlers that trigger them.
+          const behaviorOpts = {
+            rootPaths: new Map(roots.map((root) => [root.name, root.path] as const)),
+            ...(codeIndexPath === undefined ? {} : { codeIndexPath }),
+          };
+          const { input, notes } = behaviorInputFrom(rootFacts, behaviorOpts);
+          const facts = persistBehaviorModel(store, handle!.snapshotId, assembleBehaviorModel(input).model).facts;
+          // Record the reachability pass's coverage notes (bounds it hit, an absent
+          // or degraded index) as fact-less behaviour diagnostics, so a cap or a
+          // missing index is auditable rather than passing for full coverage.
+          for (const note of notes) {
+            store.run(
+              `INSERT INTO behavior_diagnostics (snapshot_id, fact_id, reason) VALUES (?, NULL, ?)`,
+              [handle!.snapshotId, note],
+            );
+          }
+          return facts;
         } catch (behaviorError) {
           // The behaviour model is snapshot-level; attribute its failure to the
           // first root so the NOT NULL foreign key holds, and record why.
