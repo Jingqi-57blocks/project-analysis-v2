@@ -65,6 +65,13 @@ export interface ExecutablePlanRequest {
    * section is included — callers narrow it with real coverage.
    */
   readonly coverage?: (target: ReportTarget, section: SectionDefinition) => readonly KindCoverageInput[];
+  /**
+   * Section dependency edges, threaded to the compiler. They set each section's
+   * dependency wave (which bundling respects) and are rejected if cyclic or if
+   * they name an unknown section. V1 sections are independent, so the default is
+   * none — a single wave.
+   */
+  readonly dependencies?: Readonly<Record<string, readonly string[]>>;
   readonly boundsBySection?: SliceBoundsBySection;
   readonly limits?: PolicyLimits;
 }
@@ -130,6 +137,10 @@ export function compileExecutablePlan(input: ExecutablePlanRequest): ExecutableR
     snapshot: input.snapshot,
     params: input.params,
     applicability: applicabilityOf,
+    // Threaded so a section's dependency wave (which bundling respects) and the
+    // cycle/unknown-dependency rejections are reachable through this entry, not
+    // only through the compiler directly.
+    ...(input.dependencies === undefined ? {} : { dependencies: input.dependencies }),
   });
 
   const context: SliceCompileContext = { analysisRunId: input.analysisRunId, schemaVersion: input.snapshot.schemaVersion };
@@ -150,12 +161,9 @@ export function compileExecutablePlan(input: ExecutablePlanRequest): ExecutableR
         planDigest: plan.planDigest,
         sliceAudit: planSliceAuditDigest(plan, slices),
         policyId: bundlePlan.policyId,
-        applicability: applicability.map((a) => ({
-          documentId: a.documentId,
-          sectionId: a.decision.sectionId,
-          applicability: a.decision.applicability,
-          state: a.decision.state,
-        })),
+        // The whole decision (reason and evidence included), so the digest reflects
+        // the disclosed rationale — not just the verdict — of every section.
+        applicability: applicability.map((a) => ({ documentId: a.documentId, decision: a.decision })),
       }),
     )
     .digest("hex");

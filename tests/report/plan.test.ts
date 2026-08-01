@@ -111,4 +111,30 @@ describe("compileExecutablePlan — multi-document and module-only", () => {
     expect(e.plan.documents.every((d) => d.scope.kind === "module")).toBe(true);
     expect(e.plan.documents.some((d) => d.scope.kind === "project")).toBe(false);
   });
+
+  it("excludes unrequested documents from the applicability record", () => {
+    // module-only: only module sections are decided; no project-scope section
+    // enters the applicability/omitted denominator.
+    const e = compileExecutablePlan(base({ request: [moduleTarget("leave", "product")] }));
+    const decided = new Set(e.applicability.map((a) => a.decision.sectionId));
+    expect(decided.has("project-boundary")).toBe(false);
+    expect([...decided].every((id) => !id.startsWith("project-"))).toBe(true);
+  });
+});
+
+describe("compileExecutablePlan — dependency waves are threaded to the compiler", () => {
+  it("raises the dependency-wave count when sections declare prerequisites", () => {
+    const single = compileExecutablePlan(base());
+    expect(single.preview.dependencyWaves).toBe(1); // V1 default: independent
+
+    // make coverage depend on identity → a second wave
+    const withDeps = compileExecutablePlan(base({ dependencies: { coverage: ["identity"] } }));
+    expect(withDeps.preview.dependencyWaves).toBeGreaterThan(1);
+  });
+
+  it("fails closed on a cyclic dependency through this entry", () => {
+    expect(() =>
+      compileExecutablePlan(base({ dependencies: { identity: ["coverage"], coverage: ["identity"] } })),
+    ).toThrow();
+  });
 });
