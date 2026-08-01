@@ -115,6 +115,25 @@ describe("compileReportPlan — identity moves with each dimension", () => {
     expect(params.planDigest).not.toBe(base().planDigest);
   });
 
+  it("changes when the analysis snapshot changes, moving task and bundle ids too", () => {
+    const otherSnapshot: AnalysisSnapshotIdentity = { ...SNAPSHOT, sourceIdentity: "src-2", schemaVersion: "2.0.0" };
+    const other = compileReportPlan({ request: [projectTarget("product")], snapshot: otherSnapshot, params: PARAMS });
+    const b = base();
+    expect(other.planDigest).not.toBe(b.planDigest);
+    // A receipt produced under one snapshot must not be adoptable under another,
+    // so the task and bundle ids must move with the snapshot — not just the digest.
+    expect(authoredTasks(other).map((t) => t.taskId).sort()).not.toEqual(authoredTasks(b).map((t) => t.taskId).sort());
+    expect(other.bundles.map((x) => x.bundleId).sort()).not.toEqual(b.bundles.map((x) => x.bundleId).sort());
+  });
+
+  it("changes when the generation policy changes, and defaults to standard-v1", () => {
+    expect(base().runIdentity.policyId).toBe("standard-v1");
+    const pipeline = { ...STANDARD_PIPELINE, policy: { id: "standard-v1", version: "2.0.0" } };
+    const other = compile([projectTarget("product")], { pipeline });
+    expect(other.planDigest).not.toBe(base().planDigest);
+    expect(other.runIdentity.policyVersion).toBe("2.0.0");
+  });
+
   it("keeps every authored task id unique within a plan", () => {
     const plan = compile([
       projectTarget("product"),
@@ -185,6 +204,31 @@ describe("compileReportPlan — fail closed", () => {
     ).toThrow(/outside section/);
   });
 
+  it("resolves sections from a provided custom catalog, not the module global", () => {
+    // A sound, previously-unknown section id compiles when supplied via the
+    // catalog — before the catalog was threaded through resolution this threw
+    // "unknown section", because resolution read the module-global catalog.
+    const custom: SectionDefinition = {
+      id: "custom-shared",
+      title: "Custom shared",
+      requirement: "required",
+      scope: "shared",
+      audience: "shared",
+      blocks: [deterministicBlock("custom-shared.table", ["module"], "custom.v1")],
+      inputFactKinds: ["module"],
+      successCondition: "present",
+    };
+    const preset: DocumentPreset = {
+      id: "project-product",
+      scope: "project",
+      audience: "product",
+      requiredSectionIds: ["custom-shared"],
+      optionalSectionIds: [],
+    };
+    const plan = compile([projectTarget("product")], { presets: [preset], catalog: [custom] });
+    expect(plan.documents[0]?.sections.map((s) => s.sectionId)).toEqual(["custom-shared"]);
+  });
+
   it("rejects an out-of-bound fact slice directly", () => {
     const block = authoredBlock("b", ["condition"], "b.v1");
     expect(() =>
@@ -227,6 +271,24 @@ describe("problem ledger", () => {
       impactBoundary: "the leave module",
     };
     expect(buildProblemLedger([record, record]).length).toBe(1);
+  });
+
+  it("fails closed when two different records share one id", () => {
+    const a: ProblemRecord = {
+      problemId: problemId({ kind: "project" }, "state-leak", evidence),
+      scope: { kind: "project" },
+      category: "state-leak",
+      resolution: "observed",
+      confidence: "high",
+      evidenceIds: evidence,
+      citations: evidence,
+      impactBoundary: "the leave module",
+    };
+    // same id (same scope+category+evidence) but a divergent resolution/confidence
+    const b: ProblemRecord = { ...a, resolution: "inferred", confidence: "low" };
+    expect(() => buildProblemLedger([a, b])).toThrow(RegistryError);
+    // an identical record still collapses to one, in either order
+    expect(buildProblemLedger([a, { ...a }]).length).toBe(1);
   });
 
   it("is one shared record identity across product-only, developer-only and both", () => {
@@ -282,6 +344,30 @@ describe("multi-document compilation", () => {
     });
     expect(keys[0]).toBeDefined();
     expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("shares one slice key for the authored problem-ledger block across audiences", () => {
+    const plan = compile([projectTarget("product"), projectTarget("developer")]);
+    // known-issues.impact is the authored block that projects diagnostics into the
+    // shared ledger — the slice it reads must be identical for both audiences.
+    const impactKey = (audience: string): string | undefined => {
+      const doc = plan.documents.find((d) => d.audience === audience);
+      const section = doc?.sections.find((s) => s.sectionId === "known-issues");
+      return section?.blocks.find((b) => b.blockId === "known-issues.impact")?.factSlice.sliceKey;
+    };
+    expect(impactKey("product")).toBeDefined();
+    expect(impactKey("product")).toBe(impactKey("developer"));
+  });
+
+  it("names in each bundle exactly its own document's authored task ids", () => {
+    const plan = compile([projectTarget("product"), moduleTarget("leave", "developer")]);
+    for (const doc of plan.documents) {
+      const bundle = plan.bundles.find((b) => b.documentId === doc.documentId);
+      const docTaskIds = doc.sections.flatMap((s) =>
+        s.blocks.map((b) => b.task?.taskId).filter((id): id is string => id !== undefined),
+      );
+      expect(bundle?.taskIds).toEqual(docTaskIds);
+    }
   });
 });
 

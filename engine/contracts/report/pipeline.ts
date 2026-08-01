@@ -29,7 +29,7 @@ import { joinKey } from "../shared-fact/serialization.js";
 import type { SectionApplicability } from "../shared-fact/applicability.js";
 import type { BlockKind, ContentBlock } from "./blocks.js";
 import { SECTION_CATALOG, type SectionDefinition } from "./catalog.js";
-import { DOCUMENT_PRESETS, type DocumentPreset, resolveSections } from "./presets.js";
+import { DOCUMENT_PRESETS, type DocumentPreset } from "./presets.js";
 import {
   type Audience,
   type ReportRequest,
@@ -197,6 +197,12 @@ export interface TaskIdentity {
   readonly policyVersion: string;
   readonly language: string;
   readonly params: Readonly<Record<string, GenerationParamValue>>;
+  /**
+   * The analysis this task reads. A task id must move with the snapshot, so a
+   * receipt produced under a stale analysis (changed source, providers, schema
+   * or config) can never be adopted for a task compiled from a newer one.
+   */
+  readonly snapshotKey: string;
 }
 
 export interface AuthoredBlockTask {
@@ -300,7 +306,20 @@ export function problemId(scope: Scope, category: string, evidenceIds: readonly 
  */
 export function buildProblemLedger(records: readonly ProblemRecord[]): readonly ProblemRecord[] {
   const byId = new Map<string, ProblemRecord>();
-  for (const record of records) byId.set(record.problemId, record);
+  for (const record of records) {
+    const existing = byId.get(record.problemId);
+    if (existing !== undefined) {
+      // Same id, identical record: an expected duplicate, kept once. Same id but
+      // differing non-id fields (resolution/confidence/citations/impactBoundary):
+      // two sources describe one problem divergently — fail closed rather than let
+      // input order pick a winner and skew the shared ledger and the plan digest.
+      if (stableStringify(existing) !== stableStringify(record)) {
+        throw new RegistryError(`conflicting problem records share id ${record.problemId}`);
+      }
+      continue;
+    }
+    byId.set(record.problemId, record);
+  }
   return [...byId.values()].sort((a, b) => (a.problemId < b.problemId ? -1 : a.problemId > b.problemId ? 1 : 0));
 }
 
@@ -397,8 +416,12 @@ export interface CompileOptions {
   readonly request: ReportRequest;
   readonly snapshot: AnalysisSnapshotIdentity;
   readonly params: GenerationParams;
-  /** Overrides for the engine-owned versions — used to prove identity moves with them. */
-  readonly versions?: Partial<PipelineVersions>;
+  /**
+   * Overrides for the preset/generator versions. The pipeline version is owned by
+   * the pipeline preset (a different pipeline is a different `PipelinePreset`), so
+   * it is not overridable here — only these two are.
+   */
+  readonly versions?: Partial<Omit<PipelineVersions, "pipeline">>;
   readonly pipeline?: PipelinePreset;
   readonly catalog?: readonly SectionDefinition[];
   readonly presets?: readonly DocumentPreset[];
@@ -438,10 +461,14 @@ export function compileReportPlan(options: CompileOptions): ReportPlan {
   const applicabilityOf =
     options.applicability ?? ((): SectionApplicability => "included");
   const dependencies = options.dependencies ?? {};
+  const snapKey = snapshotKey(options.snapshot);
 
   for (const section of catalog) assertSectionSound(section);
-  const knownSectionIds = new Set(catalog.map((s) => s.id));
-  assertAcyclic(dependencies, knownSectionIds);
+  // The provided catalog is authoritative for what compiles, not the module
+  // global — a preset resolves its section ids against this map, so validation
+  // and output read one catalog and a custom catalog can add real sections.
+  const sectionMap = new Map(catalog.map((s) => [s.id, s] as const));
+  assertAcyclic(dependencies, new Set(sectionMap.keys()));
   const waveMemo = new Map<string, number>();
 
   const presetById = new Map(presets.map((p) => [p.id, p] as const));
@@ -465,16 +492,13 @@ export function compileReportPlan(options: CompileOptions): ReportPlan {
   for (const target of targets) {
     const documentId = targetKey(target);
     const preset = presetFor(target);
-    let resolved;
-    try {
-      resolved = resolveSections(preset);
-    } catch (error) {
-      // resolveSections fails on a preset that names a section not in the
-      // catalog; surface it as the pipeline's own fail-closed rejection.
-      throw new RegistryError(error instanceof Error ? error.message : String(error));
-    }
-    // Reader order: required sections, then optional, each in catalog order.
-    const ordered = [...resolved.required, ...resolved.optional];
+    // Reader order: required sections, then optional. Each id resolves against
+    // the provided catalog; an unknown id fails closed.
+    const ordered = [...preset.requiredSectionIds, ...preset.optionalSectionIds].map((id) => {
+      const section = sectionMap.get(id);
+      if (!section) throw new RegistryError(`preset ${preset.id} references unknown section ${id}`);
+      return section;
+    });
 
     const sections: SectionPlan[] = [];
     let order = 0;
@@ -518,6 +542,7 @@ export function compileReportPlan(options: CompileOptions): ReportPlan {
           policyVersion: policy.version,
           language: options.params.language,
           params: options.params.params ?? {},
+          snapshotKey: snapKey,
         };
         const task: AuthoredBlockTask = {
           taskId: digest({ identity, documentId, sectionId: section.id, blockId: block.id, factSlice: slice }),
@@ -553,7 +578,7 @@ export function compileReportPlan(options: CompileOptions): ReportPlan {
 
     const taskIds = sections.flatMap((s) => s.blocks.map((b) => b.task?.taskId).filter((id): id is string => id !== undefined));
     documents.push({ documentId, scope: target.scope, audience: target.audience, presetId: preset.id, sections });
-    bundles.push({ bundleId: digest({ documentId, taskIds, policy }), documentId, policy, taskIds });
+    bundles.push({ bundleId: digest({ documentId, taskIds, policy, snapshotKey: snapKey }), documentId, policy, taskIds });
   }
 
   const problemLedger = buildProblemLedger(options.problems ?? []);
@@ -570,7 +595,7 @@ export function compileReportPlan(options: CompileOptions): ReportPlan {
     modelId: options.params.modelId,
     language: options.params.language,
     params: options.params.params ?? {},
-    snapshotKey: snapshotKey(options.snapshot),
+    snapshotKey: snapKey,
   };
 
   const planDigest = digest({ runIdentity, snapshot: options.snapshot, policy, documents, bundles, problemLedger });
@@ -636,9 +661,10 @@ export function recordAttempt(
 }
 
 /**
- * The attempt a run adopts: the last accepted, validated one. Null when none was
- * accepted — a required authored block with no adopted attempt leaves the run
- * incomplete (a partial artifact is allowed; a placeholder is not).
+ * The attempt a run adopts: the last accepted, validated one, or null when none
+ * was accepted. This seam only locates the adopted attempt; whether a required
+ * authored block with no adopted attempt leaves the run incomplete — and the
+ * partial-artifact-versus-placeholder rule — is decided downstream (PI-80), not here.
  */
 export function adoptedAttempt(ledger: TaskLedger): AttemptReceipt | null {
   for (let i = ledger.attempts.length - 1; i >= 0; i -= 1) {
