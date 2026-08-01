@@ -69,6 +69,14 @@ describe("determineSectionApplicability — representative sections", () => {
     expect(decision.state).toBe("truncated");
   });
 
+  it("marks a section unknown when the provider never ran — not a clean empty", () => {
+    const decision = determineSectionApplicability(
+      section("scheduler", "optional", [{ kind: "scheduled-job", coverage: cov({ providerRan: false }) }]),
+    );
+    expect(decision.applicability).toBe("unknown");
+    expect(decision.state).toBe("unknown");
+  });
+
   it("includes a required tests section that ran and found none, citing the contract", () => {
     const decision = determineSectionApplicability(
       section("tests", "required", [{ kind: "test-relation", coverage: cov() }]),

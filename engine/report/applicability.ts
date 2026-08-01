@@ -5,14 +5,14 @@
  * A section reads one or more fact kinds. Each kind resolves to a coverage state
  * (found / not-found / not-applicable / unknown / unsupported / failed /
  * truncated) through the shared classifier, and the section's applicability is
- * the honest aggregate of them. The aggregation keeps the shared contract's
- * order: a broken, cut-off or unsupported dimension surfaces as `unknown` before
- * the section could be called `not-applicable`, so an absent capability is never
- * reported as "confirmed inapplicable". A section is not-applicable only when
- * every dimension is positively confirmed inapplicable; it is included whenever a
- * dimension has an answer to show (evidence, or a defined empty); and it is
- * unknown whenever the tool could not tell. No section falls through to an
- * implicit default — every input yields exactly one decision.
+ * the honest aggregate of them. A blocking dimension — broken, cut-off or
+ * unsupported — surfaces as `unknown` before the section could be called
+ * `not-applicable`, so an absent capability is never reported as "confirmed
+ * inapplicable". A section is not-applicable only when every dimension is
+ * positively confirmed inapplicable; it is included when a kind has evidence, or
+ * when it ran clean over a defined scope and found none with no blocking
+ * dimension; and it is unknown whenever the tool could not tell. No section falls
+ * through to an implicit default — every input yields exactly one decision.
  *
  * This determines applicability; it does not read source or the knowledge base.
  * The caller supplies each kind's coverage from validated upstream facts, and
@@ -66,10 +66,11 @@ export interface SectionApplicabilityDecision {
 }
 
 /**
- * The section state is the first of these its kinds exhibit, in this order — the
- * same precedence the shared per-slot table uses, lifted to a set of kinds. A
- * blocking state (failed/truncated/unsupported/unknown) wins over not-applicable
- * so a missing capability is never laundered into "confirmed inapplicable".
+ * The section state is the first of these its kinds exhibit, in this order. It
+ * keeps the shared table's blocking-state precedence — failed, truncated,
+ * unsupported and unknown all rank above not-applicable, so a missing capability
+ * is never laundered into "confirmed inapplicable" — but hoists `found` to the
+ * front: at the section level any one kind with evidence is enough to include it.
  */
 const SECTION_STATE_PRECEDENCE: readonly CoverageState[] = [
   "found",
