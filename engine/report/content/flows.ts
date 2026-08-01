@@ -211,8 +211,8 @@ export function renderLifecycle(
   const transByEntity = new Map<string, TransitionRecord[]>();
   for (const t of transitions) (transByEntity.get(t.entityId) ?? transByEntity.set(t.entityId, []).get(t.entityId)!).push(t);
 
-  // De-dup entities by id (first wins) so a duplicated record cannot double-render
-  // a lifecycle or its transitions.
+  // De-dup entities by id so a duplicated record cannot double-render a lifecycle
+  // or its transitions (states/transitions key on entityId; only the name differs).
   const uniqueEntities = [...new Map(entities.map((e) => [e.entityId, e])).values()];
   const lifecycles = [...uniqueEntities]
     .sort((a, b) => (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0))
