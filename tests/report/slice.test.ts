@@ -15,6 +15,7 @@ import {
   applyOverlay,
   compileBoundedSlice,
   materializeSlices,
+  planSliceAuditDigest,
   previewPlan,
   validateFactAgainstSlice,
 } from "../../engine/report/slice.js";
@@ -54,8 +55,10 @@ describe("compileBoundedSlice — determinism and identity", () => {
     const project = compileBoundedSlice(CTX, { kind: "project" }, ["condition"]);
     const module = compileBoundedSlice(CTX, { kind: "module", moduleId: "leave" }, ["condition"]);
     const deeper = compileBoundedSlice(CTX, { kind: "project" }, ["condition"], { relationshipDepth: 3 });
+    const capped = compileBoundedSlice(CTX, { kind: "project" }, ["condition"], { countCap: 10 });
     expect(project.sliceKey).not.toBe(module.sliceKey);
     expect(deeper.sliceKey).not.toBe(project.sliceKey);
+    expect(capped.sliceKey).not.toBe(project.sliceKey);
   });
 });
 
@@ -87,6 +90,34 @@ describe("materializeSlices — cross-document dedup", () => {
     expect(total).toBe(materialized.references.length);
     expect(materialized.slices.length).toBeLessThanOrEqual(materialized.references.length);
   });
+
+  it("keeps prerequisites on the per-block reference, off the shared slice", () => {
+    const p = plan(); // the shared `identity` section appears in both documents
+    const withPrereq = materializeSlices(p, CTX, { identity: { prerequisiteSections: ["foundations"] } });
+    const withoutPrereq = materializeSlices(p, CTX, {});
+
+    // prerequisites are not slice identity: the slice set and keys are unchanged
+    expect(withPrereq.slices.map((s) => s.sliceKey)).toEqual(withoutPrereq.slices.map((s) => s.sliceKey));
+    // no BoundedFactSlice carries prerequisites — they cannot be dropped on dedup
+    for (const s of withPrereq.slices) expect("prerequisiteSections" in s).toBe(false);
+    // every reference to the gated section carries its prerequisite, in both documents
+    const identityRefs = withPrereq.references.filter((r) => r.sectionId === "identity");
+    expect(identityRefs.length).toBeGreaterThan(1);
+    for (const r of identityRefs) expect(r.prerequisiteSections).toEqual(["foundations"]);
+    // and the identity slice is still materialized exactly once
+    const key = identityRefs[0]!.sliceKey;
+    expect(withPrereq.slices.filter((s) => s.sliceKey === key)).toHaveLength(1);
+  });
+
+  it("folds the slice contract version and slice keys into an audit digest", () => {
+    const p = plan();
+    const m = materializeSlices(p, CTX);
+    expect(m.sliceContractVersion).toBe("1.0.0");
+    expect(planSliceAuditDigest(p, m)).toBe(planSliceAuditDigest(p, m)); // deterministic
+    // a different analysis run yields different slice keys → a different audit digest
+    const m2 = materializeSlices(p, { ...CTX, analysisRunId: "run-2" });
+    expect(planSliceAuditDigest(p, m2)).not.toBe(planSliceAuditDigest(p, m));
+  });
 });
 
 describe("validateFactAgainstSlice — the boundary is enforced", () => {
@@ -112,10 +143,13 @@ describe("validateFactAgainstSlice — the boundary is enforced", () => {
     expect(r.ok === false && r.violation).toBe("out-of-slice");
   });
 
-  it("lets a `*` ledger slice admit any kind but still enforces depth", () => {
+  it("lets a `*` ledger slice admit any kind but still enforces depth and the id set", () => {
     const star = compileBoundedSlice(CTX, { kind: "project" }, ["*"], { relationshipDepth: 1 });
     expect(validateFactAgainstSlice(star, { factId: "f1", kind: "anything", depth: 1 })).toEqual({ ok: true });
     expect(validateFactAgainstSlice(star, { factId: "f1", kind: "anything", depth: 2 }).ok).toBe(false);
+    // a `*` slice still rejects a fact outside the materialized id set
+    const r = validateFactAgainstSlice(star, { factId: "f9", kind: "anything", depth: 1 }, new Set(["f1"]));
+    expect(r.ok === false && r.violation).toBe("out-of-slice");
   });
 });
 
@@ -144,6 +178,13 @@ describe("applyOverlay — the seam, without a rule language", () => {
     });
     expect(out).toEqual(["z", "b", "c"]);
   });
+
+  it("never duplicates a section id — repeated reorder or colliding replace", () => {
+    // a repeated id in the requested order must not duplicate the section
+    expect(applyOverlay(ids, { ops: [{ op: "reorder", order: ["c", "c", "a"] }] })).toEqual(["c", "a", "b"]);
+    // replacing onto an id that already exists drops the source rather than twinning it
+    expect(applyOverlay(ids, { ops: [{ op: "replace", sectionId: "a", withSectionId: "b" }] })).toEqual(["b", "c"]);
+  });
 });
 
 describe("previewPlan — inspectable before it runs", () => {
@@ -159,6 +200,7 @@ describe("previewPlan — inspectable before it runs", () => {
     expect(preview.serializedInputBytes).toBeGreaterThan(0);
     expect(preview.tokenEstimate).toBe(Math.ceil(preview.serializedInputBytes / 4));
     expect(preview.tokenEstimatorVersion).toBe("token-estimate-v1");
+    expect(preview.sliceContractVersion).toBe(materialized.sliceContractVersion);
     expect(preview.concurrencyCap).toBe(4);
     expect(preview.retryCap).toBe(2);
   });

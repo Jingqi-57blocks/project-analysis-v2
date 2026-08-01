@@ -63,14 +63,22 @@ export interface BoundedFactSlice {
   readonly sliceDigest: string;
   readonly scope: Scope;
   readonly query: NormalizedFactQuery;
-  /** Section outputs that must exist before this slice may be read. */
-  readonly prerequisiteSections: readonly string[];
 }
 
-/** Per-block overrides for a slice's reach; anything omitted takes the default. */
+/** Per-section overrides for a slice's reach; anything omitted takes the default. */
 export interface SliceBounds {
   readonly relationshipDepth?: number;
   readonly countCap?: number;
+}
+
+/**
+ * Per-section slice configuration: the fact-set reach (SliceBounds) plus the
+ * prerequisite section outputs a block must wait on. Prerequisites gate a block's
+ * timing, not the shared fact set, so they live on the SliceReference and never on
+ * the BoundedFactSlice — two blocks reading the same facts still share one slice
+ * even when their prerequisites differ.
+ */
+export interface SectionSliceConfig extends SliceBounds {
   readonly prerequisiteSections?: readonly string[];
 }
 
@@ -119,13 +127,7 @@ export function compileBoundedSlice(
 ): BoundedFactSlice {
   const query = normalizeQuery(scope, kinds, bounds);
   const sliceKey = sliceKeyOf(context.analysisRunId, context.schemaVersion, query);
-  return {
-    sliceKey,
-    sliceDigest: digest({ sliceKey, query, scope }),
-    scope,
-    query,
-    prerequisiteSections: [...(bounds.prerequisiteSections ?? [])].sort(),
-  };
+  return { sliceKey, sliceDigest: digest({ sliceKey, query, scope }), scope, query };
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,8 @@ export interface SliceReference {
   readonly sectionId: string;
   readonly blockId: string;
   readonly sliceKey: string;
+  /** Section outputs this block must wait on before its slice may be read. */
+  readonly prerequisiteSections: readonly string[];
 }
 
 export interface MaterializedSlices {
@@ -146,10 +150,12 @@ export interface MaterializedSlices {
   readonly references: readonly SliceReference[];
   /** How many blocks read each slice (>1 means a slice is shared). */
   readonly refCounts: Readonly<Record<string, number>>;
+  /** The slice-query contract version these slices were compiled under. */
+  readonly sliceContractVersion: string;
 }
 
-/** Bounds keyed by sectionId, so a section can widen depth/cap where it must. */
-export type SliceBoundsBySection = Readonly<Record<string, SliceBounds>>;
+/** Per-section config keyed by sectionId, so a section can widen depth/cap or gate on prerequisites. */
+export type SliceBoundsBySection = Readonly<Record<string, SectionSliceConfig>>;
 
 /**
  * Compile and deduplicate every block's slice across the whole plan. A slice key
@@ -169,12 +175,8 @@ export function materializeSlices(
   for (const document of plan.documents) {
     for (const section of document.sections) {
       for (const block of section.blocks) {
-        const slice = compileBoundedSlice(
-          context,
-          block.factSlice.scope,
-          block.factSlice.factKinds,
-          boundsBySection[section.sectionId] ?? {},
-        );
+        const config = boundsBySection[section.sectionId] ?? {};
+        const slice = compileBoundedSlice(context, block.factSlice.scope, block.factSlice.factKinds, config);
         if (!byKey.has(slice.sliceKey)) byKey.set(slice.sliceKey, slice);
         refCounts[slice.sliceKey] = (refCounts[slice.sliceKey] ?? 0) + 1;
         references.push({
@@ -182,13 +184,16 @@ export function materializeSlices(
           sectionId: section.sectionId,
           blockId: block.blockId,
           sliceKey: slice.sliceKey,
+          // Per block, off the shared slice: two blocks that read the same facts
+          // dedup to one slice yet keep their own prerequisite timing.
+          prerequisiteSections: [...(config.prerequisiteSections ?? [])].sort(),
         });
       }
     }
   }
 
   const slices = [...byKey.values()].sort((a, b) => (a.sliceKey < b.sliceKey ? -1 : a.sliceKey > b.sliceKey ? 1 : 0));
-  return { slices, references, refCounts };
+  return { slices, references, refCounts, sliceContractVersion: SLICE_QUERY_VERSION };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,10 +277,15 @@ export function applyOverlay(sectionIds: readonly string[], overlay: SectionOver
         ids = ids.filter((id) => id !== op.sectionId);
         break;
       case "replace":
-        ids = ids.map((id) => (id === op.sectionId ? op.withSectionId : id));
+        // Renaming onto an id that already exists would duplicate it; when the
+        // target is already present, drop the source rather than create a twin.
+        ids = ids.includes(op.withSectionId)
+          ? ids.filter((id) => id !== op.sectionId)
+          : ids.map((id) => (id === op.sectionId ? op.withSectionId : id));
         break;
       case "reorder": {
-        const named = op.order.filter((id) => ids.includes(id));
+        // De-duplicate the requested order so a repeated id cannot duplicate a section.
+        const named = [...new Set(op.order)].filter((id) => ids.includes(id));
         const rest = ids.filter((id) => !named.includes(id));
         ids = [...named, ...rest];
         break;
@@ -289,21 +299,19 @@ export function applyOverlay(sectionIds: readonly string[], overlay: SectionOver
 // Failure taxonomy and plan preview — the plan is inspectable before it runs.
 // ---------------------------------------------------------------------------
 
-/** How a block task can fail — a closed classification, so no failure is untyped. */
-export type BlockFailureKind =
-  | "slice-violation"
-  | "validation-failed"
-  | "budget-exceeded"
-  | "unmet-prerequisite"
-  | "executor-error";
-
-export const BLOCK_FAILURE_KINDS: readonly BlockFailureKind[] = [
+export const BLOCK_FAILURE_KINDS = [
   "slice-violation",
   "validation-failed",
   "budget-exceeded",
   "unmet-prerequisite",
   "executor-error",
-];
+] as const;
+
+/**
+ * How a block task can fail — a closed classification, so no failure is untyped.
+ * Derived from BLOCK_FAILURE_KINDS, so the union and the list can never drift.
+ */
+export type BlockFailureKind = (typeof BLOCK_FAILURE_KINDS)[number];
 
 export const TOKEN_ESTIMATOR_VERSION = "token-estimate-v1";
 
@@ -318,9 +326,11 @@ export interface PlanPreview {
   readonly bundleCount: number;
   readonly sliceCount: number;
   readonly sharedSliceCount: number;
+  /** UTF-8 bytes of the deduped slice descriptors — not the fact payloads, which this layer does not materialize. */
   readonly serializedInputBytes: number;
   readonly tokenEstimate: number;
   readonly tokenEstimatorVersion: string;
+  readonly sliceContractVersion: string;
   readonly dependencyWaves: number;
   readonly concurrencyCap: number;
   readonly retryCap: number;
@@ -345,7 +355,10 @@ export function previewPlan(
 ): PlanPreview {
   const blocks: BlockPlan[] = plan.documents.flatMap((d) => d.sections.flatMap((s) => [...s.blocks]));
   const authoredBlockCount = blocks.filter((b) => b.task !== undefined).length;
-  const serializedInputBytes = slices.slices.reduce((sum, s) => sum + stableStringify(s).length, 0);
+  const serializedInputBytes = slices.slices.reduce(
+    (sum, s) => sum + Buffer.byteLength(stableStringify(s), "utf8"),
+    0,
+  );
   const waves = new Set(plan.documents.flatMap((d) => d.sections.map((s) => s.wave)));
   const sharedSliceCount = Object.values(slices.refCounts).filter((n) => n > 1).length;
 
@@ -358,10 +371,25 @@ export function previewPlan(
     serializedInputBytes,
     tokenEstimate: estimateTokens(serializedInputBytes),
     tokenEstimatorVersion: TOKEN_ESTIMATOR_VERSION,
+    sliceContractVersion: slices.sliceContractVersion,
     dependencyWaves: waves.size,
     concurrencyCap: options.concurrencyCap,
     retryCap: options.retryCap,
   };
+}
+
+/**
+ * A single auditable identity over a plan and its materialized slices: the plan's
+ * run identity (via its digest) folded with the slice-contract version and every
+ * slice key. Bumping the slice-query contract moves this digest even though it
+ * does not move the plan's own digest, so the slice version is in the audit trail.
+ */
+export function planSliceAuditDigest(plan: ReportPlan, slices: MaterializedSlices): string {
+  return digest({
+    planDigest: plan.planDigest,
+    sliceContractVersion: slices.sliceContractVersion,
+    sliceKeys: slices.slices.map((s) => s.sliceKey),
+  });
 }
 
 // ---------------------------------------------------------------------------
