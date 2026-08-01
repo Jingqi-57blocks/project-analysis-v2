@@ -12,4 +12,5 @@ export * from "./snapshot.js";
 export * from "./blocks.js";
 export * from "./catalog.js";
 export * from "./presets.js";
+export * from "./pipeline.js";
 export * from "./version.js";
