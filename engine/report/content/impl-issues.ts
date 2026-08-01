@@ -11,15 +11,23 @@
  * shared ledger (PI-14) projected for a developer audience — the same problem ids
  * and citations as the product report, so nothing is re-minted or made to diverge.
  *
- * There is no severity ranking, priority, remediation or roadmap field anywhere: a
- * subjective-priority input cannot be represented, so it is rejected by construction.
+ * No record type carries a severity ranking, priority, remediation or roadmap
+ * field, and the fragility validator rejects any unexpected key — so a subjective-
+ * priority input is refused rather than published, not merely undocumented.
  *
  * Pure — facts in, structured content out. Nothing re-scans source, invents an
  * edge, or turns a name into evidence of fragility.
  */
 
 import type { FactKind } from "../../contracts/shared-fact/families.js";
+import { stableStringify } from "../../contracts/shared-fact/merge.js";
 import type { SourceRef } from "../../contracts/shared-fact/provenance.js";
+import {
+  type CoverageState,
+  type DenominatorBucket,
+  bucketOf,
+  countsTowardDenominator,
+} from "../../contracts/shared-fact/applicability.js";
 // Reuse the product report's problem-ledger projection so the dev report carries
 // the SAME problem ids, citations and impact — consistency by construction.
 export {
@@ -36,8 +44,15 @@ function hasCitation(ref: SourceRef): boolean {
   return ref.rootName.length > 0 && ref.relPath.length > 0;
 }
 
+// id-primary for a readable order, then a stable fallback on the whole record so
+// two records that collide on id (a tracked possibility) still order totally.
 const byId = <T extends { readonly id: string }>(xs: readonly T[]): T[] =>
-  [...xs].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  [...xs].sort((a, b) => {
+    if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+    const ak = stableStringify(a);
+    const bk = stableStringify(b);
+    return ak < bk ? -1 : ak > bk ? 1 : 0;
+  });
 
 const sortStrings = (xs: Iterable<string>): string[] => [...new Set(xs)].sort();
 
@@ -221,6 +236,62 @@ export function renderGaps(records: readonly GapFinding[]): GapSet {
 }
 
 // ---------------------------------------------------------------------------
+// Capability matrix — each technical capability against its coverage state.
+// ---------------------------------------------------------------------------
+
+export interface CapabilityInput {
+  readonly capability: string;
+  readonly state: CoverageState;
+  readonly evidenceIds: readonly string[];
+  readonly reason: string;
+}
+
+export interface CapabilityRow {
+  readonly capability: string;
+  readonly state: CoverageState;
+  readonly bucket: DenominatorBucket;
+  readonly inDenominator: boolean;
+  readonly evidenceIds: readonly string[];
+  readonly reason: string;
+}
+
+export interface CapabilityMatrix {
+  readonly rows: readonly CapabilityRow[];
+  /** Rows that count toward the denominator (everything but not-applicable). */
+  readonly denominator: number;
+  readonly covered: number;
+  readonly gaps: number;
+}
+
+/**
+ * The capability matrix: each technical capability mapped to its coverage state
+ * via the shared coverage contract, so a reader sees what is covered, empty,
+ * gapped or unknown, and every number traces to the rows. not-applicable is the
+ * only bucket outside the denominator.
+ */
+export function renderCapabilityMatrix(input: readonly CapabilityInput[]): CapabilityMatrix {
+  const rows = [...input]
+    .sort((a, b) => (a.capability < b.capability ? -1 : a.capability > b.capability ? 1 : 0))
+    .map((c) => {
+      const bucket = bucketOf(c.state);
+      return {
+        capability: c.capability,
+        state: c.state,
+        bucket,
+        inDenominator: countsTowardDenominator(bucket),
+        evidenceIds: [...c.evidenceIds].sort(),
+        reason: c.reason,
+      };
+    });
+  return {
+    rows,
+    denominator: rows.filter((r) => r.inDenominator).length,
+    covered: rows.filter((r) => r.bucket === "covered").length,
+    gaps: rows.filter((r) => r.bucket === "capability-gap" || r.bucket === "evidence-gap").length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Validators.
 // ---------------------------------------------------------------------------
 
@@ -235,11 +306,25 @@ export function validateTestEvidence(evidence: TestEvidence): ContentValidation 
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
 
+/** The only fields a fragility finding may carry — a `severity`, `priority` or
+ *  `remediation` key is not among them and is rejected. */
+const FRAGILITY_FIELDS: ReadonlySet<string> = new Set([
+  "id",
+  "kind",
+  "findingType",
+  "subject",
+  "evidenceIds",
+  "scope",
+  "nonInferableBoundary",
+  "citation",
+]);
+
 /**
  * Every fragility finding cites at least one fact, is typed observed /
- * bounded-inference / unknown, states its non-inferable boundary, and is located.
- * The counts reconcile. Because the record carries no severity or priority field,
- * a subjective ranking cannot be present to validate — it is rejected at the type.
+ * bounded-inference / unknown, states its non-inferable boundary, and is located;
+ * the counts reconcile. The record's type carries no severity/priority/remediation
+ * field, and this validator additionally rejects any unexpected key — so a
+ * subjective-ranking input smuggled in at runtime is refused, not published.
  */
 export function validateFragility(set: FragilitySet): ContentValidation {
   const reasons: string[] = [];
@@ -252,6 +337,9 @@ export function validateFragility(set: FragilitySet): ContentValidation {
     if (f.evidenceIds.length === 0) reasons.push(`fragility ${f.id} cites no fact`);
     if (f.nonInferableBoundary.length === 0) reasons.push(`fragility ${f.id} states no non-inferable boundary`);
     if (!hasCitation(f.citation)) reasons.push(`fragility ${f.id} has no citation`);
+    for (const key of Object.keys(f)) {
+      if (!FRAGILITY_FIELDS.has(key)) reasons.push(`fragility ${f.id} carries an unexpected field "${key}" — no subjective ranking is allowed`);
+    }
   }
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
@@ -267,10 +355,24 @@ export function validateChangeImpact(impact: ChangeImpact): ContentValidation {
 
 export function validateGaps(set: GapSet): ContentValidation {
   const reasons: string[] = [];
+  if (set.gaps.length !== new Set(set.gaps.map((g) => g.id)).size) reasons.push("duplicate gap");
   for (const g of set.gaps) {
     if (g.affectedScope.length === 0) reasons.push(`gap ${g.id} has no affected scope`);
     if (g.missingCapability.length === 0) reasons.push(`gap ${g.id} has no missing capability`);
     if (g.nextStep.length === 0) reasons.push(`gap ${g.id} has no next step`);
+  }
+  return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
+}
+
+export function validateCapabilityMatrix(matrix: CapabilityMatrix): ContentValidation {
+  const reasons: string[] = [];
+  const inDenom = matrix.rows.filter((r) => r.inDenominator).length;
+  if (inDenom !== matrix.denominator) reasons.push(`denominator ${matrix.denominator} ≠ ${inDenom} in-denominator rows`);
+  if (matrix.rows.length !== new Set(matrix.rows.map((r) => r.capability)).size) reasons.push("duplicate capability");
+  for (const r of matrix.rows) {
+    // A non-definite state must give a reason; a covered capability must cite evidence.
+    if (r.state !== "found" && r.state !== "not-found" && r.reason.length === 0) reasons.push(`${r.capability} is ${r.state} with no reason`);
+    if (r.state === "found" && r.evidenceIds.length === 0) reasons.push(`${r.capability} is covered but cites no evidence`);
   }
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }

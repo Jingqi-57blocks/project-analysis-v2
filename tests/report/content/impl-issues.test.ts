@@ -8,15 +8,18 @@ import {
   DEV_IMPL_AUTHORED_BLOCKS,
   IMPL_SCHEMA_BLOCKS,
   MODULE_CHANGE_IMPACT_BLOCK,
+  type CapabilityInput,
   type FragilityFinding,
   type GapFinding,
   type ImpactEdge,
   type TestRelationRecord,
+  renderCapabilityMatrix,
   renderChangeImpact,
   renderFragility,
   renderGaps,
   renderProblemLedger,
   renderTestEvidence,
+  validateCapabilityMatrix,
   validateChangeImpact,
   validateFragility,
   validateGaps,
@@ -80,13 +83,39 @@ describe("renderFragility — evidenced, typed, no subjective ranking", () => {
     expect(validateFragility(noBoundary).ok).toBe(false);
   });
 
-  it("has no subjective severity, priority or remediation field", () => {
+  it("has no subjective severity, priority or remediation field, and the validator rejects one", () => {
     const f = renderFragility(findings).findings[0]!;
     expect(f).not.toHaveProperty("severity");
     expect(f).not.toHaveProperty("priority");
     expect(f).not.toHaveProperty("remediation");
     // finding type is a claim class, never a ranking
     expect(["observed", "bounded-inference", "unknown"]).toContain(f.findingType);
+    // a subjective-priority field smuggled in at runtime is actively rejected
+    const smuggled = { ...findings[0]!, severity: "critical", priority: 9 } as FragilityFinding;
+    expect(validateFragility(renderFragility([smuggled])).ok).toBe(false);
+  });
+});
+
+describe("renderCapabilityMatrix — capabilities against coverage state", () => {
+  const rows: CapabilityInput[] = [
+    { capability: "auth", state: "found", evidenceIds: ["f:1"], reason: "" },
+    { capability: "scheduler", state: "unknown", evidenceIds: [], reason: "the scheduler provider did not run" },
+    { capability: "webhooks", state: "unsupported", evidenceIds: [], reason: "no capability to detect webhooks here" },
+    { capability: "ui", state: "not-applicable", evidenceIds: [], reason: "backend service, no UI" },
+  ];
+
+  it("buckets each capability and traces the denominator", () => {
+    const m = renderCapabilityMatrix(rows);
+    expect(m.denominator).toBe(3); // all but not-applicable
+    expect(m.covered).toBe(1); // auth found
+    expect(m.gaps).toBe(2); // scheduler (evidence) + webhooks (capability)
+    expect(m.rows.map((r) => r.capability)).toEqual(["auth", "scheduler", "ui", "webhooks"]);
+    expect(validateCapabilityMatrix(m)).toEqual({ ok: true });
+  });
+
+  it("rejects a covered capability that cites no evidence", () => {
+    const bad = renderCapabilityMatrix([{ capability: "x", state: "found", evidenceIds: [], reason: "" }]);
+    expect(validateCapabilityMatrix(bad).ok).toBe(false);
   });
 });
 
