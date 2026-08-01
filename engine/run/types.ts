@@ -1,6 +1,7 @@
 import type { Provider, PreflightReport } from "../providers/types.js";
 import type { InventoryCounts } from "../inventory/persist.js";
 import type { ReaderSet } from "../kb/build.js";
+import type { TestCoverage } from "../kb/test-derive.js";
 
 export interface AnalyzeOptions {
   /** One container, one root, or an explicit list of roots — see `selectWorkspace`. */
@@ -47,6 +48,13 @@ export interface AnalysisResult {
   readonly providerReport: PreflightReport;
   /** Where this run wrote a code index, or null if it wrote none. */
   readonly codeIndexPath: string | null;
+  /**
+   * Whether the test-relation reader ran for this snapshot: "covered" when it did
+   * (its result set, empty or not, is authoritative), "not-run" when behaviour
+   * derivation failed before it could. The behaviour gate reads this to decide
+   * whether a test-relation absence is confirmable.
+   */
+  readonly testCoverage: TestCoverage;
 }
 
 /** One phase's cost. `items`/`bytes` are omitted, never forced, when a phase has no natural volume. */

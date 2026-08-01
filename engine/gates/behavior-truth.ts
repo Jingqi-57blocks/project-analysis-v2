@@ -20,6 +20,7 @@
 import type { TruthItem } from "../contracts/truth/schema.js";
 import type { BehaviorFact, BehaviorModel } from "../contracts/behavior/schema.js";
 import { ownerOf, validateOwnership } from "../contracts/behavior/schema.js";
+import type { TestCoverage } from "../kb/test-derive.js";
 
 export type TruthStatus = "found" | "not-found" | "unresolved" | "unsupported" | "failed" | "truncated";
 
@@ -112,6 +113,7 @@ export function gradeBehaviorTruth(
   items: readonly TruthItem[],
   model: BehaviorModel,
   indexedRoot: string,
+  testCoverage: TestCoverage = "not-run",
 ): BehaviorGateReport {
   // Index every fact's (kind → locations) once.
   const locsByKind = new Map<string, { root: string; relPath: string }[]>();
@@ -139,13 +141,27 @@ export function gradeBehaviorTruth(
     }
     const cited = inRoot.map((e) => e.path).join(", ");
 
-    // An absence assertion checks that NO behaviour fact of any kind sits at the
-    // cited path; found means it is honestly absent. Handled before the category
-    // lane so a category whose only point is the absence (e.g. `absent`) is graded
-    // rather than dropped as "outside the lane".
+    // An absence assertion checks that no behaviour fact of the relevant kind sits
+    // at the cited path; found means it is honestly absent. Handled before the
+    // category lane so a category whose only point is the absence (e.g. `absent`) is
+    // graded rather than dropped as "outside the lane". Kind-scoped when the category
+    // is in-lane (a test-relation absence checks only for test-relation facts); the
+    // broad `absent` category falls back to every behaviour kind, as before.
     if (item.expectedStatus === "absent") {
-      const present = inRoot.some((e) => factAt(ALL_BEHAVIOR_KINDS, e.root, e.path));
-      return { ...base, status: present ? "not-found" : "found", detail: `${present ? "unexpectedly present at" : "honestly absent at"} ${cited}` };
+      const laneKinds = BEHAVIOR_LANE[item.category];
+      const kinds = laneKinds ?? ALL_BEHAVIOR_KINDS;
+      const present = inRoot.some((e) => factAt(kinds, e.root, e.path));
+      // A test-relation absence is only trustworthy when the reader actually ran:
+      // an empty result it never produced would otherwise read as honest absence.
+      // Every other absence is confirmable from the model alone (the broad `absent`
+      // fallback included), so it keeps grading exactly as before.
+      const confirmable =
+        laneKinds !== undefined && laneKinds.includes("test-relation") ? testCoverage === "covered" : true;
+      const status = !present && confirmable ? ("found" as const) : ("not-found" as const);
+      const detail = !confirmable
+        ? `reader not-run — absence not confirmable at ${cited}`
+        : `${present ? "unexpectedly present at" : "honestly absent at"} ${cited}`;
+      return { ...base, status, detail };
     }
 
     const kinds = BEHAVIOR_LANE[item.category];

@@ -62,7 +62,7 @@ const structural = gradeStructuralTruth(itemsForFacet(ledger, "M1"), nodes, edge
 // 3. Behaviour gate over the model derived into the fresh knowledge base.
 const store = openStore(dbPath);
 const model = readBehaviorModel(store, analysis.snapshotId);
-const behavior = gradeBehaviorTruth(itemsForFacet(ledger, "M2"), model, ROOT);
+const behavior = gradeBehaviorTruth(itemsForFacet(ledger, "M2"), model, ROOT, analysis.testCoverage);
 
 // 4. Report gate over the module-only leave product + developer plan.
 const snapshot: AnalysisSnapshotIdentity = {
