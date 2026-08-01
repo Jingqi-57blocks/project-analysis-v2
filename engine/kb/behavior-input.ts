@@ -79,32 +79,41 @@ export function behaviorInputFrom(
 
   // Link tests to the production code they exercise. The reader takes the model
   // view gatherRecords already built (symbols + call edges); SymbolId embeds the
-  // root name, so partition per root and derive each independently. The reader is
-  // part of every run now — providerRan is always true, so the gate can attest
-  // coverage. A root with no indexed symbols is disclosed as a degraded index.
+  // root name, so partition per root and derive each independently.
+  //
+  // Coverage is only confirmable when the reader genuinely ran over a populated
+  // index: at least one analyzed root, and every analyzed root produced ≥1 symbol.
+  // A root with zero symbols is a degraded/stale/missing index — the reader saw
+  // nothing and so cannot attest a test is absent. That withholds the coverage
+  // receipt (providerRan false → coverage "not-run"), and the gate fails closed
+  // rather than certifying a false absence off an index it never really read.
   const testNotes: string[] = [];
-  const testRelations = [...roots]
-    .sort((a, b) => cmp(a.rootName, b.rootName))
-    .flatMap((root) => {
-      const symbols = g.symbols
-        .filter((s) => s.provenance.source.rootName === root.rootName)
-        .sort((a, b) => cmp(a.id, b.id));
-      if (symbols.length === 0) {
-        testNotes.push(`test-relations: 0 symbols in ${root.rootName} — coverage cannot be confirmed`);
-        return [];
-      }
-      const ids = new Set(symbols.map((s) => s.id));
-      const callEdges = g.callEdges
-        .filter((e) => ids.has(e.callerId))
-        .sort(
-          (a, b) =>
-            cmp(a.callerId, b.callerId) ||
-            cmp(a.calleeId ?? "", b.calleeId ?? "") ||
-            cmp(a.calleeName, b.calleeName) ||
-            (a.provenance.source.startLine ?? 0) - (b.provenance.source.startLine ?? 0),
-        );
-      return deriveTestRelations(root.rootName, { symbols, callEdges });
-    });
+  const sortedRoots = [...roots].sort((a, b) => cmp(a.rootName, b.rootName));
+  let coverageConfirmable = true;
+  const testRelations = sortedRoots.flatMap((root) => {
+    const symbols = g.symbols
+      .filter((s) => s.provenance.source.rootName === root.rootName)
+      .sort((a, b) => cmp(a.id, b.id));
+    if (symbols.length === 0) {
+      testNotes.push(`test-relations: 0 symbols in ${root.rootName} — coverage cannot be confirmed`);
+      coverageConfirmable = false;
+      return [];
+    }
+    const ids = new Set(symbols.map((s) => s.id));
+    const callEdges = g.callEdges
+      .filter((e) => ids.has(e.callerId))
+      .sort(
+        (a, b) =>
+          cmp(a.callerId, b.callerId) ||
+          cmp(a.calleeId ?? "", b.calleeId ?? "") ||
+          cmp(a.calleeName, b.calleeName) ||
+          (a.provenance.source.startLine ?? 0) - (b.provenance.source.startLine ?? 0) ||
+          cmp(a.provenance.source.relPath, b.provenance.source.relPath) ||
+          (a.provenance.source.startColumn ?? 0) - (b.provenance.source.startColumn ?? 0),
+      );
+    return deriveTestRelations(root.rootName, { symbols, callEdges });
+  });
+  const testProviderRan = sortedRoots.length > 0 && coverageConfirmable;
 
   const input: AssembleInput = {
     decisions: { conditions: g.conditions, decisions: g.decisions, guards: g.guards, rules, valueSets },
@@ -122,10 +131,11 @@ export function behaviorInputFrom(
       external: [],
       notifications: [...g.notifications, ...reached.notifications],
     },
-    // Test relations are linked generically (PI-84); the reader ran over every
-    // root's model view, so providerRan is true (empty relations mean "found none",
-    // not "never ran").
-    tests: { testRelations, providerRan: true },
+    // Test relations are linked generically (PI-84). providerRan is true only when
+    // the reader ran over a populated index for every root (see above); an empty
+    // relation set then means "found none", while a withheld receipt means the
+    // index could not be trusted to have shown them.
+    tests: { testRelations, providerRan: testProviderRan },
   };
   return { input, notes: [...reached.notes, ...observed.notes, ...testNotes] };
 }
