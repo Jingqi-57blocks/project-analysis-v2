@@ -4,7 +4,9 @@
  * This renders the code graph a developer needs to locate implementation and
  * trace impact: the repository/module topology, the key symbols and entry
  * candidates, and the call/reference/import/type/instantiation edges between
- * them. Every node and edge keeps its real name, source location and fact id.
+ * them. Every node and edge keeps its real name, its source-location citation and
+ * its code-derived identity (the module id, symbol id, or edge endpoints) — the
+ * fact id a reader resolves it by.
  * Edges keep their resolution (resolved / heuristic / unresolved), dynamic calls
  * and third-party boundaries are marked, cycles are surfaced, and a truncated
  * traversal says so — so a graph is never mistaken for a complete or a clean one.
@@ -17,10 +19,21 @@
 import type { FactKind } from "../../contracts/shared-fact/families.js";
 import type { SourceRef } from "../../contracts/shared-fact/provenance.js";
 
+/** Output schemas of the deterministic blocks these renderers satisfy (from the catalog). */
 export const ARCHITECTURE_SCHEMA = "architecture.v1";
 export const CALLPATHS_SCHEMA = "callpaths.v1";
+export const MODULE_CALLPATHS_SCHEMA = "module-callpaths.v1";
 export const SYMBOLS_SCHEMA = "module-symbols.v1";
 export const OPS_SCHEMA = "ops.v1";
+
+/** The deterministic renderer → catalog block-id bindings, so they can be verified against the catalog. */
+export const DETERMINISTIC_SCHEMA_BLOCKS: readonly { readonly blockId: string; readonly outputSchemaId: string }[] = [
+  { blockId: "project-architecture.map", outputSchemaId: ARCHITECTURE_SCHEMA },
+  { blockId: "project-callpaths.graph", outputSchemaId: CALLPATHS_SCHEMA },
+  { blockId: "module-callpaths-deps.graph", outputSchemaId: MODULE_CALLPATHS_SCHEMA },
+  { blockId: "module-code-boundary.symbols", outputSchemaId: SYMBOLS_SCHEMA },
+  { blockId: "project-ops-entrypoints.facts", outputSchemaId: OPS_SCHEMA },
+];
 
 const sortStrings = (xs: Iterable<string>): string[] => [...new Set(xs)].sort();
 
@@ -133,15 +146,22 @@ export interface SymbolSet {
   readonly symbols: readonly SymbolRecord[];
   readonly entries: readonly EntryRecord[];
   readonly symbolCount: number;
+  /** The distinct source files the symbols live in — the file index. */
+  readonly sourceFiles: readonly string[];
   readonly byPrecision: Readonly<Record<EntryPrecision, number>>;
 }
 
 export function renderSymbols(symbols: readonly SymbolRecord[], entries: readonly EntryRecord[]): SymbolSet {
   const sortedSymbols = [...symbols].sort((a, b) => (a.symbolId < b.symbolId ? -1 : a.symbolId > b.symbolId ? 1 : 0));
-  const sortedEntries = [...entries].sort((a, b) => (a.symbolId < b.symbolId ? -1 : a.symbolId > b.symbolId ? 1 : 0));
+  // A symbol can be an entry via more than one mechanism, so sort by the full
+  // tuple, not the symbol id alone.
+  const entryKey = (e: EntryRecord): string =>
+    `${e.symbolId}\0${e.mechanism}\0${e.precision}\0${e.citation.relPath}\0${e.citation.startLine ?? -1}\0${e.citation.startColumn ?? -1}`;
+  const sortedEntries = [...entries].sort((a, b) => (entryKey(a) < entryKey(b) ? -1 : entryKey(a) > entryKey(b) ? 1 : 0));
   const byPrecision: Record<EntryPrecision, number> = { exact: 0, candidate: 0 };
   for (const e of sortedEntries) byPrecision[e.precision] += 1;
-  return { symbols: sortedSymbols, entries: sortedEntries, symbolCount: symbols.length, byPrecision };
+  const sourceFiles = sortStrings(symbols.map((s) => s.relPath));
+  return { symbols: sortedSymbols, entries: sortedEntries, symbolCount: symbols.length, sourceFiles, byPrecision };
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +194,8 @@ export interface CallGraph {
   readonly dynamicCount: number;
   /** True when the traversal was cut off — the graph is partial, and says so. */
   readonly truncated: boolean;
+  /** How many edges were omitted by truncation — the handle back to the full index. */
+  readonly omittedEdges: number;
 }
 
 const EDGE_KINDS: readonly EdgeKind[] = ["call", "reference", "import", "type-relation", "instantiation"];
@@ -190,6 +212,7 @@ export function renderCallGraph(
   nodeIds: readonly string[],
   edges: readonly CallEdgeRecord[],
   truncated: boolean,
+  omittedEdges = 0,
 ): CallGraph {
   const nodes = new Set(nodeIds);
   const sorted = [...edges].sort((a, b) => (edgeKey(a) < edgeKey(b) ? -1 : edgeKey(a) > edgeKey(b) ? 1 : 0));
@@ -215,17 +238,26 @@ export function renderCallGraph(
     boundaryTargets: sortStrings(boundary),
     dynamicCount,
     truncated,
+    omittedEdges,
   };
 }
 
 function edgeKey(e: CallEdgeRecord): string {
-  return `${e.from}\0${e.to}\0${e.kind}\0${e.resolution}\0${e.citation.rootName}\0${e.citation.relPath}\0${e.citation.startLine ?? -1}`;
+  const c = e.citation;
+  // A total order: two edges that differ only in column (two calls on one line)
+  // or in dynamic-ness must still order stably, not fall to input order.
+  return `${e.from}\0${e.to}\0${e.kind}\0${e.resolution}\0${e.dynamic ? 1 : 0}\0${c.rootName}\0${c.relPath}\0${c.startLine ?? -1}\0${c.startColumn ?? -1}\0${c.endLine ?? -1}\0${c.endColumn ?? -1}`;
 }
 
 /**
  * Cycles among resolved edges between known nodes, by DFS. Heuristic/unresolved
  * and boundary edges are excluded — a cycle is only claimed on edges the model
  * resolved. Each cycle is reported once, rotated to start at its smallest node id.
+ *
+ * This surfaces a representative cycle per back edge, not every simple cycle: a
+ * cyclic graph always yields at least one back edge, so at least one cycle is
+ * always reported when the graph is cyclic — enough that a cyclic graph is never
+ * read as acyclic — but the set is not an exhaustive enumeration.
  */
 function detectCycles(nodeIds: readonly string[], edges: readonly CallEdgeRecord[]): readonly (readonly string[])[] {
   const nodes = new Set(nodeIds);
@@ -303,7 +335,9 @@ export interface OpsReport {
  * signal into a production-operations conclusion.
  */
 export function renderOps(entries: readonly OpsEntry[]): OpsReport {
-  const sorted = [...entries].sort((a, b) => (a.kind !== b.kind ? (a.kind < b.kind ? -1 : 1) : a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const opsKey = (e: OpsEntry): string =>
+    `${e.kind}\0${e.name}\0${e.state}\0${e.citation ? `${e.citation.relPath}:${e.citation.startLine ?? -1}` : ""}`;
+  const sorted = [...entries].sort((a, b) => (opsKey(a) < opsKey(b) ? -1 : opsKey(a) > opsKey(b) ? 1 : 0));
   const byKind: Record<OpsKind, number> = { build: 0, test: 0, config: 0, deploy: 0, observability: 0 };
   for (const e of sorted) byKind[e.kind] += 1;
   return { entries: sorted, byKind };
@@ -318,7 +352,17 @@ export type ContentValidation = { readonly ok: true } | { readonly ok: false; re
 export function validateTopology(topology: Topology, modules: readonly ModuleNode[]): ContentValidation {
   const reasons: string[] = [];
   if (topology.moduleCount !== modules.length) reasons.push(`module count ${topology.moduleCount} ≠ ${modules.length}`);
+  if (topology.nodes.length !== new Set(topology.nodes.map((n) => n.moduleId)).size) reasons.push("duplicate module in the topology");
   for (const node of topology.nodes) if (!hasCitation(node.citation)) reasons.push(`module ${node.moduleId} has no citation`);
+  return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
+}
+
+export function validateSymbols(set: SymbolSet, symbols: readonly SymbolRecord[]): ContentValidation {
+  const reasons: string[] = [];
+  if (set.symbolCount !== symbols.length) reasons.push(`symbol count ${set.symbolCount} ≠ ${symbols.length}`);
+  if (set.symbols.length !== new Set(set.symbols.map((s) => s.symbolId)).size) reasons.push("duplicate symbol in the set");
+  for (const s of set.symbols) if (!hasCitation(s.citation)) reasons.push(`symbol ${s.symbolId} has no citation`);
+  for (const e of set.entries) if (!hasCitation(e.citation)) reasons.push(`entry ${e.symbolId} has no citation`);
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
 
