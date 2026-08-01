@@ -20,6 +20,7 @@ import { stableStringify } from "../contracts/shared-fact/merge.js";
 import { joinKey } from "../contracts/shared-fact/serialization.js";
 import {
   type GenerationParams,
+  type ProblemRecord,
   type ReportPlan,
   compileReportPlan,
 } from "../contracts/report/pipeline.js";
@@ -74,6 +75,12 @@ export interface ExecutablePlanRequest {
   readonly dependencies?: Readonly<Record<string, readonly string[]>>;
   readonly boundsBySection?: SliceBoundsBySection;
   readonly limits?: PolicyLimits;
+  /**
+   * Problem records projected from diagnostics, deduped into the plan's one shared
+   * ledger (PI-14). Every document references the same ledger, so a problem carries
+   * one identity — evidence ids and citations included — across every audience.
+   */
+  readonly problems?: readonly ProblemRecord[];
 }
 
 export interface ExecutableReportPlan {
@@ -141,6 +148,10 @@ export function compileExecutablePlan(input: ExecutablePlanRequest): ExecutableR
     // cycle/unknown-dependency rejections are reachable through this entry, not
     // only through the compiler directly.
     ...(input.dependencies === undefined ? {} : { dependencies: input.dependencies }),
+    // The shared problem ledger, deduped once for the whole plan and referenced by
+    // every document — so a problem's evidence and citations are one identity, not
+    // re-minted per audience.
+    ...(input.problems === undefined ? {} : { problems: input.problems }),
   });
 
   const context: SliceCompileContext = { analysisRunId: input.analysisRunId, schemaVersion: input.snapshot.schemaVersion };
