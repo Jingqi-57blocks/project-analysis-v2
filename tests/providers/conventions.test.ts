@@ -238,4 +238,23 @@ describe("notifications", () => {
     expect(provenance.resolutionClass).toBe("inferred");
     expect("confidence" in provenance && provenance.confidence).toBe("low");
   });
+
+  it("finds a message composed with a recipient list, even when the send is elsewhere", () => {
+    // The universal email shape — a recipient list set at the point a message is
+    // built — is a notification even when the terminal send is a layer away. The
+    // fields are generic (To/Cc/Recipients), not any project's own names.
+    write("build.go", "package n\n\nfunc B(r Req) SES {\n\treturn SES{Subject: r.Subject, ToList: []string{r.To}, CcList: []string{}}\n}\n");
+    const calls = extract(["build.go"]).records["notification-call"];
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(calls.some((c) => c.channel === "mail")).toBe(true);
+    expect(calls[0]!.provenance.resolutionClass).toBe("inferred"); // weak, not declared
+  });
+
+  it("does not over-match a compound count field like emailTotalRecipients", () => {
+    // A word-boundary keeps `Recipients` from matching inside `emailTotalRecipients`
+    // (a count, not a recipient list), so an analytics struct is not read as a send.
+    write("stats.js", "const c = { emailTotalRecipients: 0, unknownRecipients: n };\n");
+    const calls = extract(["stats.js"]).records["notification-call"];
+    expect(calls).toHaveLength(0);
+  });
 });

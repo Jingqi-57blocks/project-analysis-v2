@@ -262,6 +262,20 @@ export const DECLARATIVE_PATTERNS: readonly DeclarativePattern[] = [
     confidence: "low",
     channel: "unknown",
   },
+  {
+    kind: "notification-call",
+    extensions: [".go", ".ts", ".js"],
+    // A message is being composed when a recipient list is set: `ToList`,
+    // `CcList`, `BccList`, `Recipients` are universal email fields, not a
+    // project's own names — a generic construction signal, caught where a message
+    // is built even when the terminal send is a layer away (a common shape: build
+    // the message here, dispatch it elsewhere). Weak, for the same reason the
+    // notify-helper pattern is: construction is not proof of a send at this line.
+    pattern: /\b(ToList|CcList|BccList|Recipients|RecipientList)\s*:/g,
+    label: "message-recipients",
+    confidence: "low",
+    channel: "mail",
+  },
 
   // ---- data access ----
   {
