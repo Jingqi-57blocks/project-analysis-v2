@@ -47,6 +47,18 @@ export interface TruthEvidence {
   readonly note?: string;
 }
 
+/**
+ * The report section that must carry an item, named with its scope and audience
+ * (PI-68: an M3 expectation must name a section, not just "appears in both
+ * reports"). A mustPrint item must name a section for every scope × audience it is
+ * required in, so the gate can check routing precisely rather than by category.
+ */
+export interface ReportSectionExpectation {
+  readonly scope: ReportScope;
+  readonly audience: ReportAudience;
+  readonly sectionId: string;
+}
+
 export interface TruthItem {
   readonly id: string;
   readonly facets: readonly TruthFacet[];
@@ -61,6 +73,12 @@ export interface TruthItem {
   readonly mustPrint: boolean;
   readonly requiredScope: readonly ReportScope[];
   readonly requiredAudience: readonly ReportAudience[];
+  /**
+   * The section that carries this item, per scope × audience. Required for a
+   * mustPrint item; optional otherwise. When absent, the M3 gate falls back to its
+   * category→section lane.
+   */
+  readonly reportSections?: readonly ReportSectionExpectation[];
   /** The condition under which an unresolved/absent result is acceptable, if any. */
   readonly allowedUnresolved?: string;
 }
@@ -132,6 +150,29 @@ export function validateLedger(ledger: TruthLedger): LedgerValidation {
     }
     if (item.mustPrint && (item.requiredScope.length === 0 || item.requiredAudience.length === 0)) {
       reasons.push(`${item.id}: mustPrint item needs a required scope and audience`);
+    }
+
+    // A named section must sit inside the item's required scope and audience; a
+    // mustPrint item must name one for every scope × audience it is required in, so
+    // the M3 gate routes it precisely instead of by category (PI-68).
+    for (const rs of item.reportSections ?? []) {
+      if (!item.requiredScope.includes(rs.scope)) reasons.push(`${item.id}: reportSection scope ${rs.scope} not in requiredScope`);
+      if (!item.requiredAudience.includes(rs.audience)) reasons.push(`${item.id}: reportSection audience ${rs.audience} not in requiredAudience`);
+      if (rs.sectionId.length === 0) reasons.push(`${item.id}: reportSection names no section`);
+    }
+    // Section routing is the M3 report facet's concern: an M3 must-print item must
+    // name a section for every scope × audience it prints in. A must-print item at
+    // the M1/M2 facets asserts it is found in structure/behaviour; its report
+    // routing is pinned by the M3 items, not here.
+    if (item.mustPrint && item.facets.includes("M3")) {
+      const named = new Set((item.reportSections ?? []).map((rs) => `${rs.scope}|${rs.audience}`));
+      for (const scope of item.requiredScope) {
+        for (const audience of item.requiredAudience) {
+          if (!named.has(`${scope}|${audience}`)) {
+            reasons.push(`${item.id}: M3 must-print item must name a report section for ${scope}/${audience}`);
+          }
+        }
+      }
     }
   }
 

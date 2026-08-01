@@ -1162,6 +1162,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1189,6 +1196,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1216,6 +1230,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1243,6 +1264,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1276,6 +1304,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1303,6 +1338,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1330,6 +1372,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1362,6 +1411,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1557,6 +1613,18 @@
       "requiredAudience": [
         "product",
         "developer"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-objects-rules-states"
+        },
+        {
+          "scope": "module",
+          "audience": "developer",
+          "sectionId": "module-branches-rules-states"
+        }
       ]
     },
     {
@@ -1584,6 +1652,13 @@
       ],
       "requiredAudience": [
         "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
       ]
     },
     {
@@ -1610,6 +1685,13 @@
       ],
       "requiredAudience": [
         "developer"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "developer",
+          "sectionId": "module-impl-issues"
+        }
       ]
     },
     {
@@ -1636,6 +1718,13 @@
       ],
       "requiredAudience": [
         "developer"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "developer",
+          "sectionId": "coverage"
+        }
       ],
       "allowedUnresolved": "declared coverage gap -- emit as unresolved, counted in the denominator"
     },
