@@ -31,9 +31,9 @@ const relations: EntityRelationRecord[] = [
   { id: "r:leave-user", fromEntity: "e:leaves", toEntity: "e:users", kind: "belongs-to", citation: cite("internal/leave/model.go", 5) },
 ];
 const accesses: DataAccessRecord[] = [
-  { id: "a:1", entity: "e:leaves", operation: "write", mechanism: "gorm", transactional: true, triggeredBy: "s:Approve", citation: cite("svc/repo.go", 30) },
-  { id: "a:2", entity: "e:leaves", operation: "read", mechanism: "gorm", transactional: false, triggeredBy: "s:List", citation: cite("svc/repo.go", 10) },
-  { id: "a:3", entity: "e:users", operation: "unknown", mechanism: "raw-sql", transactional: false, triggeredBy: null, citation: cite("svc/repo.go", 40) },
+  { id: "a:1", entity: "e:leaves", operation: "write", mechanism: "gorm", transactional: true, transactionId: "tx:approve", triggeredBy: "s:Approve", confidence: "high", citation: cite("svc/repo.go", 30) },
+  { id: "a:2", entity: "e:leaves", operation: "read", mechanism: "gorm", transactional: true, transactionId: "tx:approve", triggeredBy: "s:List", confidence: "high", citation: cite("svc/repo.go", 10) },
+  { id: "a:3", entity: "e:users", operation: "unknown", mechanism: "raw-sql", transactional: false, transactionId: null, triggeredBy: null, confidence: "low", citation: cite("svc/repo.go", 40) },
 ];
 
 describe("renderDataModel — read/write/unknown never swapped", () => {
@@ -43,16 +43,26 @@ describe("renderDataModel — read/write/unknown never swapped", () => {
     // the write stays a write, the read stays a read
     expect(m.accesses.find((a) => a.id === "a:1")!.operation).toBe("write");
     expect(m.accesses.find((a) => a.id === "a:2")!.operation).toBe("read");
-    expect(m.transactionalAccesses).toBe(1);
+    expect(m.transactionalAccesses).toBe(2);
     expect(m.datastores).toEqual(["postgres"]);
+    expect(m.accesses.find((a) => a.id === "a:3")!.confidence).toBe("low"); // confidence carried
+    // the two transactional accesses share one boundary; the effect keeps its trigger
+    expect(m.transactionBoundaries).toEqual([{ transactionId: "tx:approve", accessIds: ["a:1", "a:2"] }]);
+    expect(m.accesses.find((a) => a.id === "a:1")!.triggeredBy).toBe("s:Approve");
     expect(validateDataModel(m, accesses)).toEqual({ ok: true });
+  });
+
+  it("rejects a duplicate data-access id", () => {
+    const dup = [accesses[0]!, { ...accesses[0]!, operation: "read" as const }];
+    const m = renderDataModel(entities, [], dup);
+    expect(validateDataModel(m, dup).ok).toBe(false); // two facts under one id defeats cite-by-id
   });
 });
 
 const interactions: ExternalInteractionRecord[] = [
-  { id: "i:1", kind: "http", target: "payments-api", operation: "POST /charge", resolution: "resolved", activation: "reachable", triggeredBy: "s:Pay", citation: cite("svc/pay.go", 5) },
-  { id: "i:2", kind: "http", target: "config:webhookUrl", operation: "POST", resolution: "heuristic", activation: "declared-config", triggeredBy: null, citation: cite("config.yaml", 3) },
-  { id: "i:3", kind: "notification", target: "", operation: "send", resolution: "unresolved", activation: "unconfirmed", triggeredBy: "s:Notify", citation: cite("svc/notify.go", 9) },
+  { id: "i:1", kind: "http", target: "payments-api", operation: "POST /charge", resolution: "resolved", activation: "reachable", triggeredBy: "s:Pay", confidence: "high", unresolvedReason: null, citation: cite("svc/pay.go", 5) },
+  { id: "i:2", kind: "http", target: "config:webhookUrl", operation: "POST", resolution: "heuristic", activation: "declared-config", triggeredBy: null, confidence: "medium", unresolvedReason: null, citation: cite("config.yaml", 3) },
+  { id: "i:3", kind: "notification", target: "", operation: "send", resolution: "unresolved", activation: "unconfirmed", triggeredBy: "s:Notify", confidence: "low", unresolvedReason: "the notification target is computed at runtime", citation: cite("svc/notify.go", 9) },
 ];
 
 describe("renderExternalInteractions — config dependency vs reachable call", () => {
@@ -65,9 +75,22 @@ describe("renderExternalInteractions — config dependency vs reachable call", (
     expect(validateInteractions(set)).toEqual({ ok: true });
   });
 
-  it("rejects an unresolved interaction with no target or trigger", () => {
-    const orphan: ExternalInteractionRecord = { id: "i:x", kind: "http", target: "", operation: "GET", resolution: "unresolved", activation: "unconfirmed", triggeredBy: null, citation: cite("x.go", 1) };
+  it("rejects an unresolved interaction with no structured reason", () => {
+    const orphan: ExternalInteractionRecord = { id: "i:x", kind: "http", target: "", operation: "GET", resolution: "unresolved", activation: "unconfirmed", triggeredBy: null, confidence: "low", unresolvedReason: null, citation: cite("x.go", 1) };
     expect(validateInteractions(renderExternalInteractions([orphan])).ok).toBe(false);
+    // with a reason it is locatable and passes
+    const withReason = { ...orphan, unresolvedReason: "resolved dynamically from config" };
+    expect(validateInteractions(renderExternalInteractions([withReason])).ok).toBe(true);
+  });
+
+  it("reconciles the activation counts and rejects a duplicate interaction id", () => {
+    const set = renderExternalInteractions(interactions);
+    // a corrupted activation partition is caught
+    const corrupt = { ...set, byActivation: { "declared-config": 99, reachable: 0, unconfirmed: 0 } };
+    expect(validateInteractions(corrupt).ok).toBe(false);
+    // a duplicate id is caught
+    const dup = renderExternalInteractions([interactions[0]!, { ...interactions[0]!, kind: "queue" as const }]);
+    expect(validateInteractions(dup).ok).toBe(false);
   });
 });
 
