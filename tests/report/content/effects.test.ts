@@ -16,6 +16,7 @@ import {
   renderProblemLedger,
   validateCoverage,
   validateEffects,
+  validateOpenQuestions,
   validateProblemLedger,
 } from "../../../engine/report/content/effects.js";
 
@@ -57,18 +58,45 @@ describe("renderCoverage — every number traces to the denominator", () => {
     { dimension: "webhooks", state: "unsupported", reason: "no capability to detect webhooks here" },
   ];
 
-  it("buckets each dimension and excludes only not-applicable from the denominator", () => {
+  it("buckets each dimension exhaustively and excludes only not-applicable from the denominator", () => {
     const report = renderCoverage(rows);
     expect(report.denominator).toBe(4); // all but not-applicable
     expect(report.covered).toBe(1); // found
+    expect(report.empty).toBe(1); // not-found
     expect(report.gaps).toBe(2); // unsupported (capability) + unknown (evidence)
+    expect(report.failed).toBe(0);
+    expect(report.truncated).toBe(0);
     expect(report.notApplicable).toBe(1);
+    // exhaustive: every row counted once
+    expect(report.covered + report.empty + report.gaps + report.failed + report.truncated + report.notApplicable).toBe(report.rows.length);
+    expect(validateCoverage(report)).toEqual({ ok: true });
+  });
+
+  it("surfaces a broken or cut-off provider instead of a clean gaps:0", () => {
+    const report = renderCoverage([
+      { dimension: "found", state: "found", reason: "" },
+      { dimension: "broke", state: "failed", reason: "the provider crashed" },
+      { dimension: "cut", state: "truncated", reason: "the result was cut off" },
+    ]);
+    // the two broken rows are NOT rolled into a clean report
+    expect(report.gaps).toBe(0);
+    expect(report.failed).toBe(1);
+    expect(report.truncated).toBe(1);
+    expect(report.covered).toBe(1);
+    // and they are in the denominator, so the headline is honest
+    expect(report.denominator).toBe(3);
     expect(validateCoverage(report)).toEqual({ ok: true });
   });
 
   it("rejects an unknown/not-applicable row with no reason", () => {
     const report = renderCoverage([{ dimension: "x", state: "unknown", reason: "" }]);
     expect(validateCoverage(report).ok).toBe(false);
+  });
+
+  it("rejects a report whose headline count drifts from its rows", () => {
+    const report = renderCoverage(rows);
+    const tampered = { ...report, covered: report.covered + 5 };
+    expect(validateCoverage(tampered).ok).toBe(false);
   });
 });
 
@@ -104,6 +132,12 @@ describe("renderProblemLedger — the shared ledger, reused not re-minted", () =
     expect(validateProblemLedger(view, problems).ok).toBe(false);
   });
 
+  it("rejects a view that keeps the id but alters a field from the ledger", () => {
+    // a real id but a fabricated impact boundary must not pass
+    const tampered = { ...renderProblemLedger(problems).problems[0]!, impactBoundary: "FABRICATED wider impact" };
+    expect(validateProblemLedger({ problems: [tampered], count: 1 }, problems).ok).toBe(false);
+  });
+
   it("carries no priority, remediation or roadmap field", () => {
     const p = renderProblemLedger(problems).problems[0]!;
     expect(p).not.toHaveProperty("priority");
@@ -125,6 +159,19 @@ describe("renderOpenQuestions — surfaced, not rewritten as requirements", () =
       expect(q.affectedScope.length).toBeGreaterThan(0);
       expect(q.nextStep.length).toBeGreaterThan(0);
     }
+    expect(validateOpenQuestions(set)).toEqual({ ok: true });
+  });
+
+  it("rejects an open question with no scope or next step", () => {
+    const bad = renderOpenQuestions([{ id: "q1", code: "unknown", affectedScope: "", nextStep: "" }]);
+    expect(validateOpenQuestions(bad).ok).toBe(false);
+  });
+});
+
+describe("validateEffects — rejects an uncited or inconsistent effect", () => {
+  it("rejects an effect with no citation", () => {
+    const bad = renderEffects([{ ...effects[0]!, citation: lineRef("", "", 0) }]);
+    expect(validateEffects(bad).ok).toBe(false);
   });
 });
 

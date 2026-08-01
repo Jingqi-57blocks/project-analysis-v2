@@ -117,31 +117,58 @@ export interface CoverageReport {
   /** Rows that count toward the denominator (everything but not-applicable). */
   readonly denominator: number;
   readonly covered: number;
+  /** Ran cleanly and found none (a definite empty). */
+  readonly empty: number;
   /** Rows in a capability or evidence gap bucket. */
   readonly gaps: number;
+  /** An attempt that broke — surfaced, never rolled into "clean". */
+  readonly failed: number;
+  /** A result cut off before completion. */
+  readonly truncated: number;
   readonly notApplicable: number;
 }
 
 /**
  * The coverage table: each dimension mapped to its denominator bucket, with the
- * denominator, covered and gap counts derived from the buckets so every number
- * traces back to the rows it came from. not-applicable is the only bucket outside
- * the denominator, exactly as the shared coverage contract defines.
+ * counts derived from the buckets so every number traces back to the rows it came
+ * from. The headline is exhaustive over the denominator —
+ * covered + empty + gaps + failed + truncated + notApplicable === rows.length —
+ * so a broken (`failed`) or cut-off (`truncated`) provider can never read as a
+ * clean `gaps: 0`. not-applicable is the only bucket outside the denominator,
+ * exactly as the shared coverage contract defines.
  */
 export function renderCoverage(input: readonly CoverageInputRow[]): CoverageReport {
   const rows = [...input]
-    .sort((a, b) => (a.dimension < b.dimension ? -1 : a.dimension > b.dimension ? 1 : 0))
+    .sort((a, b) =>
+      a.dimension !== b.dimension
+        ? a.dimension < b.dimension
+          ? -1
+          : 1
+        : a.state !== b.state
+          ? a.state < b.state
+            ? -1
+            : 1
+          : a.reason < b.reason
+            ? -1
+            : a.reason > b.reason
+              ? 1
+              : 0,
+    )
     .map((r) => {
       const bucket = bucketOf(r.state);
       return { dimension: r.dimension, state: r.state, bucket, inDenominator: countsTowardDenominator(bucket), reason: r.reason };
     });
 
+  const inBucket = (b: DenominatorBucket): number => rows.filter((r) => r.bucket === b).length;
   return {
     rows,
     denominator: rows.filter((r) => r.inDenominator).length,
-    covered: rows.filter((r) => r.bucket === "covered").length,
-    gaps: rows.filter((r) => r.bucket === "capability-gap" || r.bucket === "evidence-gap").length,
-    notApplicable: rows.filter((r) => r.bucket === "not-applicable").length,
+    covered: inBucket("covered"),
+    empty: inBucket("empty"),
+    gaps: inBucket("capability-gap") + inBucket("evidence-gap"),
+    failed: inBucket("failed"),
+    truncated: inBucket("truncated"),
+    notApplicable: inBucket("not-applicable"),
   };
 }
 
@@ -239,9 +266,25 @@ export function validateEffects(set: EffectSet): ContentValidation {
 
 export function validateCoverage(report: CoverageReport): ContentValidation {
   const reasons: string[] = [];
+  const inBucket = (b: DenominatorBucket): number => report.rows.filter((r) => r.bucket === b).length;
   const inDenom = report.rows.filter((r) => r.inDenominator).length;
   if (inDenom !== report.denominator) reasons.push(`denominator ${report.denominator} ≠ ${inDenom} in-denominator rows`);
-  if (report.covered > report.denominator) reasons.push(`covered ${report.covered} exceeds denominator ${report.denominator}`);
+
+  // Every headline count must equal the rows it claims to summarise.
+  const expect: readonly [string, number, number][] = [
+    ["covered", report.covered, inBucket("covered")],
+    ["empty", report.empty, inBucket("empty")],
+    ["gaps", report.gaps, inBucket("capability-gap") + inBucket("evidence-gap")],
+    ["failed", report.failed, inBucket("failed")],
+    ["truncated", report.truncated, inBucket("truncated")],
+    ["notApplicable", report.notApplicable, inBucket("not-applicable")],
+  ];
+  for (const [name, got, want] of expect) if (got !== want) reasons.push(`${name} count ${got} ≠ ${want} rows`);
+
+  // The headline is exhaustive: every row is counted in exactly one bucket.
+  const sum = report.covered + report.empty + report.gaps + report.failed + report.truncated + report.notApplicable;
+  if (sum !== report.rows.length) reasons.push(`bucket counts sum to ${sum}, not ${report.rows.length} rows`);
+
   // A not-applicable or unknown/unsupported/failed/truncated row must give a reason.
   for (const r of report.rows) {
     if (r.state !== "found" && r.state !== "not-found" && r.reason.length === 0) {
@@ -251,15 +294,44 @@ export function validateCoverage(report: CoverageReport): ContentValidation {
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
 
+const arrayEq = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * The projection must be faithful to the shared ledger: every problem must carry
+ * a real ledger id AND every field must equal the source record's — so authored
+ * impact prose or any re-mint that drifts from the pipeline's ProblemRecord is
+ * caught, not passed. Non-empty evidence/citation/impact are required too.
+ */
 export function validateProblemLedger(view: ProblemLedgerView, records: readonly ProblemRecord[]): ContentValidation {
   const reasons: string[] = [];
-  const knownIds = new Set(records.map((p) => p.problemId));
+  const byId = new Map(records.map((p) => [p.problemId, p] as const));
   for (const p of view.problems) {
-    if (!knownIds.has(p.problemId)) reasons.push(`problem ${p.problemId} is not from the shared ledger`);
-    if (p.scope.length === 0) reasons.push(`problem ${p.problemId} has no scope`);
-    if (p.category.length === 0) reasons.push(`problem ${p.problemId} has no category`);
+    const src = byId.get(p.problemId);
+    if (src === undefined) {
+      reasons.push(`problem ${p.problemId} is not from the shared ledger`);
+      continue;
+    }
+    if (p.scope !== scopeId(src.scope)) reasons.push(`problem ${p.problemId} scope was altered from the shared ledger`);
+    if (p.category !== src.category) reasons.push(`problem ${p.problemId} category was altered`);
+    if (p.resolution !== src.resolution) reasons.push(`problem ${p.problemId} resolution was altered`);
+    if (p.confidence !== src.confidence) reasons.push(`problem ${p.problemId} confidence was altered`);
+    if (!arrayEq(p.evidenceIds, src.evidenceIds)) reasons.push(`problem ${p.problemId} evidence was altered`);
+    if (!arrayEq(p.citations, src.citations)) reasons.push(`problem ${p.problemId} citations were altered`);
+    if (p.impactBoundary !== src.impactBoundary) reasons.push(`problem ${p.problemId} impact boundary was altered`);
     if (p.evidenceIds.length === 0) reasons.push(`problem ${p.problemId} has no evidence`);
+    if (p.citations.length === 0) reasons.push(`problem ${p.problemId} has no citation`);
     if (p.impactBoundary.length === 0) reasons.push(`problem ${p.problemId} has no impact boundary`);
+  }
+  if (view.count !== view.problems.length) reasons.push(`count ${view.count} ≠ ${view.problems.length} problems`);
+  return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
+}
+
+/** Every open question must name the scope it affects and a next investigation step. */
+export function validateOpenQuestions(set: OpenQuestionSet): ContentValidation {
+  const reasons: string[] = [];
+  for (const q of set.questions) {
+    if (q.affectedScope.length === 0) reasons.push(`open question ${q.id} has no affected scope`);
+    if (q.nextStep.length === 0) reasons.push(`open question ${q.id} has no next step`);
   }
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
@@ -282,7 +354,7 @@ const AUDIENCE_RULES = [
   "Write for a product manager: describe the current, observable outward behaviour in business language.",
   "State a notification channel, trigger, receiver or external system only where a fact declares it — never guess.",
   "Keep a declared configuration, a reachable call and an unconfirmed production activation distinct; do not claim production state source cannot prove.",
-  "Do not turn an unknown, an unsupported capability or a provider failure into a risk, a priority, a remediation or a future requirement.",
+  "Do not turn an unknown, an unsupported capability or a provider failure into a risk, a priority, a remediation, a future requirement or a roadmap.",
   "Cite every claim by its fact id.",
 ].join("\n");
 
@@ -305,7 +377,7 @@ export const KNOWN_ISSUES_IMPACT_BLOCK: AuthoredBlockContract = {
   citationRule: "required",
   validatorId: "problem-impact.v1",
   inputFactKinds: ["diagnostic"],
-  prompt: `Explain the impact of each known problem you are given, keeping its problem id, evidence and bounded impact. Do not add a priority, a remediation or a future requirement.\n\n${AUDIENCE_RULES}`,
+  prompt: `Explain the impact of each known problem you are given, keeping its problem id, evidence and bounded impact. Do not add a priority, a remediation, a future requirement or a roadmap.\n\n${AUDIENCE_RULES}`,
 };
 
 export const PM_EFFECTS_AUTHORED_BLOCKS: readonly AuthoredBlockContract[] = [
