@@ -56,16 +56,18 @@ function cmp(a: string, b: string): number {
  * Promote guards that reject with a stated message into validation rules.
  *
  * A guard whose rejection carries a message a human wrote (`messageKind ===
- * "stated"`) is a validation rule stated in the code's own words. One that only
- * names an error constant (`"error-code"`) is left out here: a symbol quoted as a
- * rule tells a reader nothing they can act on, and `condition`/`decision` already
- * carry it. Generic — it keys on the presence of a message literal in a rejection,
- * not on any helper name, so it fires on Go and JS/TS alike.
+ * "stated"`) is a validation rule stated in the code's own words. Two filters keep
+ * it honest: the guard must actually *reject* (`rejects`) — a branch that returns a
+ * display label or a query builder carries a message that is data, not a rule; and
+ * an error-code guard is left out, because a symbol quoted as a rule tells a reader
+ * nothing they can act on and `condition`/`decision` already carry it. Generic — it
+ * keys on the shape of the rejection, not on any helper name, so it fires on Go and
+ * JS/TS alike.
  */
 export function promoteGuardValidations(guards: readonly GuardRecord[]): ValidationRuleRecord[] {
   const out: ValidationRuleRecord[] = [];
   for (const g of guards) {
-    if (g.messageKind !== "stated") continue;
+    if (g.messageKind !== "stated" || !g.rejects) continue;
     out.push({
       rootName: g.rootName,
       subjectSymbolId: null,
@@ -123,6 +125,25 @@ const CALL_KINDS = new Set<string>(["call_expression", "call"]);
 /** Comparison operators that make a member reference a role decision, both grammars. */
 const COMPARISON_OPS = new Set<string>(["==", "!=", "===", "!=="]);
 /**
+ * Library-standard formatting/logging/serialization sinks. A role member handed to
+ * one of these — `log.Info("role", AdminC)`, `fmt.Sprintf("%s", AdminF.String())`,
+ * `json.Marshal(AdminC)` — is being printed or serialized, not checked. The call
+ * argument is a weaker signal than a comparison, so this blocklist excludes the
+ * common non-auth sinks; genuine membership calls (`funk.Contains`,
+ * `HasPermissionWithRoles`) and every comparison keep emitting. Library vocabulary
+ * matched on the call's method/function name, never a project symbol — the same
+ * basis the state observer uses for its ORM read verbs.
+ */
+const NON_AUTH_CALLEES: ReadonlySet<string> = new Set([
+  // logging
+  "log", "logger", "info", "debug", "warn", "warning", "error", "trace",
+  "print", "printf", "println", "sprint", "fatal", "fatalf", "panic", "panicf",
+  // formatting
+  "sprintf", "sprintln", "errorf", "format", "fprintf", "printfln",
+  // serialization
+  "marshal", "marshalindent", "unmarshal", "stringify", "json", "encode", "decode",
+]);
+/**
  * Wrappers and containers that pass a value through unchanged, so the context that
  * decides check-vs-assignment is the one around them: `(M)`, `M.String()`'s receiver
  * chain, a Go `expression_list`, a TS cast, and the composite-literal layers an
@@ -152,6 +173,15 @@ function sameNode(a: SgNode, b: SgNode): boolean {
 function fieldNode(node: SgNode, name: string): SgNode | null {
   const value = node.field(name);
   return value === undefined ? null : value;
+}
+
+/** The lowercased final segment of the callee of the call whose arguments node this is. */
+function enclosingCallMethod(argsNode: SgNode): string | null {
+  const call = argsNode.parent();
+  if (call === null || !CALL_KINDS.has(call.kind() as string)) return null;
+  const callee = fieldNode(call, "function")?.text() ?? "";
+  if (callee === "") return null;
+  return (callee.split(".").pop() ?? callee).toLowerCase();
 }
 
 function setKey(set: ValueSet): string {
@@ -214,8 +244,14 @@ function isRoleCheckContext(ref: SgNode): boolean {
       return COMPARISON_OPS.has(operator.trim());
     }
 
-    // Handed to a call as an argument — a role-membership check.
-    if (kind === "argument_list" || kind === "arguments") return true;
+    // Handed to a call as an argument — a role-membership check, unless the callee is
+    // a formatting/logging/serialization sink, where the member is printed, not
+    // checked. The call argument is a weaker signal than a comparison, so this
+    // excludes the common non-auth sinks while genuine membership calls keep emitting.
+    if (kind === "argument_list" || kind === "arguments") {
+      const method = enclosingCallMethod(parent);
+      return method === null || !NON_AUTH_CALLEES.has(method);
+    }
 
     // The member is the callee's own receiver chain (`Admin.String()`) — transparent.
     if (CALL_KINDS.has(kind)) {

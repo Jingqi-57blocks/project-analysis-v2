@@ -27,6 +27,7 @@ function guard(
   test = "someCondition",
   relPath = "internal/handlers/leave/service.go",
   startLine = 10,
+  rejects = true,
 ): GuardRecord {
   const src = { ...lineRef("svc", relPath, startLine), startColumn: 2 };
   return {
@@ -34,6 +35,7 @@ function guard(
     test,
     message,
     messageKind,
+    rejects,
     enclosingFunction: "Create",
     source: src,
     provenance: resolved(src, "high"),
@@ -55,6 +57,11 @@ describe("promoteGuardValidations", () => {
 
   it("drops an error-code guard (a named constant is not a stated rule)", () => {
     expect(promoteGuardValidations([guard("WKL_Forbidden", "error-code")])).toEqual([]);
+  });
+
+  it("drops a non-rejection guard (a value-return message is data, not a rule)", () => {
+    // Same stated message, but the branch returns a value rather than rejecting.
+    expect(promoteGuardValidations([guard("OT Pay label here", "stated", "u == OTTypePay", "a.go", 10, false)])).toEqual([]);
   });
 
   it("sorts by (rootName, relPath, startLine, startColumn, rule)", () => {
@@ -125,6 +132,55 @@ func Create() error {
     const out = promoteGuardValidations(guardsOf("typescript", source));
     expect(out).toHaveLength(1);
     expect(out[0]!.rule).toBe("Name is required");
+  });
+
+  it("Go: a bare value-return (return \"OT Pay\") is not a validation", () => {
+    const source = `package leave
+func DisplayName(u OTType) string {
+	if u == OTTypePay {
+		return "OT Pay label"
+	}
+	return "unknown"
+}
+`;
+    expect(promoteGuardValidations(guardsOf("go", source))).toEqual([]);
+  });
+
+  it("Go: a success return (return Sucs(msg), nil) is not a validation", () => {
+    const source = `package leave
+func Cancel(app *App) (any, error) {
+	if app.Status == constant.CancelledC {
+		return cmon.SucsWithM("Already cancelled here."), nil
+	}
+	return nil, nil
+}
+`;
+    expect(promoteGuardValidations(guardsOf("go", source))).toEqual([]);
+  });
+
+  it("Go: a query-builder value-return (return q.Where(...)) is not a validation", () => {
+    const source = `package model
+func activeQuery(q *gorm.DB, id uint64) *gorm.DB {
+	if id > 0 {
+		return q.Where("id != ?", id)
+	}
+	return q.Where("id != ?", 0)
+}
+`;
+    expect(promoteGuardValidations(guardsOf("go", source))).toEqual([]);
+  });
+
+  it("Go: a genuine two-operand rejection (return nil, e.Msg(...)) is a validation", () => {
+    const source = `package leave
+func Create(repr *R) (any, error) {
+	if len(repr.Attachment) == 0 {
+		return nil, e.InvalidParamMsg("Attachment is required.")
+	}
+	return nil, nil
+}
+`;
+    const out = promoteGuardValidations(guardsOf("go", source));
+    expect(out.map((v) => v.rule)).toEqual(["Attachment is required."]);
   });
 });
 
@@ -221,6 +277,34 @@ func Approve(cc *C) {
 func Assign(cc *C) {
 	e := model.Emp{RoleID: constant.EmployeeC}
 	_ = e
+}
+`;
+    expect(observeAuthInFile("svc", "service.go", source, [roleC])).toEqual([]);
+  });
+
+  it("does not observe a role member handed to a logging sink (log.Info(\"role\", AdminC))", () => {
+    const source = `package leave
+func Trace(cc *C) {
+	log.Info("role", constant.AdminC)
+}
+`;
+    expect(observeAuthInFile("svc", "service.go", source, [roleC])).toEqual([]);
+  });
+
+  it("does not observe a role member handed to a format sink (fmt.Sprintf(\"%s\", AdminF.String()))", () => {
+    const source = `package leave
+func Label(cc *C) string {
+	return fmt.Sprintf("%s", constant.AdminF.String())
+}
+`;
+    expect(observeAuthInFile("svc", "service.go", source, [roleC])).toEqual([]);
+  });
+
+  it("does not observe a role member handed to a serialization sink (json.Marshal(AdminC))", () => {
+    const source = `package leave
+func Dump(cc *C) {
+	b, _ := json.Marshal(constant.AdminC)
+	_ = b
 }
 `;
     expect(observeAuthInFile("svc", "service.go", source, [roleC])).toEqual([]);

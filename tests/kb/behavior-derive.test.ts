@@ -28,6 +28,7 @@ function guard(test: string, message: string, messageKind: GuardRecord["messageK
     test,
     message,
     messageKind,
+    rejects: true,
     enclosingFunction: "Approve",
     source: lineRef("svc", "a.go", 20),
     provenance: declared(lineRef("svc", "a.go", 20)),
