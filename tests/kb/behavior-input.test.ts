@@ -19,9 +19,10 @@ describe("behaviorInputFrom — the bridge from extracted evidence to the behavi
     expect(input.boundary.auth).toEqual([]);
     expect(input.sideEffects.notifications).toEqual([]); // wired to g.notifications
 
-    // the two families no generic extractor produces yet — disclosed empty, not a whitelist
+    // external calls (no provider) and test relations stay empty — disclosed, not a whitelist
     expect(input.sideEffects.external).toEqual([]);
-    expect(input.states.changes).toBeUndefined();
+    // state changes are now observed generically (empty here only because there are no roots)
+    expect(input.states.changes).toEqual([]);
     expect(input.tests.testRelations).toEqual([]);
     expect(input.tests.providerRan).toBe(false);
   });

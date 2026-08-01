@@ -162,7 +162,7 @@ export type BehaviorFact<T extends BehaviorPayload = BehaviorPayload> = FactEnve
 export type BehaviorRelationKind =
   /** A decision to one of its branch outcomes. One decision, one-or-more branches. */
   | "decision-branch"
-  /** A transition to an endpoint state. Exactly one from-state and one to-state. */
+  /** A transition to an endpoint state. Exactly one to-state; at most one from-state. */
   | "transition-endpoint"
   /** A business rule to a value set it reads. Zero-or-more. */
   | "rule-valueset"
@@ -326,8 +326,10 @@ export function validateBehaviorModel(model: BehaviorModel): BehaviorValidation 
   for (const fact of model.facts) {
     if (fact.kind === "transition") {
       const tally = transitionEndpoints.get(fact.factId) ?? { from: 0, to: 0 };
-      if (tally.from !== 1 || tally.to !== 1) {
-        reasons.push(`transition ${fact.factId} needs exactly one from-state and one to-state, has from=${tally.from} to=${tally.to}`);
+      // Exactly one to-state; a from-state is optional — a change whose origin the
+      // code does not state is an honest to-only transition — but never more than one.
+      if (tally.to !== 1 || tally.from > 1) {
+        reasons.push(`transition ${fact.factId} needs exactly one to-state and at most one from-state, has from=${tally.from} to=${tally.to}`);
       }
     }
     if (fact.kind === "decision" && (decisionBranchCount.get(fact.factId) ?? 0) === 0) {

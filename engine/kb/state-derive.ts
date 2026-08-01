@@ -9,12 +9,13 @@
  * business state machine. Value resolution itself is reused from
  * `engine/semantics/enums.ts` (`resolveValue`), not re-implemented.
  *
- * A *transition* needs a from-state, a to-state, a trigger and (optionally) a
+ * A *transition* needs a to-state, a trigger and (optionally) a from-state and a
  * guard. Those come from observed state changes — an assignment, a database
- * write, an event publish — supplied by the caller. When both ends resolve to a
- * state the transition is emitted with its endpoints; when the start cannot be
- * determined, or the target resolves to no known state, the transition is not
- * invented — it is returned as an explicit unresolved diagnostic.
+ * write, an event publish — supplied by the caller. When both ends resolve the
+ * transition carries both endpoints; when only the target resolves it is emitted
+ * with a lone to-state and an undeterminable-start note, the honest shape for a
+ * change whose origin the code does not state. Only when the target itself
+ * resolves to no known state is nothing emitted — that is a diagnostic alone.
  */
 
 import type { EvidenceRecord, ProviderAttribution } from "../contracts/shared-fact/evidence.js";
@@ -141,16 +142,21 @@ export function deriveStateBehavior(input: BehaviorStateInput): BehaviorStateRes
       });
       continue;
     }
-    if (change.fromValue === null || from === null) {
-      // The target is a real state but the start is not determinable: a possible
-      // transition, recorded rather than asserted with a fabricated from-state.
+    // The target is a real state; the start may not be. A `fromValue` of null, or
+    // one that resolves to no known state, still leaves a genuine change *into*
+    // `to` — emitted as a to-only transition rather than dropped or given a
+    // fabricated origin. The undeterminable-start note is kept alongside it so the
+    // missing start stays auditable, and `fromName` falls back to the empty-string
+    // discriminator identity already reserves for an absent endpoint.
+    const startResolved = change.fromValue !== null && from !== null;
+    if (!startResolved) {
       diagnostics.push({
         kind: "undeterminable-start",
         field: change.field,
         detail: `a change to ${to.member.name} on ${change.field} has no determinable start state (trigger ${change.trigger})`,
       });
-      continue;
     }
+    const fromName = startResolved ? from!.member.name : "";
 
     const transitionFactId = factId({
       family: "behavioral",
@@ -158,7 +164,7 @@ export function deriveStateBehavior(input: BehaviorStateInput): BehaviorStateRes
       // guard is part of identity — two transitions between the same states from
       // the same trigger but under different guards are different transitions.
       discriminators: [
-        change.rootName, change.field, from.member.name, to.member.name,
+        change.rootName, change.field, fromName, to.member.name,
         change.trigger, String(change.source.startLine), change.guard ?? "",
       ],
     });
@@ -167,7 +173,6 @@ export function deriveStateBehavior(input: BehaviorStateInput): BehaviorStateRes
     if (seenTransitions.has(transitionFactId)) continue;
     seenTransitions.add(transitionFactId);
 
-    const fromId = claimState(from.set, from.member);
     const toId = claimState(to.set, to.member);
     const transition: BehaviorFact = {
       factId: transitionFactId,
@@ -185,7 +190,10 @@ export function deriveStateBehavior(input: BehaviorStateInput): BehaviorStateRes
       }),
     };
     facts.push(transition);
-    relations.push({ kind: "transition-endpoint", from: transition.factId, to: fromId, role: "from-state" });
+    if (startResolved) {
+      const fromId = claimState(from!.set, from!.member);
+      relations.push({ kind: "transition-endpoint", from: transition.factId, to: fromId, role: "from-state" });
+    }
     relations.push({ kind: "transition-endpoint", from: transition.factId, to: toId, role: "to-state" });
   }
 
