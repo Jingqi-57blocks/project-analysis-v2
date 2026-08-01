@@ -35,7 +35,7 @@ describe("validateLedger — M3 report-section routing", () => {
   it("rejects an M3 must-print item that names no section", () => {
     const result = validateLedger(ledger({ mustPrint: true, criticality: "critical" }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reasons.some((r) => r.includes("must name a report section for module/product"))).toBe(true);
+    if (!result.ok) expect(result.reasons.some((r) => r.includes("must name a report section for every required scope × audience (module/product)"))).toBe(true);
   });
 
   it("accepts an M3 must-print item that names a section for every required scope × audience", () => {
@@ -65,6 +65,29 @@ describe("validateLedger — M3 report-section routing", () => {
     );
     expect(audienceMismatch.ok).toBe(false);
     if (!audienceMismatch.ok) expect(audienceMismatch.reasons.some((r) => r.includes("audience developer not in requiredAudience"))).toBe(true);
+  });
+
+  it("rejects a named section that does not exist in the report catalog", () => {
+    const result = validateLedger(ledger({ reportSections: [{ scope: "module", audience: "product", sectionId: "not-a-real-section" }] }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasons.some((r) => r.includes("unknown catalog section not-a-real-section"))).toBe(true);
+  });
+
+  it("rejects a named section whose catalog scope the document does not reach", () => {
+    // module-notifications-data is a module/product section; naming it under a
+    // developer document is unreachable.
+    const result = validateLedger(
+      ledger({ requiredAudience: ["developer"], reportSections: [{ scope: "module", audience: "developer", sectionId: "module-notifications-data" }] }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasons.some((r) => r.includes("not reachable from developer"))).toBe(true);
+  });
+
+  it("accepts a shared catalog section named from any scope × audience", () => {
+    // coverage is a shared/shared section — it folds into every document, so a
+    // module/developer reference is reachable and valid.
+    const result = validateLedger(ledger({ requiredAudience: ["developer"], reportSections: [{ scope: "module", audience: "developer", sectionId: "coverage" }] }));
+    expect(result).toEqual({ ok: true });
   });
 
   it("does not require report sections for a must-print item outside the M3 facet", () => {

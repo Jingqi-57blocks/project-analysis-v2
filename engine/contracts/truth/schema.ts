@@ -12,6 +12,8 @@
  * beside the human-readable reference; the loaders below read and check it.
  */
 
+import { sectionById } from "../report/catalog.js";
+
 export type TruthFacet = "M1" | "M2" | "M3" | "M4";
 export const TRUTH_FACETS: readonly TruthFacet[] = ["M1", "M2", "M3", "M4"];
 
@@ -159,17 +161,36 @@ export function validateLedger(ledger: TruthLedger): LedgerValidation {
       if (!item.requiredScope.includes(rs.scope)) reasons.push(`${item.id}: reportSection scope ${rs.scope} not in requiredScope`);
       if (!item.requiredAudience.includes(rs.audience)) reasons.push(`${item.id}: reportSection audience ${rs.audience} not in requiredAudience`);
       if (rs.sectionId.length === 0) reasons.push(`${item.id}: reportSection names no section`);
+      // The named section must exist in the report catalog and be reachable from the
+      // named scope × audience document — a shared section folds into every document,
+      // otherwise the catalog's scope and audience must match. This catches a typo or
+      // a section that the named document never carries.
+      else {
+        const section = sectionById(rs.sectionId);
+        if (section === undefined) reasons.push(`${item.id}: reportSection names unknown catalog section ${rs.sectionId}`);
+        else {
+          if (section.scope !== "shared" && section.scope !== rs.scope) {
+            reasons.push(`${item.id}: section ${rs.sectionId} is scope ${section.scope}, not reachable from ${rs.scope}`);
+          }
+          if (section.audience !== "shared" && section.audience !== rs.audience) {
+            reasons.push(`${item.id}: section ${rs.sectionId} is audience ${section.audience}, not reachable from ${rs.audience}`);
+          }
+        }
+      }
     }
     // Section routing is the M3 report facet's concern: an M3 must-print item must
     // name a section for every scope × audience it prints in. A must-print item at
     // the M1/M2 facets asserts it is found in structure/behaviour; its report
-    // routing is pinned by the M3 items, not here.
-    if (item.mustPrint && item.facets.includes("M3")) {
+    // routing is pinned by the M3 items, not here. And any item that names *some*
+    // sections must name one for every required scope × audience — a partial routing
+    // would leave one audience unchecked and let a cross-report inconsistency slip.
+    const namesSome = (item.reportSections ?? []).length > 0;
+    if (namesSome || (item.mustPrint && item.facets.includes("M3"))) {
       const named = new Set((item.reportSections ?? []).map((rs) => `${rs.scope}|${rs.audience}`));
       for (const scope of item.requiredScope) {
         for (const audience of item.requiredAudience) {
           if (!named.has(`${scope}|${audience}`)) {
-            reasons.push(`${item.id}: M3 must-print item must name a report section for ${scope}/${audience}`);
+            reasons.push(`${item.id}: must name a report section for every required scope × audience (${scope}/${audience})`);
           }
         }
       }

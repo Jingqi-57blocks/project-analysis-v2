@@ -18,6 +18,17 @@
  * (scope + audience + section); a documented category→section lane is the fallback
  * for an item that names none, the report analogue of the M2 behaviour gate's
  * category→kind lane.
+ *
+ * Two checks are content-level and land with the rendered report, not the plan, so
+ * they are deferred (not silently skipped): the fact-outside-slice check is
+ * `validateFactAgainstSlice` at the M4 fresh run, and citation truth (an uncited or
+ * wrong-cited claim) is enforced by each authored block's `citationRule: "required"`
+ * validator at execution and by the M6 citation-truth metric. This gate grades
+ * routing and structural block accounting; it does not read rendered citations.
+ *
+ * The gate assumes the plan carries every audience an item requires (the dual
+ * product+developer document plan it is built for); single-document accounting is
+ * PI-73's combination gate, not this one.
  */
 
 import type { ReportAudience, ReportScope, TruthItem } from "../contracts/truth/schema.js";
@@ -181,7 +192,12 @@ export function gradeReportTruth(
     // to the category→section lane only when the truth item names none.
     const expectations = expectationsOf(item);
     if (expectations.length === 0) {
-      return { ...base, status: "unsupported" as const, placements: [], detail: `category ${item.category} has no named section and no report lane` };
+      // An item that routes nowhere is a hard fail when it must print or is critical
+      // — it can never be printed, so it cannot drop out of the denominator as
+      // "unsupported". Only a non-critical, non-must-print item is honestly
+      // unsupported (out of the hard gate's scope).
+      const status: ReportTruthStatus = item.mustPrint || item.criticality === "critical" ? "missing" : "unsupported";
+      return { ...base, status, placements: [], detail: `category ${item.category} routes to no named section or report lane` };
     }
 
     const placements: ReportPlacement[] = [];
@@ -231,7 +247,11 @@ export function gradeReportTruth(
     }
 
     if (placements.length === 0) {
-      return { ...base, status: "unsupported" as const, placements, detail: "the item routes to no requested document/audience" };
+      // Defensive: expectations always yield a placement, so this is unreachable for
+      // a compiled dual-document plan. If it ever is reached, a must-print/critical
+      // item fails closed rather than dropping out of the denominator.
+      const status: ReportTruthStatus = item.mustPrint || item.criticality === "critical" ? "missing" : "unsupported";
+      return { ...base, status, placements, detail: "the item routes to no requested document/audience" };
     }
 
     // Aggregate the placements into one status off the structured dispositions —
@@ -291,11 +311,12 @@ export function gradeReportTruth(
     );
   }, 0);
 
-  const mustPrint = results.filter((r) => r.mustPrint && r.status !== "unsupported");
+  // Every must-print item counts toward the denominator, and every critical item
+  // that is not printed is an issue — "unsupported" is not a way out, since an
+  // unroutable must-print/critical item is already classified "missing" above.
+  const mustPrint = results.filter((r) => r.mustPrint);
   const mustPrintPrinted = mustPrint.filter((r) => r.status === "printed").length;
-  const criticalIssues = results.filter(
-    (r) => r.criticality === "critical" && r.status !== "unsupported" && r.status !== "printed",
-  ).length;
+  const criticalIssues = results.filter((r) => r.criticality === "critical" && r.status !== "printed").length;
 
   // A shared claim required in both audiences that is present for one and absent
   // for the other — a cross-report inconsistency.

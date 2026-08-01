@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { itemsForFacet, loadLeaveTruthLedger } from "../../engine/contracts/truth/leave.js";
+import type { TruthItem } from "../../engine/contracts/truth/schema.js";
 import type { GenerationParams } from "../../engine/contracts/report/pipeline.js";
 import { authoredTasks } from "../../engine/contracts/report/pipeline.js";
 import type { AnalysisSnapshotIdentity } from "../../engine/contracts/report/snapshot.js";
@@ -121,6 +122,41 @@ describe("gradeReportTruth — accounting balance never substitutes for printing
     // the notifications facts expect status "found" — an omission is not acceptable, so they are missing
     expect(notif.every((r) => r.status === "missing")).toBe(true);
     expect(report.passed).toBe(false); // honest not-applicable disclosure does not satisfy a must-print
+  });
+});
+
+describe("gradeReportTruth — an unroutable item cannot drop out of the denominator", () => {
+  const unroutable: TruthItem = {
+    id: "T-ESC",
+    facets: ["M3"],
+    category: "entry-point", // not in the report section lane, and no reportSections
+    claim: "an M3 item that routes nowhere",
+    evidence: [{ root: "wcp-service-v2", path: "x.go" }],
+    expectedResolution: "observed",
+    expectedStatus: "found",
+    criticality: "critical",
+    mustFind: true,
+    mustPrint: false,
+    requiredScope: ["module"],
+    requiredAudience: ["product"],
+  };
+
+  it("fails a critical item that routes to no section rather than marking it unsupported", () => {
+    const e = compile();
+    const report = gradeReportTruth([unroutable], e, allValidated(e), MODULE);
+    const result = report.results[0]!;
+    expect(result.status).toBe("missing"); // not "unsupported" — it can never be printed
+    expect(report.criticalIssues).toBe(1);
+    expect(report.passed).toBe(false);
+  });
+
+  it("fails a must-print item that routes nowhere", () => {
+    const e = compile();
+    const report = gradeReportTruth([{ ...unroutable, criticality: "normal", mustPrint: true }], e, allValidated(e), MODULE);
+    expect(report.results[0]!.status).toBe("missing");
+    expect(report.mustPrintTotal).toBe(1);
+    expect(report.mustPrintPrinted).toBe(0);
+    expect(report.passed).toBe(false);
   });
 });
 

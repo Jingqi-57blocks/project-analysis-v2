@@ -18,6 +18,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 
 import { itemsForFacet, loadLeaveTruthLedger } from "../engine/contracts/truth/leave.js";
+import { validateLedger } from "../engine/contracts/truth/schema.js";
 import { authoredTasks, type GenerationParams } from "../engine/contracts/report/pipeline.js";
 import type { AnalysisSnapshotIdentity } from "../engine/contracts/report/snapshot.js";
 import { moduleTarget } from "../engine/contracts/report/target.js";
@@ -38,6 +39,15 @@ const snapshot: AnalysisSnapshotIdentity = {
 };
 const params: GenerationParams = { executorKind: "host-agent", modelId: "unbound-m3", language: "en" };
 
+// Refuse to grade an ill-formed ledger — the gate's soundness must not rest on a
+// separate validation step running.
+const ledger = loadLeaveTruthLedger();
+const validation = validateLedger(ledger);
+if (!validation.ok) {
+  console.error("truth ledger is invalid:", validation.reasons.join("; "));
+  process.exit(2);
+}
+
 const executable = compileExecutablePlan({
   request: [moduleTarget(moduleId, "product"), moduleTarget(moduleId, "developer")],
   snapshot,
@@ -49,7 +59,7 @@ const executable = compileExecutablePlan({
 // real validation outcomes here.
 const validatedTaskIds = new Set(authoredTasks(executable.plan).map((t) => t.taskId));
 
-const m3 = itemsForFacet(loadLeaveTruthLedger(), "M3");
+const m3 = itemsForFacet(ledger, "M3");
 const report = gradeReportTruth(m3, executable, validatedTaskIds, moduleId);
 
 mkdirSync(".analysis", { recursive: true });
