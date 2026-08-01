@@ -134,16 +134,30 @@ export function renderModuleMap(
   return { nodes, moduleCount: modules.length, danglingRefs: sortStrings(dangling) };
 }
 
-/** The up/downstream of one module — the module-scope neighbours block. */
+export interface ModuleNeighbours {
+  readonly moduleId: string;
+  readonly children: readonly string[];
+  readonly upstream: readonly string[];
+  readonly downstream: readonly string[];
+}
+
+/**
+ * One module's sub-structure and up/downstream — the module-scope neighbours
+ * block. Children come from containment, up/downstream from the call edges (the
+ * two fact kinds the block declares); references to unknown modules are dropped,
+ * self-edges excluded.
+ */
 export function renderModuleNeighbours(
   moduleId: string,
   modules: readonly ModuleRecord[],
+  containment: readonly ContainmentRecord[],
   edges: readonly ModuleEdgeRecord[],
-): { readonly moduleId: string; readonly upstream: readonly string[]; readonly downstream: readonly string[] } {
+): ModuleNeighbours {
   const known = new Set(modules.map((m) => m.moduleId));
+  const children = sortStrings(containment.filter((c) => c.parentModuleId === moduleId && known.has(c.childModuleId)).map((c) => c.childModuleId));
   const upstream = sortStrings(edges.filter((e) => e.toModuleId === moduleId && known.has(e.fromModuleId) && e.fromModuleId !== moduleId).map((e) => e.fromModuleId));
   const downstream = sortStrings(edges.filter((e) => e.fromModuleId === moduleId && known.has(e.toModuleId) && e.toModuleId !== moduleId).map((e) => e.toModuleId));
-  return { moduleId, upstream, downstream };
+  return { moduleId, children, upstream, downstream };
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +184,15 @@ export interface EntryList {
   readonly entries: readonly EntryView[];
   readonly entryCount: number;
   readonly byModule: Readonly<Record<string, number>>;
+  /** Total access/role facts read — reconciles with the ledger: rendered access + danglingAccess. */
+  readonly accessCount: number;
+  /** Entry ids named by an access fact but matching no entry — surfaced, not dropped. */
+  readonly danglingAccess: readonly string[];
+}
+
+/** A stable citation key for tie-breaking, so equal-shape access facts still order. */
+function citationKey(ref: SourceRef): string {
+  return `${ref.rootName} ${ref.relPath} ${ref.startLine ?? -1} ${ref.startColumn ?? -1}`;
 }
 
 /**
@@ -188,6 +211,7 @@ export function renderEntryList(entries: readonly EntryRecord[], access: readonl
     });
   }
 
+  const accessKey = (a: EntryAccess): string => `${a.mechanism} ${a.requirement} ${citationKey(a.citation)}`;
   const views = [...entries]
     .sort((a, b) => (a.entryId < b.entryId ? -1 : a.entryId > b.entryId ? 1 : 0))
     .map((e) => ({
@@ -195,16 +219,20 @@ export function renderEntryList(entries: readonly EntryRecord[], access: readonl
       kind: e.kind,
       label: e.label,
       moduleId: e.moduleId,
-      access: (accessByEntry.get(e.entryId) ?? []).sort((x, y) =>
-        x.mechanism !== y.mechanism ? (x.mechanism < y.mechanism ? -1 : 1) : x.requirement < y.requirement ? -1 : x.requirement > y.requirement ? 1 : 0,
-      ),
+      access: (accessByEntry.get(e.entryId) ?? []).sort((x, y) => (accessKey(x) < accessKey(y) ? -1 : accessKey(x) > accessKey(y) ? 1 : 0)),
       citation: e.citation,
     }));
 
-  const byModule: Record<string, number> = {};
-  for (const v of views) byModule[v.moduleId] = (byModule[v.moduleId] ?? 0) + 1;
+  // A plain object would let a moduleId of "constructor"/"__proto__"/etc. corrupt
+  // the tally — legal directory/package names — so count in a Map.
+  const counts = new Map<string, number>();
+  for (const v of views) counts.set(v.moduleId, (counts.get(v.moduleId) ?? 0) + 1);
+  const byModule: Record<string, number> = Object.fromEntries([...counts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
-  return { entries: views, entryCount: entries.length, byModule };
+  const entryIds = new Set(entries.map((e) => e.entryId));
+  const danglingAccess = sortStrings(access.filter((a) => !entryIds.has(a.entryId)).map((a) => a.entryId));
+
+  return { entries: views, entryCount: entries.length, byModule, accessCount: access.length, danglingAccess };
 }
 
 // ---------------------------------------------------------------------------
@@ -225,11 +253,23 @@ export function validateModuleMap(map: ModuleMap, modules: readonly ModuleRecord
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
 
-export function validateEntryList(list: EntryList, entries: readonly EntryRecord[]): ContentValidation {
+export function validateEntryList(
+  list: EntryList,
+  entries: readonly EntryRecord[],
+  access: readonly AccessRecord[],
+): ContentValidation {
   const reasons: string[] = [];
   if (list.entryCount !== entries.length) reasons.push(`entry count ${list.entryCount} ≠ ${entries.length} in the ledger`);
+  if (list.accessCount !== access.length) reasons.push(`access count ${list.accessCount} ≠ ${access.length} in the ledger`);
   const summed = Object.values(list.byModule).reduce((a, b) => a + b, 0);
   if (summed !== list.entryCount) reasons.push(`byModule sums to ${summed}, not ${list.entryCount}`);
+  // Every access fact is either rendered on its entry or accounted as dangling.
+  const entryIds = new Set(entries.map((e) => e.entryId));
+  const rendered = list.entries.reduce((n, e) => n + e.access.length, 0);
+  const danglingFacts = access.filter((a) => !entryIds.has(a.entryId)).length;
+  if (rendered + danglingFacts !== list.accessCount) {
+    reasons.push(`access ${rendered} rendered + ${danglingFacts} dangling ≠ ${list.accessCount}`);
+  }
   for (const e of list.entries) {
     if (e.label.length === 0) reasons.push(`entry ${e.entryId} has an empty label`);
     if (!hasCitation(e.citation)) reasons.push(`entry ${e.entryId} has no citation`);

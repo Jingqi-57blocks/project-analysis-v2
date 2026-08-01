@@ -65,9 +65,9 @@ describe("renderModuleMap", () => {
 });
 
 describe("renderModuleNeighbours", () => {
-  it("gives a module its up and downstream", () => {
-    expect(renderModuleNeighbours("auth", modules, edges)).toEqual({ moduleId: "auth", upstream: ["leave"], downstream: [] });
-    expect(renderModuleNeighbours("leave", modules, edges)).toEqual({ moduleId: "leave", upstream: [], downstream: ["auth", "payroll"] });
+  it("gives a module its children and up/downstream", () => {
+    expect(renderModuleNeighbours("auth", modules, containment, edges)).toEqual({ moduleId: "auth", children: [], upstream: ["leave"], downstream: [] });
+    expect(renderModuleNeighbours("leave", modules, containment, edges)).toEqual({ moduleId: "leave", children: ["auth"], upstream: [], downstream: ["auth", "payroll"] });
   });
 });
 
@@ -87,7 +87,17 @@ describe("renderEntryList", () => {
     expect(list.entries.map((e) => e.entryId)).toEqual(["e1", "e2", "e3"]);
     expect(list.entries.find((e) => e.entryId === "e2")!.label).toBe("POST /leaves/:id/approve");
     expect(list.byModule).toEqual({ leave: 2, payroll: 1 });
-    expect(validateEntryList(list, entries)).toEqual({ ok: true });
+    expect(list.accessCount).toBe(access.length);
+    expect(validateEntryList(list, entries, access)).toEqual({ ok: true });
+  });
+
+  it("reconciles access and surfaces an orphan access fact", () => {
+    const orphan: AccessRecord = { entryId: "e-missing", mechanism: "requireRole", requirement: "admin", citation: cite("x.go", 1) };
+    const list = renderEntryList(entries, [...access, orphan]);
+    expect(list.accessCount).toBe(2);
+    expect(list.danglingAccess).toEqual(["e-missing"]); // named an entry that does not exist
+    // rendered (1) + dangling facts (1) === accessCount (2)
+    expect(validateEntryList(list, entries, [...access, orphan])).toEqual({ ok: true });
   });
 
   it("shows declared access only, never a guessed permission", () => {
@@ -100,8 +110,16 @@ describe("renderEntryList", () => {
   });
 
   it("rejects an entry with an empty label", () => {
-    const bad = renderEntryList([{ ...entries[0]!, label: "" }], []);
-    expect(validateEntryList(bad, [{ ...entries[0]!, label: "" }]).ok).toBe(false);
+    const badEntries = [{ ...entries[0]!, label: "" }];
+    const bad = renderEntryList(badEntries, []);
+    expect(validateEntryList(bad, badEntries, []).ok).toBe(false);
+  });
+
+  it("counts entries even for a moduleId that collides with an Object prototype key", () => {
+    const proto: EntryRecord = { entryId: "z1", kind: "route", label: "GET /x", moduleId: "constructor", citation: cite("x.go", 1) };
+    const list = renderEntryList([proto, { ...proto, entryId: "z2" }], []);
+    expect(list.byModule).toEqual({ constructor: 2 });
+    expect(validateEntryList(list, [proto, { ...proto, entryId: "z2" }], []).ok).toBe(true);
   });
 });
 
