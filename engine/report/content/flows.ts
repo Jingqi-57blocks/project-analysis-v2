@@ -21,7 +21,6 @@ import type { SourceRef } from "../../contracts/shared-fact/provenance.js";
 export const BRANCHES_SCHEMA = "module-branches.v1";
 export const LIFECYCLE_SCHEMA = "lifecycle.v1";
 export const RULES_SCHEMA = "module-rules.v1";
-export const EXCEPTIONS_SCHEMA = "exceptions.v1";
 
 // ---------------------------------------------------------------------------
 // Branches — the happy path, the rejections and the conditional behaviour.
@@ -39,6 +38,15 @@ export interface ConditionRecord {
   readonly citation: SourceRef;
 }
 
+/** A decision point with more than one outcome — a conditional branch of a flow. */
+export interface DecisionRecord {
+  readonly id: string;
+  readonly subject: string;
+  readonly outcomes: readonly string[];
+  readonly enclosing: string;
+  readonly citation: SourceRef;
+}
+
 export type BranchOutcome = "proceed" | "reject" | "conditional" | "unknown";
 
 export interface BranchView {
@@ -50,8 +58,16 @@ export interface BranchView {
   readonly citation: SourceRef;
 }
 
+/** Branches grouped by the flow (enclosing scope) they belong to. */
+export interface FlowGroup {
+  readonly enclosing: string;
+  readonly branches: readonly BranchView[];
+}
+
 export interface BranchSet {
   readonly branches: readonly BranchView[];
+  /** The branches organised by their enclosing flow — not a flat inventory. */
+  readonly flows: readonly FlowGroup[];
   readonly counts: Readonly<Record<BranchOutcome, number>>;
   readonly total: number;
 }
@@ -64,19 +80,45 @@ const OUTCOME_OF: Readonly<Record<GuardKind, BranchOutcome>> = {
 };
 
 /**
- * The branches of a flow, each classified by the guard its fact records. The set
+ * The branches of the flows, from conditions and decisions, each classified by
+ * the guard its fact records (a decision is a conditional branch point). The set
  * counts proceed / reject / conditional / unknown separately, so a report built
- * from it cannot show only the happy path — a rejection or a conditional branch
- * is a first-class row with its own citation.
+ * from it cannot show only the happy path, and groups the branches by their
+ * enclosing flow so they read as flows, not a flat list.
  */
-export function renderBranches(conditions: readonly ConditionRecord[]): BranchSet {
-  const branches = [...conditions]
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .map((c) => ({ id: c.id, subject: c.subject, test: c.test, outcome: OUTCOME_OF[c.guard], enclosing: c.enclosing, citation: c.citation }));
+export function renderBranches(
+  conditions: readonly ConditionRecord[],
+  decisions: readonly DecisionRecord[] = [],
+): BranchSet {
+  const fromConditions = conditions.map((c) => ({
+    id: c.id,
+    subject: c.subject,
+    test: c.test,
+    outcome: OUTCOME_OF[c.guard],
+    enclosing: c.enclosing,
+    citation: c.citation,
+  }));
+  const fromDecisions = decisions.map((d) => ({
+    id: d.id,
+    subject: d.subject,
+    test: [...d.outcomes].join(" | "),
+    outcome: "conditional" as const,
+    enclosing: d.enclosing,
+    citation: d.citation,
+  }));
+
+  const branches = [...fromConditions, ...fromDecisions].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const counts: Record<BranchOutcome, number> = { proceed: 0, reject: 0, conditional: 0, unknown: 0 };
   for (const b of branches) counts[b.outcome] += 1;
-  return { branches, counts, total: branches.length };
+
+  const byEnclosing = new Map<string, BranchView[]>();
+  for (const b of branches) (byEnclosing.get(b.enclosing) ?? byEnclosing.set(b.enclosing, []).get(b.enclosing)!).push(b);
+  const flows = [...byEnclosing.keys()]
+    .sort()
+    .map((enclosing) => ({ enclosing, branches: byEnclosing.get(enclosing)! }));
+
+  return { branches, flows, counts, total: branches.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -125,10 +167,25 @@ export interface LifecycleView {
 export interface LifecycleSet {
   readonly lifecycles: readonly LifecycleView[];
   readonly entityCount: number;
+  /** Transitions actually placed in a lifecycle — what was rendered. */
   readonly transitionCount: number;
+  /** Transitions whose entity is not in the input — surfaced, not counted as printed. */
+  readonly danglingTransitions: number;
 }
 
 const sortStrings = (xs: Iterable<string>): string[] => [...new Set(xs)].sort();
+
+/** A total-order key for a transition, citation included so distinct facts never tie. */
+function transitionKey(t: { readonly from: string | null; readonly to: string; readonly trigger: string; readonly citation: SourceRef }): string {
+  const c = t.citation;
+  return `${t.from ?? ""}\0${t.to}\0${t.trigger}\0${c.rootName}\0${c.relPath}\0${c.startLine ?? -1}\0${c.startColumn ?? -1}`;
+}
+
+const byTransitionKey = (a: Parameters<typeof transitionKey>[0], b: Parameters<typeof transitionKey>[0]): number => {
+  const ak = transitionKey(a);
+  const bk = transitionKey(b);
+  return ak < bk ? -1 : ak > bk ? 1 : 0;
+};
 
 /**
  * The lifecycle of each object: its states and the transitions between them.
@@ -154,16 +211,17 @@ export function renderLifecycle(
   const transByEntity = new Map<string, TransitionRecord[]>();
   for (const t of transitions) (transByEntity.get(t.entityId) ?? transByEntity.set(t.entityId, []).get(t.entityId)!).push(t);
 
-  const lifecycles = [...entities]
+  // De-dup entities by id (first wins) so a duplicated record cannot double-render
+  // a lifecycle or its transitions.
+  const uniqueEntities = [...new Map(entities.map((e) => [e.entityId, e])).values()];
+  const lifecycles = [...uniqueEntities]
     .sort((a, b) => (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0))
     .map((e) => {
       const ts = transByEntity.get(e.entityId) ?? [];
       const stateSet = sortStrings(statesByEntity.get(e.entityId) ?? []);
       const hasOutgoing = new Set(ts.filter((t) => t.from !== null).map((t) => t.from as string));
       const transitions = [...ts]
-        .sort((x, y) =>
-          `${x.from ?? ""}\0${x.to}\0${x.trigger}` < `${y.from ?? ""}\0${y.to}\0${y.trigger}` ? -1 : 1,
-        )
+        .sort(byTransitionKey)
         .map((t) => ({ from: t.from, to: t.to, trigger: t.trigger, citation: t.citation }));
       return {
         entityId: e.entityId,
@@ -175,7 +233,13 @@ export function renderLifecycle(
       };
     });
 
-  return { lifecycles, entityCount: entities.length, transitionCount: transitions.length };
+  const rendered = lifecycles.reduce((n, l) => n + l.transitions.length, 0);
+  return {
+    lifecycles,
+    entityCount: uniqueEntities.length,
+    transitionCount: rendered,
+    danglingTransitions: transitions.length - rendered,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +251,8 @@ export interface RuleRecord {
   /** A business-language statement of the rule. */
   readonly statement: string;
   readonly subject: string;
+  /** The object this rule is about — when set, its state is checked against that object's lifecycle. */
+  readonly entityId?: string;
   /** The state the rule references, kept verbatim. */
   readonly stateName: string | null;
   readonly message: string | null;
@@ -231,7 +297,21 @@ export function renderExceptions(exceptions: readonly ExceptionRecord[]): Except
 // Recovery — evidenced, or honestly unknown.
 // ---------------------------------------------------------------------------
 
-const RECOVERY_TRIGGERS: readonly string[] = ["withdraw", "cancel", "retry", "compensate", "recover", "rollback", "refund", "revert", "undo"];
+// The five recovery behaviours the content contract names — no more, so trigger
+// naming cannot be stretched into business meaning the fact does not carry.
+const RECOVERY_TRIGGERS: readonly string[] = ["withdraw", "cancel", "retry", "compensate", "recover"];
+
+/** Lowercased word tokens of a trigger — camelCase and separators split — so a
+ *  recovery word matches as a whole token, not a substring ("undo" ⊄ "undocumented"). */
+function triggerTokens(trigger: string): Set<string> {
+  return new Set(
+    trigger
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .split(/[^A-Za-z0-9]+/)
+      .filter((t) => t.length > 0)
+      .map((t) => t.toLowerCase()),
+  );
+}
 
 export interface RecoverySet {
   readonly recoveries: readonly TransitionView[];
@@ -247,8 +327,11 @@ export interface RecoverySet {
  */
 export function renderRecovery(transitions: readonly TransitionRecord[]): RecoverySet {
   const recoveries = transitions
-    .filter((t) => RECOVERY_TRIGGERS.some((r) => t.trigger.toLowerCase().includes(r)))
-    .sort((a, b) => (`${a.from ?? ""}\0${a.to}\0${a.trigger}` < `${b.from ?? ""}\0${b.to}\0${b.trigger}` ? -1 : 1))
+    .filter((t) => {
+      const tokens = triggerTokens(t.trigger);
+      return RECOVERY_TRIGGERS.some((r) => tokens.has(r));
+    })
+    .sort(byTransitionKey)
     .map((t) => ({ from: t.from, to: t.to, trigger: t.trigger, citation: t.citation }));
   return { recoveries, found: recoveries.length > 0 };
 }
@@ -276,8 +359,11 @@ export function accountBehaviour(
   rules: RuleSet,
   exceptions: ExceptionSet,
 ): BehaviourAccounting {
+  // transitionCount is the RENDERED count; a transition dropped for an unknown
+  // entity is not counted as printed, so it makes printed < slice → incomplete.
   const printed = branches.total + lifecycle.transitionCount + rules.ruleCount + exceptions.total;
-  const unresolved = lifecycle.lifecycles.reduce((n, l) => n + l.unresolvedOrigins, 0) + branches.counts.unknown;
+  const unresolved =
+    lifecycle.lifecycles.reduce((n, l) => n + l.unresolvedOrigins, 0) + branches.counts.unknown + lifecycle.danglingTransitions;
   return { slice: sliceSize, printed, unresolved, complete: printed === sliceSize };
 }
 
@@ -300,16 +386,24 @@ export function validateBranchSet(set: BranchSet): ContentValidation {
 }
 
 /**
- * Rules, states and exceptions must not contradict: a rule or transition that
- * names a state must name one the object's lifecycle actually has. A named state
- * absent from every lifecycle is a contradiction, not a silent omission.
+ * A rule must not contradict the lifecycle: a rule that names a state must name
+ * one the object's lifecycle actually has. A named state absent from every
+ * lifecycle is a contradiction, not a silent omission. (A transition's own
+ * from/to states are folded into the lifecycle, so they cannot contradict it.)
  */
 export function validateConsistency(rules: RuleSet, lifecycle: LifecycleSet): ContentValidation {
   const reasons: string[] = [];
+  const statesByEntity = new Map(lifecycle.lifecycles.map((l) => [l.entityId, new Set(l.states)] as const));
   const allStates = new Set(lifecycle.lifecycles.flatMap((l) => l.states));
   for (const rule of rules.rules) {
-    if (rule.stateName !== null && !allStates.has(rule.stateName)) {
-      reasons.push(`rule ${rule.id} names state "${rule.stateName}" that no lifecycle has`);
+    if (rule.stateName === null) continue;
+    // A rule about a named object is checked against THAT object's lifecycle, so a
+    // rule citing another object's state cannot pass; an unscoped rule falls back
+    // to the union of all lifecycle states.
+    const scope = rule.entityId !== undefined ? (statesByEntity.get(rule.entityId) ?? new Set<string>()) : allStates;
+    if (!scope.has(rule.stateName)) {
+      const where = rule.entityId !== undefined ? `object ${rule.entityId}` : "any lifecycle";
+      reasons.push(`rule ${rule.id} names state "${rule.stateName}" that ${where} does not have`);
     }
   }
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };

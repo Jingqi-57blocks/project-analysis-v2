@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { lineRef, type SourceRef } from "../../../engine/contracts/shared-fact/provenance.js";
+import { SECTION_CATALOG } from "../../../engine/contracts/report/catalog.js";
 import {
   MODULE_FLOWS_BLOCK,
   MODULE_RECOVERY_BLOCK,
   PM_FLOWS_AUTHORED_BLOCKS,
   type ConditionRecord,
+  type DecisionRecord,
   type EntityRecord,
   type ExceptionRecord,
   type RuleRecord,
@@ -41,6 +43,19 @@ describe("renderBranches — not only the happy path", () => {
     expect(set.branches.map((b) => b.id)).toEqual(["c1", "c2", "c3", "c4"]);
     expect(validateBranchSet(set)).toEqual({ ok: true });
   });
+
+  it("folds decision facts as conditional branches and groups branches by flow", () => {
+    const decisions: DecisionRecord[] = [
+      { id: "d1", subject: "leave.route", outcomes: ["auto-approve", "manager-review"], enclosing: "Route", citation: cite("svc/leave.go", 60) },
+    ];
+    const set = renderBranches(conditions, decisions);
+    expect(set.total).toBe(5);
+    expect(set.counts.conditional).toBe(2); // c3 + d1
+    expect(set.branches.find((b) => b.id === "d1")!.test).toBe("auto-approve | manager-review");
+    // branches are organised into flows by their enclosing scope, not a flat list
+    expect(set.flows.map((f) => f.enclosing)).toEqual(["Route", "Submit"]);
+    expect(set.flows.find((f) => f.enclosing === "Submit")!.branches.length).toBe(4);
+  });
 });
 
 const entities: EntityRecord[] = [{ entityId: "leave", name: "Leave", citation: cite("svc/leave.go", 1) }];
@@ -68,6 +83,21 @@ describe("renderLifecycle", () => {
     // the from:null transition is surfaced, not invented into a state
     expect(leave.unresolvedOrigins).toBe(1);
     expect(set.transitionCount).toBe(3);
+    expect(set.danglingTransitions).toBe(0);
+  });
+
+  it("does not count a transition for an unknown entity as rendered", () => {
+    const orphan: TransitionRecord = { entityId: "ghost", from: "A", to: "B", trigger: "Go", citation: cite("x.go", 1) };
+    const set = renderLifecycle(entities, states, [...transitions, orphan]);
+    // the orphan is not placed in any lifecycle, so it is dangling, not rendered
+    expect(set.transitionCount).toBe(3);
+    expect(set.danglingTransitions).toBe(1);
+    // accounting: printed excludes the dropped transition, so a slice of 4 is incomplete
+    const branches = renderBranches(conditions);
+    const acc = accountBehaviour(4 + set.transitionCount, branches, set, renderRules([]), renderExceptions([]));
+    // slice claims all 4 transitions but only 3 rendered → incomplete, and the drop is unresolved
+    expect(accountBehaviour(branches.total + 4, branches, set, renderRules([]), renderExceptions([])).complete).toBe(false);
+    expect(acc.unresolved).toBeGreaterThanOrEqual(set.danglingTransitions);
   });
 });
 
@@ -108,6 +138,17 @@ describe("renderRecovery — evidenced or honestly unknown", () => {
     expect(set.found).toBe(false);
     expect(set.recoveries).toHaveLength(0);
   });
+
+  it("matches recovery triggers as whole words, not substrings", () => {
+    // "undocumented" must NOT match "undo"; "cancellationPolicy" must NOT match "cancel"
+    const decoys: TransitionRecord[] = [
+      { entityId: "leave", from: "A", to: "B", trigger: "markUndocumented", citation: cite("x.go", 1) },
+      { entityId: "leave", from: "A", to: "B", trigger: "cancellationPolicyCheck", citation: cite("x.go", 2) },
+    ];
+    expect(renderRecovery(decoys).found).toBe(false);
+    // but "cancelLeave" (whole token) does match
+    expect(renderRecovery([{ entityId: "leave", from: "A", to: "B", trigger: "cancelLeave", citation: cite("x.go", 3) }]).found).toBe(true);
+  });
 });
 
 describe("accountBehaviour — every fact printed or accounted", () => {
@@ -138,6 +179,38 @@ describe("validateConsistency — rules, states and exceptions do not contradict
     const rules = renderRules([{ id: "r1", statement: "s", subject: "x", stateName: "Archived", message: null, citation: cite("a.go", 1) }]);
     const result = validateConsistency(rules, lifecycle);
     expect(result.ok).toBe(false);
+  });
+
+  it("checks a scoped rule against its own object's lifecycle, not the union", () => {
+    const twoEntities: EntityRecord[] = [...entities, { entityId: "payroll", name: "Payroll", citation: cite("svc/pay.go", 1) }];
+    const payrollStates: StateRecord[] = [{ entityId: "payroll", state: "Paid", citation: cite("const/pay.go", 1) }];
+    const lc = renderLifecycle(twoEntities, [...states, ...payrollStates], transitions);
+    // a rule about leave that cites "Paid" (a payroll state) must be flagged, though the union has it
+    const scoped = renderRules([{ id: "r1", statement: "s", subject: "x", entityId: "leave", stateName: "Paid", message: null, citation: cite("a.go", 1) }]);
+    expect(validateConsistency(scoped, lc).ok).toBe(false);
+    // the same state is fine for a rule scoped to payroll
+    const okScoped = renderRules([{ id: "r2", statement: "s", subject: "x", entityId: "payroll", stateName: "Paid", message: null, citation: cite("a.go", 2) }]);
+    expect(validateConsistency(okScoped, lc)).toEqual({ ok: true });
+  });
+});
+
+describe("renderLifecycle — duplicate entity id", () => {
+  it("de-dups a duplicated entity rather than double-rendering", () => {
+    const dup: EntityRecord = { entityId: "leave", name: "Leave copy", citation: cite("svc/leave.go", 2) };
+    const set = renderLifecycle([...entities, dup], states, transitions);
+    expect(set.entityCount).toBe(1);
+    expect(set.lifecycles.length).toBe(1);
+    expect(set.danglingTransitions).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("authored blocks agree with the section catalog", () => {
+  it("every authored block id and schema matches a catalog block", () => {
+    const catalogBlocks = new Map(SECTION_CATALOG.flatMap((s) => s.blocks).map((b) => [b.id, b.outputSchemaId]));
+    for (const block of PM_FLOWS_AUTHORED_BLOCKS) {
+      expect(catalogBlocks.has(block.blockId)).toBe(true);
+      expect(catalogBlocks.get(block.blockId)).toBe(block.outputSchemaId);
+    }
   });
 });
 
