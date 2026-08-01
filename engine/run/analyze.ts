@@ -270,7 +270,17 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       "behavior",
       () => {
         try {
-          return persistBehaviorModel(store, handle!.snapshotId, assembleBehaviorModel(behaviorInputFrom(rootFacts)).model).facts;
+          // The code index (when one was built) lets the notification-reachability
+          // deriver reverse-reach send sinks to the handlers that trigger them.
+          const behaviorOpts = {
+            rootPaths: new Map(roots.map((root) => [root.name, root.path] as const)),
+            ...(codeIndexPath === undefined ? {} : { codeIndexPath }),
+          };
+          return persistBehaviorModel(
+            store,
+            handle!.snapshotId,
+            assembleBehaviorModel(behaviorInputFrom(rootFacts, behaviorOpts)).model,
+          ).facts;
         } catch (behaviorError) {
           // The behaviour model is snapshot-level; attribute its failure to the
           // first root so the NOT NULL foreign key holds, and record why.
