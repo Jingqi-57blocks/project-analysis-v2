@@ -26,6 +26,7 @@ import type { CitedFact, SliceReaders } from "./slice-resolve.js";
 
 const BATCH_SCHEMA_VERSION = "authored-task.v12";
 const MAX_TASK_PROMPT_BYTES = 160_000;
+export const DEFAULT_AUTHORING_CONCURRENCY = 9;
 
 const DETERMINISTIC_AUTHORING_BLOCKS = new Set([
   "project-boundary.capabilities",
@@ -2238,7 +2239,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     });
     return { tasks: [task] };
   });
-  const agentResponses = await mapConcurrent(scheduledRequests, options.concurrency ?? 6, async (request) => {
+  const agentResponses = await mapConcurrent(scheduledRequests, options.concurrency ?? DEFAULT_AUTHORING_CONCURRENCY, async (request) => {
     const taskStarted = performance.now();
     const attempts: AuthoringAttemptMetric[] = [];
     const documentRequests = [request];

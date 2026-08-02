@@ -22,7 +22,7 @@ import type { AnalysisSnapshotIdentity } from "../engine/contracts/report/snapsh
 import { openKnowledgeBase } from "../engine/kb/query.js";
 import { authoredContent } from "../engine/report/authored-content.js";
 import { authoringHost, type ProseStore } from "../engine/report/authoring-host.js";
-import { prepareBatchAuthor } from "../engine/report/batch-author.js";
+import { DEFAULT_AUTHORING_CONCURRENCY, prepareBatchAuthor } from "../engine/report/batch-author.js";
 import { deterministicContent, type DecisionIndex } from "../engine/report/deterministic-content.js";
 import { produceDualReport } from "../engine/report/dual-report.js";
 import { executeAuthoredTasks } from "../engine/report/execute.js";
@@ -93,7 +93,7 @@ function parseArgs(argv: readonly string[]): Args {
   if (!["low", "medium", "high", "xhigh"].includes(classifierReasoning)) {
     throw new Error(`--classifier-reasoning must be low, medium, high or xhigh; got ${classifierReasoning}`);
   }
-  const concurrency = Number(value(argv, "--concurrency") ?? "8");
+  const concurrency = Number(value(argv, "--concurrency") ?? String(DEFAULT_AUTHORING_CONCURRENCY));
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
     throw new Error("--concurrency must be an integer from 1 to 16");
   }
