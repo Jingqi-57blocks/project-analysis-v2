@@ -1,0 +1,171 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+import { authoredTasks, type GenerationParams } from "../../engine/contracts/report/pipeline.js";
+import type { AnalysisSnapshotIdentity } from "../../engine/contracts/report/snapshot.js";
+import { moduleTarget, projectTarget } from "../../engine/contracts/report/target.js";
+import { openKnowledgeBase } from "../../engine/kb/query.js";
+import { compileExecutablePlan } from "../../engine/report/plan.js";
+import { exportProductReportSite } from "../../engine/report/site-export.js";
+import { createSliceReaders } from "../../engine/report/slice-resolve.js";
+import { membershipOf, seedStore } from "./helpers/seed-resolver-kb.js";
+
+const temporary: string[] = [];
+afterEach(() => {
+  for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
+});
+
+describe("exportProductReportSite", () => {
+  it("writes one navigable project/module site and renders explicit branch conditions", () => {
+    const store = seedStore();
+    const kb = openKnowledgeBase(store);
+    const readers = createSliceReaders(store, kb.snapshot.id, membershipOf("leave", ["handlers/leave/service.go"]));
+    const snapshot: AnalysisSnapshotIdentity = { sourceIdentity: "s", codeGraphIdentity: "s", providerIdentity: "s", schemaVersion: "1", configIdentity: "s" };
+    const params: GenerationParams = { executorKind: "test", modelId: "fake", language: "zh-CN" };
+    const executable = compileExecutablePlan({ request: [projectTarget("product"), moduleTarget("leave", "product")], snapshot, params, analysisRunId: "run" });
+    const flowTask = authoredTasks(executable.plan).find((task) => task.blockId === "module-flows-branches.flows")!;
+    const lifecycleTask = authoredTasks(executable.plan).find((task) => task.blockId === "module-flows-branches.lifecycle")!;
+    const issueTask = authoredTasks(executable.plan).find((task) => task.blockId === "known-issues.impact" && task.documentId.includes("module:leave"))!;
+    const issueFact = {
+      factId: "semantic|source-excerpt|leave-approve",
+      kind: "source-excerpt",
+      value: { label: "approve", text: "if status != pending { return error }" },
+      citation: { rootName: "r1", relPath: "handlers/leave/service.go", startLine: 10, endLine: 12, startColumn: 1, endColumn: null },
+      resolutionClass: "declared" as const,
+    };
+    const outDir = mkdtempSync(join(tmpdir(), "pa-product-site-"));
+    temporary.push(outDir);
+    const module = {
+      id: "leave",
+      sourceCandidateIds: ["leave"],
+      rawNames: ["leaves"],
+      displayName: "Leave 请假",
+      summary: "员工提交请假并由审批人处理。",
+      group: "员工自助",
+      confidence: 0.96,
+    };
+    const result = exportProductReportSite({
+      outDir,
+      kb,
+      readers,
+      plan: executable.plan,
+      proseStore: new Map([
+        [issueTask.taskId, {
+          prose: `源码审查形成一项待确认事项 [${issueFact.factId}]。`,
+          groundedFactIds: [issueFact.factId],
+          facts: [issueFact],
+        }],
+        [lifecycleTask.taskId, {
+          prose: `生命周期由当前证据形成 [${issueFact.factId}]。`,
+          groundedFactIds: [issueFact.factId],
+          facts: [issueFact],
+        }],
+      ]),
+      structuredByTask: new Map([
+        [flowTask.taskId, {
+          taskId: flowTask.taskId,
+          markdown: "",
+          issues: [],
+          flowGroups: [{
+            title: "提交与审批",
+            summary: "申请进入审批流程",
+            factIds: [],
+            steps: [
+              { label: "提交申请", detail: "填写时间与原因", factIds: [] },
+              { label: "审批处理", detail: "记录处理结果", factIds: [] },
+            ],
+            branches: [{ afterStep: 1, condition: "额度不足", outcome: "拒绝提交", kind: "rejection", factIds: [] }],
+          }],
+          lifecycles: [],
+          variantGroups: [],
+        }],
+        [lifecycleTask.taskId, {
+          taskId: lifecycleTask.taskId,
+          markdown: "",
+          flowGroups: [],
+          lifecycles: [{
+            title: "请假生命周期",
+            summary: "从提交到审批结果",
+            nodes: [
+              { id: "submit", label: "提交申请", detail: "员工提交时间与原因", kind: "start", factIds: [issueFact.factId] },
+              { id: "approved", label: "审批通过", detail: "流程进入完成状态", kind: "terminal", factIds: [issueFact.factId] },
+            ],
+            edges: [{ from: "submit", to: "approved", label: "审批人同意", kind: "normal", factIds: [issueFact.factId] }],
+          }],
+          variantGroups: [{
+            title: "时长规则",
+            summary: "不同请求受时长条件约束",
+            rules: [{ condition: "超过规定额度", outcome: "拒绝提交", factIds: [issueFact.factId] }],
+          }],
+          issues: [],
+        }],
+        [issueTask.taskId, {
+          taskId: issueTask.taskId,
+          markdown: "",
+          flowGroups: [],
+          lifecycles: [],
+          variantGroups: [],
+          issues: [{
+            title: "审批状态检查需要核对",
+            observation: "处理路径仅接受待审批状态。",
+            impact: "其他状态会在进入处理前终止。",
+            status: "needs-confirmation" as const,
+            factIds: [issueFact.factId],
+          }],
+        }],
+      ]),
+      classification: {
+        schemaVersion: "module-classification.v2",
+        sourceSnapshotId: "ident",
+        candidateSetDigest: "digest",
+        classifier: { executor: "test", model: "fake", contractVersion: "v2" },
+        candidates: [{
+          candidateId: "leave",
+          classification: "product-module",
+          confidence: 0.96,
+          reason: "entry and object evidence",
+          evidenceRefs: ["fact:module:leave"],
+          status: "classified",
+          displayName: "Leave 请假",
+          summary: module.summary,
+          group: module.group,
+          includedCandidateIds: [],
+        }],
+      },
+      boundedCandidates: [{
+        candidateId: "leave",
+        displayNameCandidates: ["leaves"],
+        memberSummary: "one file",
+        entrySummary: ["POST /leaves"],
+        relationSummary: [],
+        evidenceRefs: ["fact:module:leave"],
+        reason: "formed from entry",
+      }],
+      modules: [module],
+      selectedModules: [module],
+      projectIncluded: true,
+      language: "zh-CN",
+    });
+
+    const overview = readFileSync(join(outDir, "index.html"), "utf8");
+    const detail = readFileSync(join(outDir, "modules/leave.html"), "utf8");
+    expect(overview).toContain("全部功能模块");
+    expect(overview).toContain("Leave 请假");
+    expect(detail).toContain("提交与审批");
+    expect(detail).toContain("额度不足");
+    expect(detail).toContain("拒绝提交");
+    expect(detail).toContain("请假生命周期");
+    expect(detail).toContain("时长规则");
+    expect(detail).toContain("class=\"mermaid\"");
+    expect(detail).toContain("审批状态检查需要核对");
+    expect(detail).toContain("影响边界");
+    expect(detail).toContain("项目概览");
+    expect(result.manifest.outputFiles).toContain("assets/report.css");
+    expect(result.manifest.outputFiles).toContain("assets/mermaid.min.js");
+    expect(result.elapsedMs).toBeLessThan(5_000);
+    store.close();
+  });
+});

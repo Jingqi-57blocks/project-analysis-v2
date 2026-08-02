@@ -31,5 +31,8 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
+  },
+  "dependencies": {
+    "mermaid": "^11.16.0"
   }
 }
