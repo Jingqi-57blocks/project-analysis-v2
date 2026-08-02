@@ -43,6 +43,7 @@ export interface ProductReportSiteMetrics {
   readonly cacheHits?: number;
   readonly agentInputBytes?: number;
   readonly agentOutputBytes?: number;
+  readonly classifierNormalizations?: number;
   readonly authoredTaskCount?: number;
   readonly agentValidationRetries?: number;
   readonly slowestAuthoringTaskMs?: number;

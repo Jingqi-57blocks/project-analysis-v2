@@ -285,6 +285,7 @@ async function run(argv: readonly string[]): Promise<number> {
         cacheHits: prepared.cacheHits + (classified.reused ? 1 : 0),
         agentInputBytes: prepared.agentInputBytes + classified.classifierInputBytes,
         agentOutputBytes: prepared.agentOutputBytes + classified.classifierOutputBytes,
+        classifierNormalizations: classified.classifierNormalizations,
         authoredTaskCount: prepared.taskMetrics.length,
         agentValidationRetries: prepared.taskMetrics.reduce(
           (total, task) => total + task.attempts.filter((attempt) => attempt.outcome === "validation-failed").length,
@@ -300,6 +301,7 @@ async function run(argv: readonly string[]): Promise<number> {
       request,
       classification: {
         reused: classified.reused,
+        normalizations: classified.classifierNormalizations,
         diagnostics: classified.diagnostics,
         productModules: modules,
         unresolved: classified.artifact.candidates.filter((candidate) => candidate.status === "unresolved").map((candidate) => candidate.candidateId),

@@ -22,7 +22,7 @@ import {
 } from "./slice-resolve.js";
 import { moduleScope } from "../contracts/report/target.js";
 
-const CLASSIFIER_CONTRACT_VERSION = "report-module-classifier.v6";
+const CLASSIFIER_CONTRACT_VERSION = "report-module-classifier.v7";
 const MAX_CLASSIFIER_PROMPT_BYTES = 120_000;
 
 function unique(values: Iterable<string>, cap: number): readonly string[] {
@@ -172,6 +172,7 @@ export interface ReportModuleClassification extends ClassifyOutcome {
   readonly classifierCalls: number;
   readonly classifierInputBytes: number;
   readonly classifierOutputBytes: number;
+  readonly classifierNormalizations: number;
 }
 
 export async function classifyReportModules(options: ClassifyReportModulesOptions): Promise<ReportModuleClassification> {
@@ -182,6 +183,7 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
   let classifierCalls = 0;
   let classifierInputBytes = 0;
   let classifierOutputBytes = 0;
+  let classifierNormalizations = 0;
   const classifier: ClassifierIdentity = {
     executor: options.agent.executor,
     // Reader-facing names and summaries are part of the classification output,
@@ -220,10 +222,21 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
         classifierOutputBytes += Buffer.byteLength(JSON.stringify(response), "utf8");
         const foreign = response.candidates.filter((candidate) => !moduleIds.has(candidate.candidateId));
         if (foreign.length > 0) throw new Error(`module classifier returned non-module candidate(s): ${foreign.map((candidate) => candidate.candidateId).join(", ")}`);
-        const current = response.candidates.map((candidate): ClassifiedCandidate => ({
-          ...candidate,
-          status: candidate.classification === "unresolved" ? "unresolved" : "classified",
-        }));
+        const judgedById = new Map(judged.map((candidate) => [candidate.candidateId, candidate] as const));
+        const current = response.candidates.map((candidate): ClassifiedCandidate => {
+          const inputCandidate = judgedById.get(candidate.candidateId);
+          const allowed = new Set(inputCandidate?.evidenceRefs ?? []);
+          let evidenceRefs = candidate.evidenceRefs.filter((ref) => allowed.has(ref));
+          if (candidate.classification !== "unresolved" && evidenceRefs.length === 0 && inputCandidate?.evidenceRefs[0] !== undefined) {
+            evidenceRefs = [inputCandidate.evidenceRefs[0]];
+            classifierNormalizations += 1;
+          }
+          return {
+            ...candidate,
+            evidenceRefs,
+            status: candidate.classification === "unresolved" ? "unresolved" : "classified",
+          };
+        });
         if (current.some((candidate) => candidate.classification === "product-module")) {
           classifiedModules = current;
           break;
@@ -254,7 +267,7 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
       return [...classifiedModules, ...fixed];
     },
   });
-  return { ...outcome, input, boundedCandidates, classifierCalls, classifierInputBytes, classifierOutputBytes };
+  return { ...outcome, input, boundedCandidates, classifierCalls, classifierInputBytes, classifierOutputBytes, classifierNormalizations };
 }
 
 export interface ReportModule {
