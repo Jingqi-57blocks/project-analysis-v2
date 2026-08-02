@@ -223,7 +223,7 @@ describe("prepareBatchAuthor", () => {
     const agentTaskCount = first.taskMetrics.filter((task) => task.mode === "agent").length;
 
     expect(first.structuredByTask.size).toBeGreaterThan(0);
-    expect([...first.structuredByTask.values()].some((artifact) => artifact.issues.length > 0)).toBe(true);
+    expect(first.taskMetrics.some((task) => task.blockId === "known-issues.impact" && task.mode === "deterministic")).toBe(true);
     expect(first.agentCalls).toBe(agentTaskCount + 2);
     expect(first.taskMetrics).toHaveLength(first.structuredByTask.size);
     expect(first.taskMetrics.every((task) => !task.cacheHit)).toBe(true);
@@ -251,7 +251,6 @@ describe("prepareBatchAuthor", () => {
     expect(startedBlockIds).toEqual([
       "module-flows-branches.lifecycle",
       "module-flows-branches.flows",
-      "known-issues.impact",
     ]);
     expect(repairCalls).toBe(1);
     expect(lifecycleRepairCalls).toBe(1);

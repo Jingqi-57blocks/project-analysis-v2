@@ -35,6 +35,7 @@ const DETERMINISTIC_AUTHORING_BLOCKS = new Set([
   "module-objects-rules-states.notes",
   "module-recovery.notes",
   "module-notifications-data.notes",
+  "known-issues.impact",
 ]);
 
 function promptPolicyVersion(blockId: string): string {
@@ -1925,6 +1926,7 @@ function deterministicTask(request: AuthoringRequest, language: string): AgentTa
     "module-objects-rules-states.notes": "本模块的对象、状态、规则和校验边界均来自当前事实切片；未建立的关系不作推断。",
     "module-recovery.notes": "当前切片包含与状态变化或流程中止条件相关的证据；撤回、取消、重试或恢复只按已证明的行为呈现。",
     "module-notifications-data.notes": "本模块的数据访问、外部调用和通知触点按源码事实汇总；静态源码不证明运行环境实际启用。",
+    "known-issues.impact": "问题与待确认事项仅来自当前切片中的分析记录和可引用证据；未形成问题记录不表示运行环境已被证明没有问题。",
   };
   const english: Readonly<Record<string, string>> = {
     "project-boundary.capabilities": "The project capability boundary is formed from evidenced modules, features, entries, and user-interface facts; unresolved material is not promoted into a capability.",
@@ -1933,6 +1935,7 @@ function deterministicTask(request: AuthoringRequest, language: string): AgentTa
     "module-objects-rules-states.notes": "The module's objects, states, rules, and validation boundaries come from the current fact slice; missing relationships are not inferred.",
     "module-recovery.notes": "The current slice contains evidence related to state changes or interrupted flows; withdrawal, cancellation, retry, and recovery appear only where evidenced.",
     "module-notifications-data.notes": "The module's data access, outbound calls, and notification touchpoints are summarized from source facts; static source does not prove runtime enablement.",
+    "known-issues.impact": "Problems and items needing confirmation come only from analysis records and cited evidence in the current slice; an empty problem set does not prove that the runtime is problem-free.",
   };
   const text = (zh ? chinese : english)[request.blockId];
   if (text === undefined) throw new Error(`no deterministic authored text for ${request.blockId}`);
