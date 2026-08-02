@@ -103,12 +103,14 @@ describe("prepareBatchAuthor", () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "pa-batch-author-"));
     temporary.push(cacheDir);
     let calls = 0;
+    const startedBlockIds: string[] = [];
     let expectedLifecycleRepairIds: readonly string[] = [];
     const runner = async (agentRequest: { prompt: string }) => {
       calls += 1;
       const taskJson = agentRequest.prompt.split("Tasks:\n").at(-1)!.split("\n\nShared bounded fact table:")[0]!;
       const tasks = JSON.parse(taskJson) as { taskId: string; blockId: string; structuredFlowRequired: boolean; structuredLifecycleRequired: boolean; structuredIssueReview: boolean; factIds: string[] }[];
       expect(tasks).toHaveLength(1);
+      startedBlockIds.push(tasks[0]!.blockId);
       return {
         tasks: tasks.map((task) => {
           const ids = task.factIds;
@@ -246,6 +248,11 @@ describe("prepareBatchAuthor", () => {
     expect(second.taskMetrics.filter((task) => task.mode === "agent").every((task) => task.cacheHit && task.attempts.length === 0)).toBe(true);
     expect(second.taskMetrics.filter((task) => task.mode === "deterministic").every((task) => !task.cacheHit && task.attempts.length === 0)).toBe(true);
     expect(calls).toBe(agentTaskCount);
+    expect(startedBlockIds).toEqual([
+      "module-flows-branches.lifecycle",
+      "module-flows-branches.flows",
+      "known-issues.impact",
+    ]);
     expect(repairCalls).toBe(1);
     expect(lifecycleRepairCalls).toBe(1);
     store.close();

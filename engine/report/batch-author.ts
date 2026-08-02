@@ -2207,6 +2207,13 @@ async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, wor
   return results;
 }
 
+function authoringSchedulePriority(request: AuthoringRequest): number {
+  if (request.blockId === "module-flows-branches.lifecycle") return 0;
+  if (request.blockId === "module-flows-branches.flows" || request.blockId === "project-roles-flows.paths") return 1;
+  if (request.blockId === "known-issues.impact") return 2;
+  return 3;
+}
+
 /** Prepare independently cached section prose, then hand it to the synchronous host seam. */
 export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Promise<BatchAuthorPreparation> {
   const requests = buildAuthoringRequests(options.plan, options.readers, options.decisions, options.contractsByBlockId);
@@ -2217,6 +2224,8 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     promptForDocument(request.documentId, [request], options.contractsByBlockId, options.language, null),
   ] as const));
   const scheduledRequests = [...agentRequests].sort((a, b) => {
+    const priorityDifference = authoringSchedulePriority(a) - authoringSchedulePriority(b);
+    if (priorityDifference !== 0) return priorityDifference;
     const sizeDifference = Buffer.byteLength(initialPromptByTask.get(b.taskId)!, "utf8")
       - Buffer.byteLength(initialPromptByTask.get(a.taskId)!, "utf8");
     return sizeDifference === 0 ? a.taskId.localeCompare(b.taskId) : sizeDifference;
