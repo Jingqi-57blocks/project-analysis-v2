@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createGinReader } from "../../engine/providers/frameworkroutes/readers/gin.js";
 import { createExpressReader } from "../../engine/providers/frameworkroutes/readers/express.js";
+import { createVueRouterReader } from "../../engine/providers/frameworkroutes/readers/vuerouter.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { joinRoutePath } from "../../engine/providers/frameworkroutes/readers/types.js";
 import { sharedIndexRoot } from "../../engine/providers/codegraph/cli.js";
@@ -361,6 +362,96 @@ app.listen(3000);
   it("does not detect a node project without express", () => {
     write("package.json", JSON.stringify({ dependencies: { vue: "^3.0.0" } }));
     expect(createExpressReader().detect(root(["package.json"]))).toBe(false);
+  });
+});
+
+const VUE_PACKAGE_JSON = JSON.stringify({ dependencies: { "vue-router": "^4.0.0" } });
+
+describe("vue-router reader", () => {
+  it("reads the createRouter table as client routes with their component", () => {
+    // Verbatim shape from the real target's src/router/index.js.
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.js",
+      `import { createRouter, createWebHistory } from 'vue-router'
+import HomeView from '../views/HomeView.vue'
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    { path: '/', name: 'home', component: HomeView, meta: { title: 'Home' } },
+    { path: '/product/:id', name: 'product', component: () => import('../views/ProductView.vue') },
+    { path: '/checkout', name: 'checkout', component: () => import('../views/CheckoutView.vue') },
+  ],
+})
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.js"]));
+
+    expect(reading.routes.map((r) => r.path).sort()).toEqual(["/", "/checkout", "/product/:id"]);
+    expect(reading.routes.every((r) => r.surface === "client" && r.method === null)).toBe(true);
+    expect(reading.routes.find((r) => r.path === "/")!.handlerName).toBe("HomeView");
+    // A lazily imported component names no symbol here.
+    expect(reading.routes.find((r) => r.path === "/product/:id")!.handlerName).toBeNull();
+    expect(reading.failures).toEqual([]);
+  });
+
+  it("composes nested children under the parent path", () => {
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.ts",
+      `import { createRouter } from 'vue-router'
+const router = createRouter({
+  routes: [
+    { path: '/user', component: UserLayout, children: [
+      { path: 'profile', component: Profile },
+      { path: 'settings', component: Settings },
+    ] },
+  ],
+})
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.ts"]));
+    expect(reading.routes.map((r) => r.path).sort()).toEqual([
+      "/user",
+      "/user/profile",
+      "/user/settings",
+    ]);
+  });
+
+  it("records a runtime-assembled path as a failure, never a guess", () => {
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.js",
+      `import { createRouter } from 'vue-router'
+const base = '/x'
+const router = createRouter({ routes: [ { path: base + '/y', component: C } ] })
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.js"]));
+    expect(reading.routes).toEqual([]);
+    expect(reading.failures[0]!.reason).toContain("string literal");
+  });
+
+  it("does not read a plain object that merely has a path key", () => {
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.js",
+      `import { createRouter } from 'vue-router'
+const fileConfig = { path: '/some/asset/path' }
+const router = createRouter({ routes: [ { path: '/home', component: Home } ] })
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.js"]));
+    expect(reading.routes.map((r) => r.path)).toEqual(["/home"]);
+  });
+
+  it("does not detect a node project without vue-router", () => {
+    write("package.json", JSON.stringify({ dependencies: { react: "^18.0.0" } }));
+    expect(createVueRouterReader().detect(root(["package.json"]))).toBe(false);
   });
 });
 
