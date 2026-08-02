@@ -1795,7 +1795,10 @@ function onlyMissingLifecycleRules(
     return false;
   }
   const byId = new Map(boundedFactsFor(request).map((fact) => [fact.factId, fact] as const));
-  return missingFactIds.length > 0 && missingFactIds.every((factId) => LIFECYCLE_RULE_REPAIR_KINDS.has(byId.get(factId)?.kind ?? ""));
+  return missingFactIds.length > 0 && missingFactIds.every((factId) => {
+    const fact = byId.get(factId);
+    return fact !== undefined && (LIFECYCLE_RULE_REPAIR_KINDS.has(fact.kind) || lifecycleTransitionEvidence(fact));
+  });
 }
 
 function lifecycleRuleRepairPrompt(

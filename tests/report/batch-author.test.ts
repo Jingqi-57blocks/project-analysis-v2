@@ -56,6 +56,15 @@ describe("prepareBatchAuthor", () => {
         payload: { subject: name, text: `${name} chooses an outcome` },
       });
     }
+    store.run(
+      "INSERT INTO evidence_items (snapshot_id, source_root_id, kind, item_key, text, label, symbol_id, rel_path, start_line, start_column, resolution_class, confidence, end_line) VALUES (?, 1, 'source-excerpt', ?, ?, 'approvalAccess', NULL, ?, 200, 1, 'declared', NULL, 206)",
+      [
+        SNAPSHOT_ID,
+        "r1|source-excerpt|handlers/leave/service.go|200|1|approvalAccess",
+        "if isAdmin || isHr { status = WaitingApproval } else if isProjectManager { status = WaitingProjectReview } else { return forbidden }",
+        relPath,
+      ],
+    );
     const flowPayload = (featureId: string, featureName: string, entryKey: string, line: number) => ({
       featureId,
       featureName,
@@ -94,6 +103,7 @@ describe("prepareBatchAuthor", () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "pa-batch-author-"));
     temporary.push(cacheDir);
     let calls = 0;
+    let expectedLifecycleRepairIds: readonly string[] = [];
     const runner = async (agentRequest: { prompt: string }) => {
       calls += 1;
       const taskJson = agentRequest.prompt.split("Tasks:\n").at(-1)!.split("\n\nShared bounded fact table:")[0]!;
@@ -102,8 +112,12 @@ describe("prepareBatchAuthor", () => {
       return {
         tasks: tasks.map((task) => {
           const ids = task.factIds;
+          const lifecycleRepairIds = task.structuredLifecycleRequired
+            ? ids.filter((id) => id === secondaryDecisionId || id.includes("approvalAccess"))
+            : [];
+          if (task.structuredLifecycleRequired) expectedLifecycleRepairIds = lifecycleRepairIds;
           const first = ids[0]!;
-          const lifecycleFirst = ids.find((id) => id !== secondaryDecisionId) ?? first;
+          const lifecycleFirst = ids.find((id) => !lifecycleRepairIds.includes(id)) ?? first;
           const nearbyDecision = ids.find((id) => id.includes("primaryDecision")) ?? first;
           const coreFlow = ids.find((id) => id.includes("flow-leave")) ?? first;
           const jiraPostFlow = ids.find((id) => id.includes("flow-jira-post"));
@@ -137,7 +151,7 @@ describe("prepareBatchAuthor", () => {
               title: "业务生命周期",
               summary: "从进入到处理完成",
               nodes: [
-                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [...ids.filter((id) => id !== secondaryDecisionId), foreign] },
+                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [...ids.filter((id) => !lifecycleRepairIds.includes(id)), foreign] },
                 { id: "done", label: "完成", detail: "处理结束", kind: "terminal" as const, factIds: [lifecycleFirst] },
               ],
               edges: [{ from: "start", to: "done", label: "通过校验", kind: "normal" as const, factIds: [lifecycleFirst] }],
@@ -161,14 +175,17 @@ describe("prepareBatchAuthor", () => {
     let lifecycleRepairCalls = 0;
     const lifecycleRepairRunner = async (agentRequest: { prompt: string }) => {
       lifecycleRepairCalls += 1;
-      expect(agentRequest.prompt).toContain(secondaryDecisionId);
-      expect(agentRequest.prompt).toContain(`\"factId\":\"${secondaryDecisionId}\"`);
+      expect(expectedLifecycleRepairIds).toHaveLength(2);
+      for (const factId of expectedLifecycleRepairIds) {
+        expect(agentRequest.prompt).toContain(factId);
+        expect(agentRequest.prompt).toContain(`\"factId\":\"${factId}\"`);
+      }
       return {
-        rules: [{
-          condition: "触发次级决策",
-          outcome: "进入对应处理结果",
-          factIds: [`[${secondaryDecisionId}] «evidence copied from the prompt»`],
-        }],
+        rules: expectedLifecycleRepairIds.map((factId) => ({
+          condition: factId.includes("approvalAccess") ? "角色和审批状态匹配" : "触发次级决策",
+          outcome: factId.includes("approvalAccess") ? "允许查看对应审批记录" : "进入对应处理结果",
+          factIds: [`[${factId}] «evidence copied from the prompt»`],
+        })),
       };
     };
     let repairCalls = 0;
