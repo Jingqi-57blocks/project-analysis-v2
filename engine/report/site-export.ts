@@ -160,6 +160,7 @@ function readableRole(value: string): string {
     promotionmanager: "晋升经理",
     promotionapplier: "晋升申请人",
     promotionlead: "晋升负责人",
+    promotionleader: "晋升负责人",
     promotionpeer: "晋升同级评审人",
     client: "客户",
     systemadmin: "系统管理员",
