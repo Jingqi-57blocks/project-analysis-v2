@@ -12,6 +12,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 
 import type { ReportPlan } from "../contracts/report/pipeline.js";
 import { stableStringify } from "../contracts/shared-fact/merge.js";
@@ -23,12 +24,23 @@ import type { DecisionIndex } from "./deterministic-content.js";
 import { validateGrounding } from "./grounding.js";
 import type { CitedFact, SliceReaders } from "./slice-resolve.js";
 
-const BATCH_SCHEMA_VERSION = "authored-task.v10";
+const BATCH_SCHEMA_VERSION = "authored-task.v12";
 const MAX_TASK_PROMPT_BYTES = 160_000;
+export const DEFAULT_AUTHORING_CONCURRENCY = 8;
+
+const DETERMINISTIC_AUTHORING_BLOCKS = new Set([
+  "project-boundary.capabilities",
+  "project-objects-lifecycle.rules",
+  "module-responsibility.summary",
+  "module-objects-rules-states.notes",
+  "module-recovery.notes",
+  "module-notifications-data.notes",
+  "known-issues.impact",
+]);
 
 function promptPolicyVersion(blockId: string): string {
-  if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v6";
-  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v5";
+  if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v7";
+  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v7";
   if (blockId === "known-issues.impact") return "issue-policy.v4";
   return "base-policy.v1";
 }
@@ -180,7 +192,7 @@ const BATCH_SCHEMA: Readonly<Record<string, unknown>> = {
                 },
                 branches: {
                   type: "array",
-                  maxItems: 10,
+                  maxItems: 12,
                   items: {
                     type: "object",
                     additionalProperties: false,
@@ -288,6 +300,72 @@ const BATCH_SCHEMA: Readonly<Record<string, unknown>> = {
               },
             },
           },
+        },
+      },
+    },
+  },
+};
+
+interface FlowBranchRepair {
+  readonly flowGroupIndex: number;
+  readonly afterStep: number;
+  readonly condition: string;
+  readonly outcome: string;
+  readonly kind: StructuredFlowBranch["kind"];
+  readonly factIds: readonly string[];
+}
+
+interface FlowBranchRepairResponse {
+  readonly branches: readonly FlowBranchRepair[];
+}
+
+const FLOW_BRANCH_REPAIR_SCHEMA: Readonly<Record<string, unknown>> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["branches"],
+  properties: {
+    branches: {
+      type: "array",
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["flowGroupIndex", "afterStep", "condition", "outcome", "kind", "factIds"],
+        properties: {
+          flowGroupIndex: { type: "integer", minimum: 0 },
+          afterStep: { type: "integer", minimum: 1 },
+          condition: { type: "string" },
+          outcome: { type: "string" },
+          kind: { type: "string", enum: ["success", "rejection", "conditional", "exception", "unknown"] },
+          factIds: { type: "array", minItems: 1, items: { type: "string" } },
+        },
+      },
+    },
+  },
+};
+
+interface LifecycleRuleRepairResponse {
+  readonly rules: readonly StructuredVariantRule[];
+}
+
+const LIFECYCLE_RULE_REPAIR_SCHEMA: Readonly<Record<string, unknown>> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["rules"],
+  properties: {
+    rules: {
+      type: "array",
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["condition", "outcome", "factIds"],
+        properties: {
+          condition: { type: "string" },
+          outcome: { type: "string" },
+          factIds: { type: "array", minItems: 1, items: { type: "string" } },
         },
       },
     },
@@ -670,7 +748,9 @@ function lifecycleApprovalStageEvidence(fact: CitedFact): boolean {
 function lifecycleTransitionEvidence(fact: CitedFact): boolean {
   if (fact.kind !== "source-excerpt") return false;
   const text = `${sourceLabel(fact)} ${sourceText(fact)}`;
-  return /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)|(?:\.|\b)(?:status|state)\s*=|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
+  const explicitWrite = /(?:\.|\b)(?:status|state)\s*=|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
+  if (frontendComponentSource(fact)) return explicitWrite;
+  return explicitWrite || /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)/i.test(text);
 }
 
 function frontendComponentSource(fact: CitedFact): boolean {
@@ -1207,6 +1287,29 @@ function lifecycleTask(request: AuthoringRequest): boolean {
   return request.blockId === "module-flows-branches.lifecycle";
 }
 
+const LIFECYCLE_REQUIRED_KINDS = new Set([
+  "scheduled-task",
+  "state",
+  "state-transition",
+  "value-set",
+  "condition",
+  "decision",
+  "guard",
+  "business-rule",
+  "validation-rule",
+  "notification-call",
+]);
+
+function requiredLifecycleFactIds(request: AuthoringRequest): readonly string[] {
+  return boundedFactsFor(request)
+    .filter((fact) => LIFECYCLE_REQUIRED_KINDS.has(fact.kind) || lifecycleChannelEvidence(fact) || lifecycleTransitionEvidence(fact))
+    .map((fact) => fact.factId);
+}
+
+function requiredFlowBranchFactIds(request: AuthoringRequest): readonly string[] {
+  return boundedFactsFor(request).filter(materialFlowBranchEvidence).map((fact) => fact.factId);
+}
+
 function authorFactLine(fact: CitedFact, blockId?: string): string {
   if (fact.kind === "source-excerpt") {
     return citedFactLine(fact, blockId === "module-flows-branches.lifecycle" ? 5_200 : 7_200);
@@ -1268,6 +1371,8 @@ function promptForDocument(
       structuredLifecycleRequired: lifecycleTask(request),
       structuredIssueReview: request.blockId === "known-issues.impact",
       factIds: facts.map((fact) => fact.factId),
+      ...(flowTask(request) ? { mustPlaceInFlowBranches: requiredFlowBranchFactIds(request) } : {}),
+      ...(lifecycleTask(request) ? { mustPlaceInLifecycleOrVariant: requiredLifecycleFactIds(request) } : {}),
     };
   });
   return [
@@ -1277,7 +1382,7 @@ function promptForDocument(
     "Keep each claim to one compact business statement. Avoid backticks and guillemets unless preserving an exact source token; when you preserve one, its exact text must occur in one of that claim's factIds.",
     "Raw fact inventories belong to deterministic rendering. Do not add a claim merely to repeat identifiers, file paths or endpoint lists.",
     "Facts are listed once in a shared fact table. Each task may use only its factIds from that table; do not use another task's facts.",
-    "For a structuredFlowRequired task, group all supplied feature-flow facts into 3-8 major business flows. Put every feature-flow factId in at least one flow group's factIds. Facts with reportScopeRole=core define the module's main business flows. Preserve materially different business variants as separate flows when their steps or rules differ; do not collapse all request types into one generic create flow. Do not promote generic lookups, thumbnails, calculations, shared AI helpers or other reportScopeRole=supporting facts into separate module responsibilities: combine those into at most one final supporting-capabilities group. A supporting surface with a coherent user-visible outcome, such as time-clock records, credential management or connector configuration, is a distinct major flow; do not merge unrelated coherent surfaces into a generic supporting group. Use 2-6 steps per group. Use branches for success, rejection, conditional, exception or unknown outcomes, but return no more than 10 branch rows per group: merge related field validations or equivalent status outcomes into one reader-facing branch and attach all supporting factIds to it. A flow that contains a rejection or exception branch must also contain an explicit success branch whenever the supplied flow reaches a normal result; never present a normal create/submit operation as if every outcome were rejection. Set afterStep to the one-based step after which this reader-visible branch occurs. Translate raw user-facing errors into concise business language; preserve an English token only when it materially identifies a state or rule. Put every supplied guard and decision factId in at least one branch's factIds; enum formatting, notification routing and empty-subject technical decisions were removed before this task. Each step and branch must cite only factIds from that task. For other tasks, flowGroups must be empty.",
+    "For a structuredFlowRequired task, group all supplied feature-flow facts into 3-8 major business flows. Put every feature-flow factId in at least one flow group's factIds. Facts with reportScopeRole=core define the module's main business flows. Preserve materially different business variants as separate flows when their steps or rules differ; do not collapse all request types into one generic create flow. Do not promote generic lookups, thumbnails, calculations, shared AI helpers or other reportScopeRole=supporting facts into separate module responsibilities: combine those into at most one final supporting-capabilities group. A supporting surface with a coherent user-visible outcome, such as time-clock records, credential management or connector configuration, is a distinct major flow; do not merge unrelated coherent surfaces into a generic supporting group. Use 2-6 steps per group. Use branches for success, rejection, conditional, exception or unknown outcomes, but return no more than 12 branch rows per group: merge related field validations or equivalent status outcomes into one reader-facing branch and attach all supporting factIds to it. A flow that contains a rejection or exception branch must also contain an explicit success branch whenever the supplied flow reaches a normal result; never present a normal create/submit operation as if every outcome were rejection. Set afterStep to the one-based step after which this reader-visible branch occurs. Translate raw user-facing errors into concise business language; preserve an English token only when it materially identifies a state or rule. Put every supplied guard and decision factId in at least one branch's factIds; enum formatting, notification routing and empty-subject technical decisions were removed before this task. Each step and branch must cite only factIds from that task. For other tasks, flowGroups must be empty.",
     "For a structuredLifecycleRequired task, return 1-3 lifecycles and the complete material variantGroups supported by the supplied bounded facts. The first lifecycle must be the primary end-to-end user journey, not an endpoint list: combine the user's entry, type or option selection, type-specific validation, successful submission, approval or processing stages, successful and rejected terminal outcomes, evidenced notifications, and scheduled completion in one connected lifecycle. Put type-specific detail in variantGroups but keep the selection and validation decision visible in the primary lifecycle. Use a secondary lifecycle only for an evidenced cancel, withdraw, delete or recovery path; never create a lifecycle for a caller-unresolved entry. Give every node a short stable id, business label, detail and factIds; every edge must reference two node ids from that lifecycle, state the triggering condition or action, classify the edge, and cite factIds. Do not infer a missing origin, status, notification channel or outcome: use an unknown node or edge. Connect each evidenced email, mobile-push, chat or other notification to the lifecycle action that triggers it; when a source excerpt constructs both an email component and a mobile-push component, name both channels in the lifecycle. Do not name Slack or any channel absent from the supplied facts. Every numeric threshold that changes the approval or processing stage must be rendered as its own lifecycle edge with the exact threshold, even when the same fact also appears in a variant rule. If a source excerpt writes a named approval stage or state, use that evidenced stage instead of an unknown next stage. In variantGroups, preserve distinct type-, role-, duration-, date-, balance-, attachment- and threshold-dependent rules. Combine equivalent duplicate facts into one reader-facing rule and attach all of their factIds, but never replace a concrete number or condition with generic 'validation'. Every supplied scheduled-task, state, state-transition, value-set, condition, decision, guard, business-rule, validation-rule, notification-call, concrete-channel source-excerpt and state-write source-excerpt factId must appear in at least one lifecycle node/edge or variant rule. For other tasks, lifecycles and variantGroups must both be empty.",
     "For a structuredIssueReview task, return 0-8 concise issues in issues. Use status=confirmed only for an explicit contradiction, discarded failure, unreachable outcome, inconsistent handling, a complete function excerpt that performs an ID-addressed read/write without relating the record to the current actor before returning or mutating it, a write that replaces ownership from the request without first proving the actor may change that record, or a raw SQL statement that directly interpolates actor/request values. Use needs-confirmation when an excerpt is chunked, enforcement may be delegated to an omitted callee/middleware, a missing state transition is inferred from an incomplete write inventory, or the evidence only suggests a missing control. Compare related functions when the supplied evidence shows two paths implementing the same rule differently, especially role checks, boundary values, project/owner relationships, transactions and list/export filters. Each issue must state the observed code behaviour and a bounded user/business impact, cite only supplied factIds, and contain no fix or priority. Prefer module-owned excerpts over generic supporting helpers when both are supplied. For other tasks, issues must be empty.",
     correction === null ? "" : `The previous response was invalid. Correct these problems:\n${correction}`,
@@ -1307,26 +1412,542 @@ function idsInVariants(groups: readonly StructuredVariantGroup[]): readonly stri
   return groups.flatMap((group) => group.rules.flatMap((rule) => rule.factIds));
 }
 
+interface MutablePlacementTarget {
+  readonly label: string;
+  readonly text: string;
+  readonly factIds: string[];
+}
+
+interface CitationHint {
+  readonly rootName: string;
+  readonly relPath: string;
+  readonly startLine: number | null;
+  readonly endLine: number | null;
+}
+
+function citationHintForId(factId: string): CitationHint | null {
+  const parts = factId.split("|");
+  if (parts[0] !== "behavioral" || parts.length < 5) return null;
+  const startLine = Number(parts[4]);
+  if (!Number.isInteger(startLine) || startLine < 1) return null;
+  return { rootName: parts[2]!, relPath: parts[3]!, startLine, endLine: startLine };
+}
+
+function citationOf(fact: CitedFact): CitationHint {
+  return {
+    rootName: fact.citation.rootName,
+    relPath: fact.citation.relPath,
+    startLine: fact.citation.startLine,
+    endLine: fact.citation.endLine,
+  };
+}
+
+function citationContains(container: CitationHint, nested: CitationHint): boolean {
+  if (container.rootName !== nested.rootName || container.relPath !== nested.relPath) return false;
+  if (container.startLine === null || nested.startLine === null) return false;
+  const containerEnd = container.endLine ?? container.startLine;
+  const nestedEnd = nested.endLine ?? nested.startLine;
+  return container.startLine <= nested.startLine && containerEnd >= nestedEnd;
+}
+
+function citationDistance(left: CitationHint, right: CitationHint): number | null {
+  if (left.rootName !== right.rootName || left.relPath !== right.relPath) return null;
+  if (left.startLine === null || right.startLine === null) return null;
+  const leftEnd = left.endLine ?? left.startLine;
+  const rightEnd = right.endLine ?? right.startLine;
+  if (left.startLine <= rightEnd && right.startLine <= leftEnd) return 0;
+  return leftEnd < right.startLine ? right.startLine - leftEnd : left.startLine - rightEnd;
+}
+
+function significantTokens(value: string): ReadonlySet<string> {
+  const stop = new Set([
+    "and", "const", "else", "error", "false", "function", "len", "null", "required", "return", "string", "true", "undefined",
+  ]);
+  return new Set((value.match(/[A-Za-z][A-Za-z0-9_-]{2,}|\d+(?:\.\d+)?/g) ?? [])
+    .map((token) => token.toLowerCase())
+    .filter((token) => !stop.has(token)));
+}
+
+function factPlacementText(fact: CitedFact): string {
+  const value = factObject(fact);
+  return [
+    sourceLabel(fact),
+    value.subject,
+    value.field,
+    value.literal,
+    value.value,
+    value.test,
+    value.fullTest,
+    value.text,
+    value.statement,
+    value.message,
+    value.guarded,
+  ].map((entry) => typeof entry === "string" || typeof entry === "number" ? String(entry) : "").join(" ");
+}
+
+function placeRequiredFact(
+  fact: CitedFact,
+  targets: readonly MutablePlacementTarget[],
+  allowedById: ReadonlyMap<string, CitedFact>,
+): MutablePlacementTarget | null {
+  const factTokens = significantTokens(factPlacementText(fact));
+  const scored = targets.map((target) => {
+    let nearbySameKind = Number.POSITIVE_INFINITY;
+    const sharesCitation = target.factIds.some((id) => {
+      const placed = allowedById.get(id);
+      if (placed === undefined) return false;
+      if (placed.kind === fact.kind) {
+        nearbySameKind = Math.min(nearbySameKind, citationDistance(citationOf(placed), citationOf(fact)) ?? Number.POSITIVE_INFINITY);
+      }
+      return citationContains(citationOf(placed), citationOf(fact)) || citationContains(citationOf(fact), citationOf(placed));
+    });
+    const targetTokens = significantTokens(target.text);
+    const overlap = [...factTokens].filter((token) => targetTokens.has(token)).length;
+    return { target, sharesCitation, nearbySameKind, overlap };
+  }).sort((a, b) => Number(b.sharesCitation) - Number(a.sharesCitation) || a.nearbySameKind - b.nearbySameKind || b.overlap - a.overlap || a.target.label.localeCompare(b.target.label));
+  const best = scored[0];
+  if (best === undefined || (!best.sharesCitation && best.nearbySameKind > 20 && best.overlap < 2)) return null;
+  return best.target;
+}
+
+function normalizeAgentTask(
+  request: AuthoringRequest,
+  task: AgentTaskArtifact,
+): { readonly task: AgentTaskArtifact; readonly changes: readonly string[] } {
+  const allowedFacts = boundedFactsFor(request);
+  const allowedById = new Map(allowedFacts.map((fact) => [fact.factId, fact] as const));
+  const allById = new Map(request.facts.map((fact) => [fact.factId, fact] as const));
+  const changes: string[] = [];
+  const remap = (factIds: readonly string[]): string[] => {
+    const normalized: string[] = [];
+    for (const factId of factIds) {
+      if (allowedById.has(factId)) {
+        normalized.push(factId);
+        continue;
+      }
+      const source = allById.get(factId);
+      const hint = source === undefined ? citationHintForId(factId) : citationOf(source);
+      const candidates = hint === null ? [] : allowedFacts
+        .filter((candidate) => citationContains(citationOf(candidate), hint))
+        .sort((a, b) => {
+          const sameKind = (candidate: CitedFact) => source !== undefined && candidate.kind === source.kind ? 0 : 1;
+          const excerpt = (candidate: CitedFact) => candidate.kind === "source-excerpt" ? 0 : 1;
+          const span = (candidate: CitedFact) => (candidate.citation.endLine ?? candidate.citation.startLine ?? 0) - (candidate.citation.startLine ?? 0);
+          return sameKind(a) - sameKind(b) || excerpt(a) - excerpt(b) || span(a) - span(b) || a.factId.localeCompare(b.factId);
+        });
+      const replacement = candidates[0];
+      if (replacement === undefined) {
+        changes.push(`dropped foreign fact ${factId}`);
+      } else {
+        normalized.push(replacement.factId);
+        changes.push(`remapped foreign fact ${factId} -> ${replacement.factId}`);
+      }
+    }
+    return [...new Set(normalized)];
+  };
+
+  const placementTargets: MutablePlacementTarget[] = [];
+  const flowGroupTargets: MutablePlacementTarget[] = [];
+  const claims = task.claims.map((claim) => ({ ...claim, factIds: remap(claim.factIds) }));
+  const flowGroups = task.flowGroups.map((group, groupIndex) => {
+    const factIds = remap(group.factIds);
+    const steps = group.steps.map((step) => ({ ...step, factIds: remap(step.factIds) }));
+    const branches = group.branches.map((branch, branchIndex) => {
+      const factIds = remap(branch.factIds);
+      placementTargets.push({ label: `flow ${groupIndex + 1} branch ${branchIndex + 1}`, text: `${branch.condition} ${branch.outcome}`, factIds });
+      return { ...branch, factIds };
+    });
+    flowGroupTargets.push({
+      label: `flow group ${groupIndex + 1}`,
+      text: `${group.title} ${group.summary} ${steps.map((step) => `${step.label} ${step.detail}`).join(" ")}`,
+      factIds,
+    });
+    return { ...group, factIds, steps, branches };
+  });
+  const lifecycles = task.lifecycles.map((lifecycle, lifecycleIndex) => ({
+    ...lifecycle,
+    nodes: lifecycle.nodes.map((node, nodeIndex) => {
+      const factIds = remap(node.factIds);
+      placementTargets.push({ label: `lifecycle ${lifecycleIndex + 1} node ${nodeIndex + 1}`, text: `${node.label} ${node.detail}`, factIds });
+      return { ...node, factIds };
+    }),
+    edges: lifecycle.edges.map((edge, edgeIndex) => {
+      const factIds = remap(edge.factIds);
+      placementTargets.push({ label: `lifecycle ${lifecycleIndex + 1} edge ${edgeIndex + 1}`, text: edge.label, factIds });
+      return { ...edge, factIds };
+    }),
+  }));
+  const variantGroups = task.variantGroups.map((group, groupIndex) => ({
+    ...group,
+    rules: group.rules.map((rule, ruleIndex) => {
+      const factIds = remap(rule.factIds);
+      placementTargets.push({ label: `variant ${groupIndex + 1} rule ${ruleIndex + 1}`, text: `${rule.condition} ${rule.outcome}`, factIds });
+      return { ...rule, factIds };
+    }),
+  }));
+  const issues = task.issues.map((issue) => ({ ...issue, factIds: remap(issue.factIds) }));
+  const normalized: AgentTaskArtifact = { ...task, claims, flowGroups, lifecycles, variantGroups, issues };
+
+  const required = lifecycleTask(request)
+    ? requiredLifecycleFactIds(request)
+    : flowTask(request)
+      ? requiredFlowBranchFactIds(request)
+      : [];
+  const placed = new Set(lifecycleTask(request)
+    ? [...normalized.lifecycles.flatMap(idsInLifecycle), ...idsInVariants(normalized.variantGroups)]
+    : normalized.flowGroups.flatMap((group) => group.branches.flatMap((branch) => branch.factIds)));
+  for (const factId of required) {
+    if (placed.has(factId)) continue;
+    const fact = allowedById.get(factId)!;
+    const target = placeRequiredFact(fact, placementTargets, allowedById);
+    if (target === null) continue;
+    target.factIds.push(factId);
+    placed.add(factId);
+    changes.push(`placed required fact ${factId} on ${target.label}`);
+  }
+  if (request.blockId === "module-flows-branches.flows") {
+    const placedFlows = new Set(normalized.flowGroups.flatMap(idsInFlow));
+    const missingFlows = allowedFacts.filter((fact) => fact.kind === "feature-flow" && !placedFlows.has(fact.factId));
+    for (const fact of missingFlows) {
+      let target = placeRequiredFact(fact, flowGroupTargets, allowedById);
+      if (target === null && candidateScopeSupporting(fact)) {
+        const ranked = normalized.flowGroups.map((group, index) => {
+          const target = flowGroupTargets[index]!;
+          const explicit = /(?:support|supporting|auxiliary|shared|common|辅助|共用|共享|支撑|集成|配置)/i.test(target.text) ? 100 : 0;
+          const supportingFacts = idsInFlow(group)
+            .map((factId) => allowedById.get(factId))
+            .filter((placed): placed is CitedFact => placed !== undefined && candidateScopeSupporting(placed))
+            .length;
+          return { target, score: explicit + supportingFacts };
+        }).sort((a, b) => b.score - a.score || a.target.label.localeCompare(b.target.label));
+        if (ranked[0] !== undefined && ranked[0].score > 0 && ranked[0].score > (ranked[1]?.score ?? 0)) {
+          target = ranked[0].target;
+        }
+      }
+      if (target === null) continue;
+      target.factIds.push(fact.factId);
+      placedFlows.add(fact.factId);
+      changes.push(`placed feature flow ${fact.factId} on ${target.label}`);
+    }
+  }
+  return { task: normalized, changes: changes.slice(0, 40) };
+}
+
+function normalizeBatch(
+  requests: readonly AuthoringRequest[],
+  response: BatchResponse,
+): { readonly response: BatchResponse; readonly changes: readonly string[] } {
+  const requestById = new Map(requests.map((request) => [request.taskId, request] as const));
+  const changes: string[] = [];
+  const tasks = response.tasks.map((task) => {
+    const request = requestById.get(task.taskId);
+    if (request === undefined) return task;
+    const normalized = normalizeAgentTask(request, task);
+    changes.push(...normalized.changes);
+    return normalized.task;
+  });
+  return { response: { tasks }, changes: changes.slice(0, 40) };
+}
+
+function missingFlowBranchFactIds(request: AuthoringRequest, task: AgentTaskArtifact): readonly string[] {
+  const placed = new Set(task.flowGroups.flatMap((group) => group.branches.flatMap((branch) => branch.factIds)));
+  return requiredFlowBranchFactIds(request).filter((factId) => !placed.has(factId));
+}
+
+function onlyMissingFlowBranches(problems: readonly string[], taskId: string): boolean {
+  const prefix = `task ${taskId} omitted `;
+  return problems.length > 0 && problems.every((problem) => problem.startsWith(prefix) && problem.includes(" evidenced branch fact(s):"));
+}
+
+function flowBranchRepairPrompt(
+  request: AuthoringRequest,
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  language: string,
+): string {
+  const byId = new Map(boundedFactsFor(request).map((fact) => [fact.factId, fact] as const));
+  const groups = task.flowGroups.map((group, flowGroupIndex) => ({
+    flowGroupIndex,
+    title: group.title,
+    summary: group.summary,
+    steps: group.steps.map((step, index) => ({ step: index + 1, label: step.label, detail: step.detail })),
+    branches: group.branches.map((branch) => ({
+      afterStep: branch.afterStep,
+      condition: branch.condition,
+      outcome: branch.outcome,
+      kind: branch.kind,
+    })),
+  }));
+  return [
+    `Repair omitted branches for task ${request.taskId}. Do not rewrite the report or inspect files.`,
+    `Write concise ${language.toLowerCase().startsWith("zh") ? "Simplified Chinese" : language} for a non-technical reader.`,
+    "Return only new reader-visible branches needed to place the missing facts. Use each supplied missing factId exactly once and no other factIds. Group facts in one branch when they express one decision. Choose the semantically matching flowGroupIndex. afterStep is one-based and must point to an existing step. Keep the group at no more than 12 total branches. Preserve concrete types, states, thresholds and outcomes; do not invent an outcome absent from evidence—use kind=unknown when necessary.",
+    "Current flow groups (zero-based group indexes):",
+    JSON.stringify(groups),
+    "Missing branch facts:",
+    JSON.stringify(missingFactIds.map((factId) => ({
+      factId,
+      evidence: authorFactLine(byId.get(factId)!, request.blockId),
+    }))),
+  ].join("\n\n");
+}
+
+function normalizeFlowBranchRepair(
+  repair: FlowBranchRepairResponse,
+  missingFactIds: readonly string[],
+): { readonly repair: FlowBranchRepairResponse; readonly changes: readonly string[] } {
+  const missing = new Set(missingFactIds);
+  const changes: string[] = [];
+  const normalize = (raw: string): string => {
+    if (missing.has(raw)) return raw;
+    const matches = missingFactIds.filter((factId) => raw.includes(`[${factId}]`));
+    if (matches.length !== 1) return raw;
+    changes.push(`normalized repair fact ${raw} -> ${matches[0]}`);
+    return matches[0]!;
+  };
+  return {
+    repair: {
+      branches: repair.branches.map((branch) => ({
+        ...branch,
+        factIds: [...new Set(branch.factIds.map(normalize))],
+      })),
+    },
+    changes: changes.slice(0, 40),
+  };
+}
+
+function validateFlowBranchRepair(
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  repair: FlowBranchRepairResponse,
+): readonly string[] {
+  const problems: string[] = [];
+  const missing = new Set(missingFactIds);
+  const seen = new Set<string>();
+  for (const [index, branch] of repair.branches.entries()) {
+    const group = task.flowGroups[branch.flowGroupIndex];
+    if (group === undefined) {
+      problems.push(`repair branch ${index} names unknown flow group ${branch.flowGroupIndex}`);
+      continue;
+    }
+    if (branch.afterStep < 1 || branch.afterStep > group.steps.length) {
+      problems.push(`repair branch ${index} points to step ${branch.afterStep}, but group has ${group.steps.length} step(s)`);
+    }
+    if (branch.condition.trim() === "" || branch.outcome.trim() === "") {
+      problems.push(`repair branch ${index} has an empty condition or outcome`);
+    }
+    for (const factId of branch.factIds) {
+      if (!missing.has(factId)) problems.push(`repair branch ${index} cites non-missing fact ${factId}`);
+      if (seen.has(factId)) problems.push(`repair repeats fact ${factId}`);
+      seen.add(factId);
+    }
+  }
+  for (const factId of missingFactIds) {
+    if (!seen.has(factId)) problems.push(`repair omits fact ${factId}`);
+  }
+  for (let groupIndex = 0; groupIndex < task.flowGroups.length; groupIndex += 1) {
+    const added = repair.branches.filter((branch) => branch.flowGroupIndex === groupIndex).length;
+    if (task.flowGroups[groupIndex]!.branches.length + added > 12) {
+      problems.push(`repair takes flow group ${groupIndex} above 12 branches`);
+    }
+  }
+  return problems;
+}
+
+function applyFlowBranchRepair(task: AgentTaskArtifact, repair: FlowBranchRepairResponse): AgentTaskArtifact {
+  return {
+    ...task,
+    flowGroups: task.flowGroups.map((group, groupIndex) => ({
+      ...group,
+      branches: [
+        ...group.branches,
+        ...repair.branches
+          .filter((branch) => branch.flowGroupIndex === groupIndex)
+          .map(({ flowGroupIndex: _flowGroupIndex, ...branch }) => branch),
+      ],
+    })),
+  };
+}
+
+const LIFECYCLE_RULE_REPAIR_KINDS = new Set([
+  "business-rule",
+  "condition",
+  "decision",
+  "guard",
+  "validation-rule",
+  "value-set",
+]);
+
+function missingLifecycleFactIds(request: AuthoringRequest, task: AgentTaskArtifact): readonly string[] {
+  const placed = new Set([
+    ...task.lifecycles.flatMap(idsInLifecycle),
+    ...idsInVariants(task.variantGroups),
+  ]);
+  return requiredLifecycleFactIds(request).filter((factId) => !placed.has(factId));
+}
+
+function onlyMissingLifecycleRules(
+  request: AuthoringRequest,
+  problems: readonly string[],
+  missingFactIds: readonly string[],
+): boolean {
+  const prefix = `task ${request.taskId} omitted `;
+  if (problems.length === 0 || !problems.every((problem) => problem.startsWith(prefix) && problem.includes(" lifecycle/rule fact(s):"))) {
+    return false;
+  }
+  const byId = new Map(boundedFactsFor(request).map((fact) => [fact.factId, fact] as const));
+  return missingFactIds.length > 0 && missingFactIds.every((factId) => {
+    const fact = byId.get(factId);
+    return fact !== undefined && (LIFECYCLE_RULE_REPAIR_KINDS.has(fact.kind) || lifecycleTransitionEvidence(fact));
+  });
+}
+
+function lifecycleRuleRepairPrompt(
+  request: AuthoringRequest,
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  language: string,
+): string {
+  const byId = new Map(boundedFactsFor(request).map((fact) => [fact.factId, fact] as const));
+  const existingRules = task.variantGroups.flatMap((group) => group.rules.map((rule) => ({
+    group: group.title,
+    condition: rule.condition,
+    outcome: rule.outcome,
+  })));
+  return [
+    `Repair omitted lifecycle rules for task ${request.taskId}. Do not rewrite the report or inspect files.`,
+    `Write concise ${language.toLowerCase().startsWith("zh") ? "Simplified Chinese" : language} for a non-technical reader.`,
+    "Return only reader-visible rules needed to place the missing facts. Use each supplied missing factId exactly once and no other factIds. Group facts only when they express the same rule. Preserve concrete types, states, thresholds, required fields and outcomes. Do not invent an outcome absent from evidence; state that the outcome is not identified when necessary.",
+    "Existing rules (avoid duplicating their wording):",
+    JSON.stringify(existingRules),
+    "Missing rule facts:",
+    JSON.stringify(missingFactIds.map((factId) => ({
+      factId,
+      evidence: authorFactLine(byId.get(factId)!, request.blockId),
+    }))),
+  ].join("\n\n");
+}
+
+function normalizeLifecycleRuleRepair(
+  repair: LifecycleRuleRepairResponse,
+  missingFactIds: readonly string[],
+): { readonly repair: LifecycleRuleRepairResponse; readonly changes: readonly string[] } {
+  const missing = new Set(missingFactIds);
+  const changes: string[] = [];
+  const normalize = (raw: string): string => {
+    if (missing.has(raw)) return raw;
+    const matches = missingFactIds.filter((factId) => raw.includes(`[${factId}]`));
+    if (matches.length !== 1) return raw;
+    changes.push(`normalized lifecycle repair fact ${raw} -> ${matches[0]}`);
+    return matches[0]!;
+  };
+  return {
+    repair: {
+      rules: repair.rules.map((rule) => ({
+        ...rule,
+        factIds: [...new Set(rule.factIds.map(normalize))],
+      })),
+    },
+    changes: changes.slice(0, 40),
+  };
+}
+
+function validateLifecycleRuleRepair(
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  repair: LifecycleRuleRepairResponse,
+): readonly string[] {
+  const problems: string[] = [];
+  const missing = new Set(missingFactIds);
+  const seen = new Set<string>();
+  if (task.variantGroups.length >= 14) problems.push("lifecycle repair cannot add another variant group");
+  for (const [index, rule] of repair.rules.entries()) {
+    if (rule.condition.trim() === "" || rule.outcome.trim() === "") {
+      problems.push(`lifecycle repair rule ${index} has an empty condition or outcome`);
+    }
+    for (const factId of rule.factIds) {
+      if (!missing.has(factId)) problems.push(`lifecycle repair rule ${index} cites non-missing fact ${factId}`);
+      if (seen.has(factId)) problems.push(`lifecycle repair repeats fact ${factId}`);
+      seen.add(factId);
+    }
+  }
+  for (const factId of missingFactIds) {
+    if (!seen.has(factId)) problems.push(`lifecycle repair omits fact ${factId}`);
+  }
+  return problems;
+}
+
+function applyLifecycleRuleRepair(
+  task: AgentTaskArtifact,
+  repair: LifecycleRuleRepairResponse,
+  language: string,
+): AgentTaskArtifact {
+  const chinese = language.toLowerCase().startsWith("zh");
+  return {
+    ...task,
+    variantGroups: [
+      ...task.variantGroups,
+      {
+        title: chinese ? "补充业务规则" : "Additional business rules",
+        summary: chinese ? "以下规则补充主生命周期中的具体条件。" : "These rules add concrete conditions to the primary lifecycle.",
+        rules: repair.rules,
+      },
+    ],
+  };
+}
+
 function claimMarkdown(claim: StructuredClaim, facts: readonly CitedFact[]): string {
   const factNumbers = new Map(facts.map((fact, index) => [fact.factId, index + 1] as const));
   const markers = claim.factIds.map((id) => `[${factNumbers.get(id) ?? 0}]`).join("");
   const text = claim.text.trim();
   // A factIds array supports the whole claim. Inject its markers before every
-  // sentence terminator, so sentence-local grounding remains deterministic
-  // even if the model returned two short sentences in one claim.
-  const sentences = text
-    .split(/(?<=[。！？])|(?<=[.!?])\s+|\n+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  return sentences.map((sentence) => {
-    const punctuation = sentence.match(/[。！？.!?]$/)?.[0] ?? "";
-    const body = punctuation === "" ? sentence : sentence.slice(0, -punctuation.length).trimEnd();
-    return `${body} ${markers}${punctuation}`.trim();
-  }).join(" ");
+  // sentence terminator, including an English error message immediately
+  // followed by Chinese punctuation. Decimal points are not terminators.
+  let injected = false;
+  const cited = text.replace(/([。！？!?]|\.(?!\d))(?=(?:["'”’」』》】）)]*)(?:\s|$|[；;，,。！？!?]|[\p{Script=Han}]))/gu, (terminator) => {
+    injected = true;
+    return ` ${markers}${terminator}`;
+  });
+  return injected ? cited : `${text} ${markers}`.trim();
 }
 
 function taskMarkdown(task: AgentTaskArtifact, facts: readonly CitedFact[]): string {
   return task.claims.map((claim) => claimMarkdown(claim, facts)).join("\n\n");
+}
+
+function deterministicTask(request: AuthoringRequest, language: string): AgentTaskArtifact {
+  const facts = boundedFactsFor(request);
+  if (facts.length === 0) throw new Error(`deterministic authored task ${request.taskId} has no cited facts`);
+  const zh = language.toLowerCase().startsWith("zh");
+  const chinese: Readonly<Record<string, string>> = {
+    "project-boundary.capabilities": "项目能力边界由已识别的模块、功能、入口和界面证据共同形成；未归属或未解析内容不扩展为能力。",
+    "project-objects-lifecycle.rules": "项目级对象、状态和规则来自当前事实切片；具体类型、状态与条件在下方结构化内容中展开。",
+    "module-responsibility.summary": "模块职责以已归属的功能、流程、界面和源码说明为边界；其他模块或外部系统的行为不并入本模块。",
+    "module-objects-rules-states.notes": "本模块的对象、状态、规则和校验边界均来自当前事实切片；未建立的关系不作推断。",
+    "module-recovery.notes": "当前切片包含与状态变化或流程中止条件相关的证据；撤回、取消、重试或恢复只按已证明的行为呈现。",
+    "module-notifications-data.notes": "本模块的数据访问、外部调用和通知触点按源码事实汇总；静态源码不证明运行环境实际启用。",
+    "known-issues.impact": "问题与待确认事项仅来自当前切片中的分析记录和可引用证据；未形成问题记录不表示运行环境已被证明没有问题。",
+  };
+  const english: Readonly<Record<string, string>> = {
+    "project-boundary.capabilities": "The project capability boundary is formed from evidenced modules, features, entries, and user-interface facts; unresolved material is not promoted into a capability.",
+    "project-objects-lifecycle.rules": "Project-level objects, states, and rules come from the current fact slice; the structured content below presents the evidenced types, states, and conditions.",
+    "module-responsibility.summary": "The module boundary follows its attributed features, flows, interface evidence, and source documentation; behavior owned by other modules or external systems is excluded.",
+    "module-objects-rules-states.notes": "The module's objects, states, rules, and validation boundaries come from the current fact slice; missing relationships are not inferred.",
+    "module-recovery.notes": "The current slice contains evidence related to state changes or interrupted flows; withdrawal, cancellation, retry, and recovery appear only where evidenced.",
+    "module-notifications-data.notes": "The module's data access, outbound calls, and notification touchpoints are summarized from source facts; static source does not prove runtime enablement.",
+    "known-issues.impact": "Problems and items needing confirmation come only from analysis records and cited evidence in the current slice; an empty problem set does not prove that the runtime is problem-free.",
+  };
+  const text = (zh ? chinese : english)[request.blockId];
+  if (text === undefined) throw new Error(`no deterministic authored text for ${request.blockId}`);
+  const factIds = facts.slice(0, 12).map((fact) => fact.factId);
+  return {
+    taskId: request.taskId,
+    claims: [{ text, factIds }],
+    flowGroups: [],
+    lifecycles: [],
+    variantGroups: [],
+    issues: [],
+  };
 }
 
 function lifecycleReaderText(task: AgentTaskArtifact): string {
@@ -1455,10 +2076,7 @@ function validateBatch(requests: readonly AuthoringRequest[], response: BatchRes
     }
     if (lifecycleTask(request)) {
       if (task.lifecycles.length === 0) problems.push(`task ${task.taskId} returned no lifecycle`);
-      const lifecycleKinds = new Set(["scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call"]);
-      const required = bounded
-        .filter((fact) => lifecycleKinds.has(fact.kind) || lifecycleChannelEvidence(fact) || lifecycleTransitionEvidence(fact))
-        .map((fact) => fact.factId);
+      const required = requiredLifecycleFactIds(request);
       const placed = new Set([
         ...task.lifecycles.flatMap(idsInLifecycle),
         ...idsInVariants(task.variantGroups),
@@ -1492,9 +2110,7 @@ function validateBatch(requests: readonly AuthoringRequest[], response: BatchRes
         const missing = required.filter((id) => !placed.has(id));
         if (missing.length > 0) problems.push(`task ${task.taskId} omitted ${missing.length} feature-flow fact(s): ${missing.slice(0, 8).join(", ")}`);
       }
-      const requiredBranches = boundedFactsFor(request)
-        .filter(materialFlowBranchEvidence)
-        .map((fact) => fact.factId);
+      const requiredBranches = requiredFlowBranchFactIds(request);
       const placedBranches = new Set(task.flowGroups.flatMap((group) => group.branches.flatMap((branch) => branch.factIds)));
       const missingBranches = requiredBranches.filter((id) => !placedBranches.has(id));
       if (missingBranches.length > 0) {
@@ -1540,6 +2156,8 @@ export interface PrepareBatchAuthorOptions {
   readonly cacheDir: string;
   readonly concurrency?: number;
   readonly run?: JsonAgentRunner<BatchResponse>;
+  readonly repairRun?: JsonAgentRunner<FlowBranchRepairResponse>;
+  readonly lifecycleRepairRun?: JsonAgentRunner<LifecycleRuleRepairResponse>;
 }
 
 export interface BatchAuthorPreparation {
@@ -1549,6 +2167,33 @@ export interface BatchAuthorPreparation {
   readonly cacheHits: number;
   readonly agentInputBytes: number;
   readonly agentOutputBytes: number;
+  readonly taskMetrics: readonly AuthoringTaskMetric[];
+}
+
+export interface AuthoringAttemptMetric {
+  readonly attempt: number;
+  readonly kind: "author" | "flow-branch-repair" | "lifecycle-rule-repair";
+  readonly elapsedMs: number;
+  readonly inputBytes: number;
+  readonly outputBytes: number;
+  readonly outcome: "validated" | "validation-failed" | "agent-error";
+  readonly problems: readonly string[];
+  readonly normalizations: readonly string[];
+}
+
+export interface AuthoringTaskMetric {
+  readonly taskId: string;
+  readonly documentId: string;
+  readonly sectionId: string;
+  readonly blockId: string;
+  readonly mode: "deterministic" | "agent";
+  readonly cacheHit: boolean;
+  readonly totalMs: number;
+  readonly attempts: readonly AuthoringAttemptMetric[];
+}
+
+function roundedMs(started: number): number {
+  return Math.round((performance.now() - started) * 100) / 100;
 }
 
 async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<readonly R[]> {
@@ -1565,15 +2210,53 @@ async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, wor
   return results;
 }
 
+function authoringSchedulePriority(request: AuthoringRequest): number {
+  if (request.blockId === "module-flows-branches.lifecycle") return 0;
+  if (request.blockId === "module-flows-branches.flows" || request.blockId === "project-roles-flows.paths") return 1;
+  if (request.blockId === "known-issues.impact") return 2;
+  return 3;
+}
+
 /** Prepare independently cached section prose, then hand it to the synchronous host seam. */
 export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Promise<BatchAuthorPreparation> {
   const requests = buildAuthoringRequests(options.plan, options.readers, options.decisions, options.contractsByBlockId);
+  const deterministicRequests = requests.filter((request) => DETERMINISTIC_AUTHORING_BLOCKS.has(request.blockId));
+  const agentRequests = requests.filter((request) => !DETERMINISTIC_AUTHORING_BLOCKS.has(request.blockId));
+  const initialPromptByTask = new Map(agentRequests.map((request) => [
+    request.taskId,
+    promptForDocument(request.documentId, [request], options.contractsByBlockId, options.language, null),
+  ] as const));
+  const scheduledRequests = [...agentRequests].sort((a, b) => {
+    const priorityDifference = authoringSchedulePriority(a) - authoringSchedulePriority(b);
+    if (priorityDifference !== 0) return priorityDifference;
+    const sizeDifference = Buffer.byteLength(initialPromptByTask.get(b.taskId)!, "utf8")
+      - Buffer.byteLength(initialPromptByTask.get(a.taskId)!, "utf8");
+    return sizeDifference === 0 ? a.taskId.localeCompare(b.taskId) : sizeDifference;
+  });
   mkdirSync(options.cacheDir, { recursive: true });
   let agentCalls = 0;
   let cacheHits = 0;
   let agentInputBytes = 0;
   let agentOutputBytes = 0;
-  const responses = await mapConcurrent(requests, options.concurrency ?? 6, async (request) => {
+  const taskMetrics: AuthoringTaskMetric[] = [];
+  const deterministicResponses = deterministicRequests.map((request): BatchResponse => {
+    const started = performance.now();
+    const task = deterministicTask(request, options.language);
+    taskMetrics.push({
+      taskId: request.taskId,
+      documentId: request.documentId,
+      sectionId: request.sectionId,
+      blockId: request.blockId,
+      mode: "deterministic",
+      cacheHit: false,
+      totalMs: roundedMs(started),
+      attempts: [],
+    });
+    return { tasks: [task] };
+  });
+  const agentResponses = await mapConcurrent(scheduledRequests, options.concurrency ?? DEFAULT_AUTHORING_CONCURRENCY, async (request) => {
+    const taskStarted = performance.now();
+    const attempts: AuthoringAttemptMetric[] = [];
     const documentRequests = [request];
     const documentId = request.documentId;
     const key = digest({
@@ -1596,34 +2279,234 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     const cached = readCache(path, key);
     if (cached !== null && validateBatch(documentRequests, cached).length === 0) {
       cacheHits += 1;
+      taskMetrics.push({
+        taskId: request.taskId,
+        documentId: request.documentId,
+        sectionId: request.sectionId,
+        blockId: request.blockId,
+        mode: "agent",
+        cacheHit: true,
+        totalMs: roundedMs(taskStarted),
+        attempts,
+      });
       return cached;
     }
 
     let correction: string | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       agentCalls += 1;
-      const prompt = promptForDocument(documentId, documentRequests, options.contractsByBlockId, options.language, correction);
+      const prompt = correction === null
+        ? initialPromptByTask.get(request.taskId)!
+        : promptForDocument(documentId, documentRequests, options.contractsByBlockId, options.language, correction);
       const promptBytes = Buffer.byteLength(prompt, "utf8");
       if (promptBytes > MAX_TASK_PROMPT_BYTES) {
         throw new Error(`authored task ${request.taskId} is ${promptBytes} bytes; bounded V1 limit is ${MAX_TASK_PROMPT_BYTES}`);
       }
       agentInputBytes += promptBytes;
-      const response = await runJsonAgent<BatchResponse>({
-        prompt,
-        schema: BATCH_SCHEMA,
-        identity: options.agent,
-        ...(options.run === undefined ? {} : { run: options.run }),
-      });
-      agentOutputBytes += Buffer.byteLength(stableStringify(response), "utf8");
-      const problems = validateBatch(documentRequests, response);
-      if (problems.length === 0) {
-        writeCache(path, key, response);
-        return response;
+      const attemptStarted = performance.now();
+      let response: BatchResponse;
+      try {
+        response = await runJsonAgent<BatchResponse>({
+          prompt,
+          schema: BATCH_SCHEMA,
+          identity: options.agent,
+          ...(options.run === undefined ? {} : { run: options.run }),
+        });
+      } catch (error) {
+        attempts.push({
+          attempt: attempts.length + 1,
+          kind: "author",
+          elapsedMs: roundedMs(attemptStarted),
+          inputBytes: promptBytes,
+          outputBytes: 0,
+          outcome: "agent-error",
+          problems: [error instanceof Error ? error.message : String(error)],
+          normalizations: [],
+        });
+        taskMetrics.push({
+          taskId: request.taskId,
+          documentId: request.documentId,
+          sectionId: request.sectionId,
+          blockId: request.blockId,
+          mode: "agent",
+          cacheHit: false,
+          totalMs: roundedMs(taskStarted),
+          attempts,
+        });
+        throw error;
       }
-      correction = problems.slice(0, 20).join("\n");
+      const responseBytes = Buffer.byteLength(stableStringify(response), "utf8");
+      agentOutputBytes += responseBytes;
+      const normalized = normalizeBatch(documentRequests, response);
+      const problems = validateBatch(documentRequests, normalized.response);
+      attempts.push({
+        attempt: attempts.length + 1,
+        kind: "author",
+        elapsedMs: roundedMs(attemptStarted),
+        inputBytes: promptBytes,
+        outputBytes: responseBytes,
+        outcome: problems.length === 0 ? "validated" : "validation-failed",
+        problems: problems.slice(0, 20),
+        normalizations: normalized.changes,
+      });
+      if (problems.length === 0) {
+        writeCache(path, key, normalized.response);
+        taskMetrics.push({
+          taskId: request.taskId,
+          documentId: request.documentId,
+          sectionId: request.sectionId,
+          blockId: request.blockId,
+          mode: "agent",
+          cacheHit: false,
+          totalMs: roundedMs(taskStarted),
+          attempts,
+        });
+        return normalized.response;
+      }
+      let retryProblems = problems;
+      const normalizedTask = normalized.response.tasks[0];
+      const missingBranchFacts = normalizedTask === undefined ? [] : missingFlowBranchFactIds(request, normalizedTask);
+      if (normalizedTask !== undefined && missingBranchFacts.length > 0 && onlyMissingFlowBranches(problems, request.taskId)) {
+        const repairPrompt = flowBranchRepairPrompt(request, normalizedTask, missingBranchFacts, options.language);
+        const repairInputBytes = Buffer.byteLength(repairPrompt, "utf8");
+        if (repairInputBytes <= MAX_TASK_PROMPT_BYTES) {
+          agentCalls += 1;
+          agentInputBytes += repairInputBytes;
+          const repairStarted = performance.now();
+          try {
+            const repair = await runJsonAgent<FlowBranchRepairResponse>({
+              prompt: repairPrompt,
+              schema: FLOW_BRANCH_REPAIR_SCHEMA,
+              identity: options.agent,
+              ...(options.repairRun === undefined ? {} : { run: options.repairRun }),
+            });
+            const repairOutputBytes = Buffer.byteLength(stableStringify(repair), "utf8");
+            agentOutputBytes += repairOutputBytes;
+            const normalizedRepair = normalizeFlowBranchRepair(repair, missingBranchFacts);
+            let repairProblems = [...validateFlowBranchRepair(normalizedTask, missingBranchFacts, normalizedRepair.repair)];
+            let repairedResponse: BatchResponse | null = null;
+            let repairNormalizations: readonly string[] = normalizedRepair.changes;
+            if (repairProblems.length === 0) {
+              const repaired = normalizeBatch(documentRequests, { tasks: [applyFlowBranchRepair(normalizedTask, normalizedRepair.repair)] });
+              repairedResponse = repaired.response;
+              repairNormalizations = [...normalizedRepair.changes, ...repaired.changes].slice(0, 40);
+              repairProblems = [...validateBatch(documentRequests, repaired.response)];
+            }
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "flow-branch-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: repairOutputBytes,
+              outcome: repairProblems.length === 0 ? "validated" : "validation-failed",
+              problems: repairProblems.slice(0, 20),
+              normalizations: repairNormalizations,
+            });
+            if (repairProblems.length === 0 && repairedResponse !== null) {
+              writeCache(path, key, repairedResponse);
+              taskMetrics.push({
+                taskId: request.taskId,
+                documentId: request.documentId,
+                sectionId: request.sectionId,
+                blockId: request.blockId,
+                mode: "agent",
+                cacheHit: false,
+                totalMs: roundedMs(taskStarted),
+                attempts,
+              });
+              return repairedResponse;
+            }
+            retryProblems = repairProblems;
+          } catch (error) {
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "flow-branch-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: 0,
+              outcome: "agent-error",
+              problems: [error instanceof Error ? error.message : String(error)],
+              normalizations: [],
+            });
+          }
+        }
+      }
+      const missingLifecycleFacts = normalizedTask === undefined ? [] : missingLifecycleFactIds(request, normalizedTask);
+      if (
+        normalizedTask !== undefined &&
+        onlyMissingLifecycleRules(request, problems, missingLifecycleFacts)
+      ) {
+        const repairPrompt = lifecycleRuleRepairPrompt(request, normalizedTask, missingLifecycleFacts, options.language);
+        const repairInputBytes = Buffer.byteLength(repairPrompt, "utf8");
+        if (repairInputBytes <= MAX_TASK_PROMPT_BYTES) {
+          agentCalls += 1;
+          agentInputBytes += repairInputBytes;
+          const repairStarted = performance.now();
+          try {
+            const repair = await runJsonAgent<LifecycleRuleRepairResponse>({
+              prompt: repairPrompt,
+              schema: LIFECYCLE_RULE_REPAIR_SCHEMA,
+              identity: options.agent,
+              ...(options.lifecycleRepairRun === undefined ? {} : { run: options.lifecycleRepairRun }),
+            });
+            const repairOutputBytes = Buffer.byteLength(stableStringify(repair), "utf8");
+            agentOutputBytes += repairOutputBytes;
+            const normalizedRepair = normalizeLifecycleRuleRepair(repair, missingLifecycleFacts);
+            let repairProblems = [...validateLifecycleRuleRepair(normalizedTask, missingLifecycleFacts, normalizedRepair.repair)];
+            let repairedResponse: BatchResponse | null = null;
+            let repairNormalizations: readonly string[] = normalizedRepair.changes;
+            if (repairProblems.length === 0) {
+              const repaired = normalizeBatch(documentRequests, {
+                tasks: [applyLifecycleRuleRepair(normalizedTask, normalizedRepair.repair, options.language)],
+              });
+              repairedResponse = repaired.response;
+              repairNormalizations = [...normalizedRepair.changes, ...repaired.changes].slice(0, 40);
+              repairProblems = [...validateBatch(documentRequests, repaired.response)];
+            }
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "lifecycle-rule-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: repairOutputBytes,
+              outcome: repairProblems.length === 0 ? "validated" : "validation-failed",
+              problems: repairProblems.slice(0, 20),
+              normalizations: repairNormalizations,
+            });
+            if (repairProblems.length === 0 && repairedResponse !== null) {
+              writeCache(path, key, repairedResponse);
+              taskMetrics.push({
+                taskId: request.taskId,
+                documentId: request.documentId,
+                sectionId: request.sectionId,
+                blockId: request.blockId,
+                mode: "agent",
+                cacheHit: false,
+                totalMs: roundedMs(taskStarted),
+                attempts,
+              });
+              return repairedResponse;
+            }
+            retryProblems = repairProblems;
+          } catch (error) {
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "lifecycle-rule-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: 0,
+              outcome: "agent-error",
+              problems: [error instanceof Error ? error.message : String(error)],
+              normalizations: [],
+            });
+          }
+        }
+      }
+      correction = retryProblems.slice(0, 20).join("\n");
     }
     throw new Error(`authored task ${request.taskId} failed validation after 3 attempts: ${correction ?? "unknown validation error"}`);
   });
+  const responses = [...agentResponses, ...deterministicResponses];
 
   const structuredByTask = new Map<string, StructuredTaskArtifact>();
   const requestByTaskId = new Map(requests.map((request) => [request.taskId, request] as const));
@@ -1645,5 +2528,6 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     const task = structuredByTask.get(request.taskId);
     return task === undefined ? null : { prose: task.markdown };
   };
-  return { author, structuredByTask, agentCalls, cacheHits, agentInputBytes, agentOutputBytes };
+  taskMetrics.sort((a, b) => a.taskId.localeCompare(b.taskId));
+  return { author, structuredByTask, agentCalls, cacheHits, agentInputBytes, agentOutputBytes, taskMetrics };
 }

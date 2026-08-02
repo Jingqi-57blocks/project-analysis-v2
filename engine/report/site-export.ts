@@ -43,6 +43,10 @@ export interface ProductReportSiteMetrics {
   readonly cacheHits?: number;
   readonly agentInputBytes?: number;
   readonly agentOutputBytes?: number;
+  readonly classifierNormalizations?: number;
+  readonly authoredTaskCount?: number;
+  readonly agentValidationRetries?: number;
+  readonly slowestAuthoringTaskMs?: number;
 }
 
 export interface ExportProductReportSiteOptions {
@@ -1027,7 +1031,7 @@ function renderModulePage(
   const flowFacts = resolveSliceFacts(options.readers, moduleScope(module.id), ["feature-flow", "condition", "decision", "guard", "route", "ui-label"]);
   const membership = options.readers.memberships.get(module.id);
   const allFacts = resolveSliceFacts(options.readers, moduleScope(module.id), ["*"]);
-  const lead = prosePlain(responsibility, module.summary);
+  const lead = module.summary;
   const sectionLinks: [string, string][] = [["responsibility", "模块职责"], ["entries", "角色与入口"], ["flows", "主要流程与分支"], ["lifecycle", "完整生命周期"], ["rules", "类型、状态与规则"]];
   if (recoveryProse !== null) sectionLinks.push(["recovery", "撤回与恢复"]);
   sectionLinks.push(["effects", "通知与数据"], ["problems", "问题与未知"], ["coverage", "覆盖说明"]);

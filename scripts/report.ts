@@ -22,7 +22,7 @@ import type { AnalysisSnapshotIdentity } from "../engine/contracts/report/snapsh
 import { openKnowledgeBase } from "../engine/kb/query.js";
 import { authoredContent } from "../engine/report/authored-content.js";
 import { authoringHost, type ProseStore } from "../engine/report/authoring-host.js";
-import { prepareBatchAuthor } from "../engine/report/batch-author.js";
+import { DEFAULT_AUTHORING_CONCURRENCY, prepareBatchAuthor } from "../engine/report/batch-author.js";
 import { deterministicContent, type DecisionIndex } from "../engine/report/deterministic-content.js";
 import { produceDualReport } from "../engine/report/dual-report.js";
 import { executeAuthoredTasks } from "../engine/report/execute.js";
@@ -93,9 +93,9 @@ function parseArgs(argv: readonly string[]): Args {
   if (!["low", "medium", "high", "xhigh"].includes(classifierReasoning)) {
     throw new Error(`--classifier-reasoning must be low, medium, high or xhigh; got ${classifierReasoning}`);
   }
-  const concurrency = Number(value(argv, "--concurrency") ?? "8");
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) {
-    throw new Error("--concurrency must be an integer from 1 to 8");
+  const concurrency = Number(value(argv, "--concurrency") ?? String(DEFAULT_AUTHORING_CONCURRENCY));
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
+    throw new Error("--concurrency must be an integer from 1 to 16");
   }
   const optional = (flag: string): string | undefined => value(argv, flag);
   const runId = optional("--run");
@@ -285,6 +285,13 @@ async function run(argv: readonly string[]): Promise<number> {
         cacheHits: prepared.cacheHits + (classified.reused ? 1 : 0),
         agentInputBytes: prepared.agentInputBytes + classified.classifierInputBytes,
         agentOutputBytes: prepared.agentOutputBytes + classified.classifierOutputBytes,
+        classifierNormalizations: classified.classifierNormalizations,
+        authoredTaskCount: prepared.taskMetrics.length,
+        agentValidationRetries: prepared.taskMetrics.reduce(
+          (total, task) => total + task.attempts.filter((attempt) => attempt.outcome === "validation-failed").length,
+          0,
+        ),
+        slowestAuthoringTaskMs: Math.max(0, ...prepared.taskMetrics.map((task) => task.totalMs)),
       },
     });
 
@@ -294,12 +301,18 @@ async function run(argv: readonly string[]): Promise<number> {
       request,
       classification: {
         reused: classified.reused,
+        normalizations: classified.classifierNormalizations,
         diagnostics: classified.diagnostics,
         productModules: modules,
         unresolved: classified.artifact.candidates.filter((candidate) => candidate.status === "unresolved").map((candidate) => candidate.candidateId),
       },
       plan: { digest: executable.plan.planDigest, auditDigest: executable.auditDigest },
-      execution: { digest: execution.executionDigest, counters: execution.counters, complete: execution.assembly.complete },
+      execution: {
+        digest: execution.executionDigest,
+        counters: execution.counters,
+        complete: execution.assembly.complete,
+        authoringTasks: prepared.taskMetrics,
+      },
       report: { complete: dual.complete, audit: dual.audit, manifest: dual.rendered.manifest },
       site: site.manifest,
     };
