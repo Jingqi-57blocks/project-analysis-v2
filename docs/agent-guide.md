@@ -12,7 +12,7 @@ re-reading source. One analysis serves many report combinations.
 
 ```
 source roots ─▶ analysis ─▶ knowledge base ─▶ report pipeline ─▶ {project,module} × {product,developer}
-               (once)       (facts+coverage)   (presets+slices)     Markdown + HTML
+               (once)       (facts+coverage)   (presets+slices)     audited outputs
 ```
 
 ## 2. The pipeline, module by module
@@ -33,7 +33,11 @@ source roots ─▶ analysis ─▶ knowledge base ─▶ report pipeline ─▶
 - **Report pipeline** (`engine/report/*`):
   - `slice-resolve.ts` — resolves a section's fact kinds within a scope to `CitedFact`s
     (`{factId, kind, value, citation, resolutionClass}`); module scope filters by file membership, project
-    scope reads the whole snapshot.
+    scope reads the whole snapshot. A module is constrained by raw module id, exact entry keys, linked
+    feature identity and member files, so a shared router file cannot widen it.
+  - `module-catalog.ts` — enriches the formed-module list from the KB, classifies only the bounded candidates
+    that still need judgement, and persists `module-classification.v2.json`. Structurally-known technical
+    components and external boundaries are not sent to the model again.
   - `plan.ts` (`compileExecutablePlan`) — from a `ReportRequest` + snapshot identity + coverage function,
     produces the `ReportPlan` (deterministic), applicability decisions, and materialized slices (one per
     `sliceKey`, deduplicated).
@@ -44,10 +48,14 @@ source roots ─▶ analysis ─▶ knowledge base ─▶ report pipeline ─▶
     (`render.ts`; one `structureDigest` binds both).
   - `grounding.ts` — validates authored prose against the slice (foreign-citation / value-mismatch /
     no-citation).
+  - `batch-author.ts` — deduplicates facts into one shared table per document, runs documents in bounded
+    parallel, and requires every supplied module flow and selected branch fact to be accounted.
+  - `site-export.ts` — exports the accepted Chinese product report as one static site (`index.html`, module
+    pages, shared CSS/JS, manifest and metrics). It performs no source or model read.
 
 ## 3. How work flows
 
-Milestones M0–M6 (Linear project 项目智能 V1). Each **leaf** issue → a branch off
+Milestones M0–M7 (Linear project 项目智能 V1). Each **leaf** issue → a branch off
 `feat/project-intelligence-v1` named `pi-<n>`, a Linear-linked PR into `feat`, squash-merged after CI
 (`build-and-test` + `pr-contract`; the PR body needs a linear.app link, `Fixes PI-<n>`, `## Tests`,
 `## Acceptance`). Parent/rollup issues hold no code. The final `feat → main` PR is **PI-33 only**, and it
@@ -80,13 +88,14 @@ the repo.
 - **ExecutionBundle / GenerationPolicy** — authored blocks are grouped for execution; the policy bounds
   attempts/retries. `standard-v1` grouping shares slice input across a bundle; "one block per bundle" is a
   diagnostic baseline, **not** a user-facing tier.
-- **The Host Agent seam calls no model.** `engine/report/deterministic-host.ts` is the model-free host; the
-  ambient agent (Claude Code / Codex CLI / future) is the authoring host. The engine emits a portable
-  bundle of bounded, budgeted per-block tasks — it never wires a vendor SDK. This is what keeps it
-  model-portable.
-- **Why no ai-optional in V1** — every required section is either deterministically grounded or an
-  authored block with a deterministic fallback; there is no "maybe the model fills this in" tier. A
-  complete cited-fact report always exists; prose is an enhancement within budget.
+- **The Host Agent seam is model-agnostic.** `engine/report/deterministic-host.ts` is the model-free host;
+  `engine/host/json-agent.ts` is the default external-command adapter used by `pnpm report`. It runs in an
+  empty read-only directory and receives only bounded KB facts, so a future executor can replace Codex CLI
+  without changing analysis, planning, validation or rendering.
+- **AI is explicit, not ambient.** Deterministic sections, scope, citations, accounting and HTML are code-
+  generated. The model handles classification and explanatory prose/flow grouping only. A required authored
+  block that fails grounding or flow accounting blocks completion; its fallback is diagnostic, not a
+  formally exportable report.
 - **Preview & receipts** — the plan is inspectable before execution (`compileExecutablePlan` →
   applicability + slices); execution emits per-task ledgers + an `executionDigest`.
 
@@ -109,11 +118,15 @@ identity, so two machines analysing the same frozen source reach identical resul
   report-truth}.ts` against the human-verified `truth-set/` ledger (`engine/contracts/truth/leave.ts`).
   Release-blocking thresholds: structural must-find, behaviour must-find, report must-print all 100%.
   Reproduce: `tsx scripts/run-fresh-baseline.ts`.
+- **Readable product acceptance** — create a fresh KB, then run `pnpm report -- --project --module worklog
+  --module leave --module application --module reimbursement` with a new work directory. Inspect the site at
+  desktop/mobile sizes, reconcile module-flow counts, and run the same command again to measure cached export.
 - **Cross-project sentinels** — the frozen `truth-set/angels-pizza/sentinels.json`, graded by
   `engine/gates/sentinel-smoke.ts` (`gradeSentinels`). Re-graded from source in the release audit.
-- **Release audits** (M6, reproduction scripts write to `.analysis/`): `pi29-release-candidate.ts` (the RC),
-  `pi49-50-release-audit.ts` (fact accounting + citation/source-truth), `pi31-perf-repro-recovery-audit.ts`
-  (perf + reproducibility + recovery). All consume the RC.
+- **Release audits** — use the checked-in generic gates: `scripts/run-structural-gate.ts`,
+  `run-behavior-gate.ts`, `run-report-gate.ts`, `run-smoke-gate.ts`, the WCP fresh baseline and the
+  Angels sentinel baseline. Gate output belongs under `.analysis/`; target-specific acceptance data stays
+  under `truth-set/`, never in production extraction logic.
 
 ## 8. Rules that must not be broken
 

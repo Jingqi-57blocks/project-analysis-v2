@@ -1,58 +1,87 @@
 ---
 name: project-analysis
-description: Analyze any codebase into a knowledge base of checkable facts, then render reports from it — a project overview, or a per-module detail document. Use when asked to analyze, diagnose, audit, map, or explain a project, or to produce a report about one. Works on any number of source folders, any language, with no per-project configuration.
+description: Analyze source roots once into a cited knowledge base, then generate project or module reports without re-reading source.
 ---
 
 # Project Analysis
 
-Two stages, and you must not blur them.
+Use the two stages separately. Never ask a report-generation agent to inspect
+the target source.
 
-1. **Code establishes the facts.** `analyze` reads the project into a SQLite knowledge base: routes, symbols, tables, business rules, flows, findings — each with a location, none of them written by you.
-2. **You write the prose.** `render prepare` fills the sections code can fill and hands you the rest as tasks, each with a prompt and the slice of the knowledge base that prompt may use. You write the answers; `render assemble` splices them in.
-
-Your judgement is wanted in stage 2 and nowhere else. A sentence in a report must be true of the data slice it was written from.
-
-## Running it
-
-From the project-analysis checkout:
+## 1. Analyze once
 
 ```bash
-pnpm run analyze -- <target-path...> --db <kb.sqlite>
-pnpm run render  -- prepare overview --db <kb.sqlite> --out <runDir>
-# answer every task (below), then:
-pnpm run render  -- assemble <runDir> --html
+pnpm run analyze -- <target-root...> --db <kb.sqlite> [--index-root <dir> | --no-code-index]
 ```
 
-For one module — get ids from `pnpm run export -- --db <kb.sqlite>`:
+`analyze` inventories the selected roots, runs generic providers and CodeGraph
+when available, derives structural and behavioural facts, and publishes one
+SQLite snapshot. The target is read-only. The database, report work directory
+and report output must all be outside every analyzed root.
+
+## 2. Generate reports from the snapshot
+
+Chinese non-technical project + module reports:
 
 ```bash
-pnpm run render -- prepare module --db <kb.sqlite> --param module=<id> --out <runDir>
+pnpm run report -- \
+  --db <kb.sqlite> \
+  --project \
+  --module worklog \
+  --module leave \
+  --out <report-directory>
 ```
 
-Add `--lang <language>` to `prepare` for a report in another language. Identifiers, paths and table names stay as the code spells them.
+Any non-empty combination is legal:
 
-**The analyzed project is read-only.** `analyze` never writes inside it, and neither may you: no formatting, no fixes, no `git` commands in the target. Point `--db` and `--out` somewhere outside it.
+```bash
+pnpm run report -- --db <kb.sqlite> --project
+pnpm run report -- --db <kb.sqlite> --module leave
+pnpm run report -- --db <kb.sqlite> --project --module leave --module reimbursement
+```
 
-## Answering the tasks
+`--project` creates the overview. Each repeated `--module` creates one detail
+page. A module name must resolve to a classified canonical module; unresolved
+names fail closed and never widen to the whole project. The site entry is
+`index.html`; CSS and JavaScript are local static assets.
 
-`prepare` prints what it is waiting for. For each `tasks/<id>/` with no `answer.md`:
+## What the model may do
 
-1. Read `prompt.md` — what this section is.
-2. Read `data.json` — **everything you are allowed to state.**
-3. Write the section body to `answer.md`. Markdown, no heading of its own unless the prompt asks for headings, no preamble, no sign-off.
+- Classify the bounded formed-module list as product, aggregate, technical,
+  infrastructure, external or unresolved. The JSON result is reused only while
+  candidate and classifier identities match.
+- Summarize cited facts and group flow facts into readable business flows.
+- Use only fact ids assigned to that document and section.
 
-Do not edit `report.partial.md`, the prompts, or the data. Do not read the target's source to enrich an answer: the analysis is what is being reported, and a claim you found by reading around it cannot be checked against the knowledge base.
+The model does not read source, discover facts, choose report scope, render
+deterministic tables, or edit HTML after export. Module flow authoring must place
+every supplied `feature-flow` fact and every selected `guard` / `decision` fact
+in the structured flow result. Invalid output retries once and then blocks the
+run.
 
-If `data.json` is thin, say so and stop. A short honest section beats a long one that fills gaps with plausible guesses.
+## Required checks
 
-## What assemble refuses
+Before accepting a report:
 
-An empty answer; one over its word limit; a heading shallower than the contract allows; text containing `<!-- llm:`; the wrong number of top-level headings where one per item was asked for; a missing answer. `--allow-missing` publishes with the gap stated rather than closed.
+1. `pnpm typecheck` and `pnpm test` pass.
+2. The run audit says the report is complete and its consistency audit is clean.
+3. `manifest.json` lists the requested project/module pages and one shared
+   snapshot identity.
+4. `metrics.json` records analysis, classification, authoring and export cost.
+5. Every requested module has a non-empty source membership and major-flow
+   diagrams with visible branch conditions.
+6. Inspect the generated site at desktop and mobile widths; do not hand-edit it.
 
-Fix the answer and run `assemble` again — `prepare` does not need repeating.
+## Invariants
 
-## Reading the result
-
-`report.md` is the document; `report.html` if you asked for it. `assembled.json` records what happened per section.
-
-Every report ends with what the analysis could not establish. That section is not padding — a reader deciding on this needs to know what was not measured, and it is the first thing to check before trusting the rest.
+- One source analysis serves every report combination.
+- CodeGraph is the structural baseline; generic source/AST providers supplement
+  semantics the graph cannot express; framework readers are local enrichers.
+- A shared router file does not widen a module: module identity, exact entry key,
+  feature identity and file evidence all constrain its slice.
+- `not-found`, `not-applicable`, `unknown`, `unsupported`, `failed` and
+  `truncated` are distinct.
+- No target name, vendor list or target path belongs in production extraction or
+  classification logic.
+- No report is complete when a required authored block, citation, flow fact or
+  consistency audit is missing.
