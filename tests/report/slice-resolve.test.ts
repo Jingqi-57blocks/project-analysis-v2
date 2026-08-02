@@ -160,6 +160,37 @@ describe("resolveSliceFacts — behaviour kinds via the behaviour query, scoped 
     expect((facts[0]!.value as { entryKey: string }).entryKey).toBe("r1:POST /leaves");
   });
 
+  it("marks an expanded entry as supporting even when its caller is a core UI file", () => {
+    const store = seedStore();
+    const shared = "pages/leave/Leave.tsx";
+    const flow = (entryKey: string, line: number) => ({
+      featureId: "feat_shared",
+      featureName: "Shared page calls",
+      entryKey,
+      steps: [{ provenance: { source: { rootName: "r1", relPath: shared, startLine: line, endLine: line, startColumn: null, endColumn: null } } }],
+      diagram: "flowchart LR",
+    });
+    store.run("INSERT INTO derived_records (snapshot_id, kind, record_key, payload, subject_key) VALUES (?, 'feature-flow', ?, ?, 'feat_shared')", [SNAPSHOT_ID, "leave-flow", JSON.stringify(flow("r1:POST /leaves", 10))]);
+    store.run("INSERT INTO derived_records (snapshot_id, kind, record_key, payload, subject_key) VALUES (?, 'feature-flow', ?, ?, 'feat_shared')", [SNAPSHOT_ID, "token-flow", JSON.stringify(flow("r1:POST /tokens", 20))]);
+    const membership = {
+      ...membershipOf("leave", [shared]),
+      entryKeys: new Set(["r1:POST /leaves", "r1:POST /tokens"]),
+      coreEntryKeys: new Set(["r1:POST /leaves"]),
+      featureIds: new Set(["feat_shared"]),
+      coreFiles: new Set([`r1/${shared}`]),
+    };
+
+    const facts = resolveSliceFacts(createSliceReaders(store, SNAPSHOT_ID, membership), moduleScope("leave"), ["feature-flow"]);
+    expect(facts.map((fact) => [
+      (fact.value as { entryKey: string }).entryKey,
+      fact.scopeRole,
+      (fact.value as { reportScopeRole: string }).reportScopeRole,
+    ])).toEqual([
+      ["r1:POST /leaves", "core", "core"],
+      ["r1:POST /tokens", "supporting", "supporting"],
+    ]);
+  });
+
   it("returns an empty slice for a kind with no facts in the module, never a fabricated one", () => {
     const store = seedNotificationKb();
     const readers = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", IN_MODULE));

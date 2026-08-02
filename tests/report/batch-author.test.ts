@@ -291,6 +291,48 @@ describe("bounded issue evidence", () => {
     expect(selected.length).toBeGreaterThan(20);
   });
 
+  it("admits a supporting state transition only when a scheduled task owns the same file", () => {
+    const coreState = {
+      ...fact("state-core", "state", { valueSet: "StatusC", label: "Applied", value: 0 }, "features/application/service.go", 20),
+      scopeRole: "core" as const,
+    };
+    const unrelated = {
+      ...fact("transition-unrelated", "state-transition", { field: "StatusC", trigger: "OnboardExternalUser", to: { valueSet: "StatusC", label: "Active" } }, "features/resourcepool/service.go", 40),
+      scopeRole: "supporting" as const,
+    };
+    const scheduled = {
+      ...fact("scheduled-expiry", "scheduled-task", { name: "expire applications" }, "jobs/application_expiry.go", 10),
+      scopeRole: "supporting" as const,
+    };
+    const scheduledTransition = {
+      ...fact("transition-expiry", "state-transition", { field: "StatusC", trigger: "ExpireApplications", to: { valueSet: "StatusC", label: "Expired" } }, "jobs/application_expiry.go", 30),
+      scopeRole: "supporting" as const,
+    };
+    const scheduledExcerpt = {
+      ...fact("excerpt-expiry", "source-excerpt", {
+        label: "register expiry job",
+        text: Array.from({ length: 40 }, (_, index) => index === 9 ? "schedule ExpireApplications" : "").join("\n"),
+      }, "jobs/application_expiry.go", 1, 40),
+      scopeRole: "supporting" as const,
+    };
+    const request: AuthoringRequest = {
+      taskId: "lifecycle-supporting-transition",
+      documentId: "module|application|product",
+      sectionId: "module-flows-branches",
+      blockId: "module-flows-branches.lifecycle",
+      audience: "product",
+      prompt: "",
+      digest: "",
+      facts: [coreState, unrelated, scheduled, scheduledTransition, scheduledExcerpt],
+    };
+
+    const selected = boundedFactsFor(request).map((entry) => entry.factId);
+    expect(selected).toContain("transition-expiry");
+    expect(selected).toContain("scheduled-expiry");
+    expect(selected).toContain("excerpt-expiry");
+    expect(selected).not.toContain("transition-unrelated");
+  });
+
   it("preserves every approval threshold for the same field on an observed lifecycle", () => {
     const servicePath = "features/leave/service.go";
     const flow = fact("flow-approve", "feature-flow", {

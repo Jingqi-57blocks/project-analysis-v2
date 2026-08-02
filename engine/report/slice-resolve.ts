@@ -746,7 +746,13 @@ function readDerivedFacts(readers: SliceReaders, scope: Scope, kind: FactKind): 
       value: reportValue,
       citation,
       resolutionClass: "inferred",
-      scopeRole: scopeRoleFor(membership, citation),
+      // A supporting boundary call may originate in a core UI file. For a
+      // feature flow, entry ownership is therefore more authoritative than
+      // the first cited file: otherwise every API imported by a shared page is
+      // promoted into the module's own lifecycle.
+      scopeRole: kind === "feature-flow" && membership !== null && typeof value === "object" && value !== null && typeof (value as Record<string, unknown>).entryKey === "string"
+        ? (membership.coreEntryKeys.has((value as Record<string, unknown>).entryKey as string) ? "core" : "supporting")
+        : scopeRoleFor(membership, citation),
     });
   }
   return out;

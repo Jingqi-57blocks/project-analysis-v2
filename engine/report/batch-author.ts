@@ -28,7 +28,7 @@ const MAX_TASK_PROMPT_BYTES = 160_000;
 
 function promptPolicyVersion(blockId: string): string {
   if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v6";
-  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v3";
+  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v4";
   if (blockId === "known-issues.impact") return "issue-policy.v4";
   return "base-policy.v1";
 }
@@ -345,7 +345,19 @@ function relatedLabel(left: string, right: string): boolean {
 }
 
 function candidateScopeCore(fact: CitedFact): boolean {
+  if (fact.kind === "feature-flow") {
+    const role = factObject(fact).reportScopeRole;
+    if (role === "core" || role === "supporting") return role === "core";
+  }
   return fact.scopeRole === "core";
+}
+
+function candidateScopeSupporting(fact: CitedFact): boolean {
+  if (fact.kind === "feature-flow") {
+    const role = factObject(fact).reportScopeRole;
+    if (role === "core" || role === "supporting") return role === "supporting";
+  }
+  return fact.scopeRole === "supporting";
 }
 
 /** A reader-visible branch, excluding formatting, enum and notification plumbing decisions. */
@@ -601,7 +613,7 @@ function lifecycleSignalScore(fact: CitedFact): number {
   const literal = value.literal;
   const meanings = Array.isArray(value.meanings) ? value.meanings : [];
   const test = String(value.fullTest ?? value.test ?? value.text ?? value.statement ?? "");
-  let score = fact.scopeRole === "core" ? 80 : fact.scopeRole === "supporting" ? -80 : 20;
+  let score = candidateScopeCore(fact) ? 80 : candidateScopeSupporting(fact) ? -80 : 20;
   if (fact.kind === "guard" || fact.kind === "validation-rule") score += 90;
   if (fact.kind === "decision") score += 75;
   if (fact.kind === "condition") score += 45;
@@ -668,7 +680,7 @@ function lifecycleTransitionEvidence(fact: CitedFact): boolean {
  * meanings, rejecting/compound guards, state changes and diverse subjects win.
  */
 function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] {
-  const coreEligible = request.facts.filter((fact) => fact.scopeRole !== "supporting");
+  const coreEligible = request.facts.filter((fact) => !candidateScopeSupporting(fact));
   const coreValueSetNames = new Set<string>();
   const coreTransitionSetCounts = new Map<string, number>();
   for (const fact of coreEligible) {
@@ -701,8 +713,12 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
   // a transition into the same state vocabulary is part of this lifecycle.
   // Keep only that exact vocabulary link; other jobs in a shared cron file stay
   // outside the report.
+  const scheduledPaths = new Set(request.facts
+    .filter((fact) => candidateScopeSupporting(fact) && fact.kind === "scheduled-task")
+    .map((fact) => `${fact.citation.rootName}/${fact.citation.relPath}`));
   const relatedTransitions = request.facts.filter((fact) => {
-    if (fact.scopeRole !== "supporting" || fact.kind !== "state-transition") return false;
+    if (!candidateScopeSupporting(fact) || fact.kind !== "state-transition") return false;
+    if (!scheduledPaths.has(`${fact.citation.rootName}/${fact.citation.relPath}`)) return false;
     const value = factObject(fact);
     const endpoint = typeof value.to === "object" && value.to !== null
       ? value.to as Readonly<Record<string, unknown>>
@@ -720,7 +736,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     relatedTriggers.set(path, triggers);
   }
   const supportingExcerpts = request.facts.filter((fact) =>
-    fact.scopeRole === "supporting" && fact.kind === "source-excerpt" &&
+    candidateScopeSupporting(fact) && fact.kind === "source-excerpt" &&
     relatedPaths.has(`${fact.citation.rootName}/${fact.citation.relPath}`),
   );
   const lineFromExcerpt = (excerpt: CitedFact, line: number): string => {
@@ -729,7 +745,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     return sourceText(excerpt).split("\n")[line - start] ?? "";
   };
   const relatedSchedules = request.facts.filter((fact) => {
-    if (fact.scopeRole !== "supporting" || fact.kind !== "scheduled-task") return false;
+    if (!candidateScopeSupporting(fact) || fact.kind !== "scheduled-task") return false;
     const path = `${fact.citation.rootName}/${fact.citation.relPath}`;
     const line = fact.citation.startLine;
     const triggers = relatedTriggers.get(path);
@@ -760,7 +776,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
   const relatedIds = new Set(
     [...relatedTransitions, ...relatedSchedules, ...relatedExcerpts].map((fact) => fact.factId),
   );
-  const eligible = request.facts.filter((fact) => fact.scopeRole !== "supporting" || relatedIds.has(fact.factId));
+  const eligible = request.facts.filter((fact) => !candidateScopeSupporting(fact) || relatedIds.has(fact.factId));
 
   const flowScore = (fact: CitedFact): number => {
     const value = factObject(fact);
@@ -1119,7 +1135,7 @@ function boundedFacts(facts: readonly CitedFact[], keepEveryFlow = false, totalC
   const nonFlows = facts
     .filter((entry) => entry.kind !== "feature-flow")
     .sort((a, b) => {
-      const rank = (fact: CitedFact) => fact.scopeRole === "core" ? 0 : fact.scopeRole === "supporting" ? 2 : 1;
+      const rank = (fact: CitedFact) => candidateScopeCore(fact) ? 0 : candidateScopeSupporting(fact) ? 2 : 1;
       return rank(a) - rank(b) || a.factId.localeCompare(b.factId);
     });
   for (const fact of nonFlows) {
@@ -1148,7 +1164,7 @@ export function boundedFactsFor(request: AuthoringRequest): readonly CitedFact[]
     "module-notifications-data.notes",
   ]);
   const facts = coreOnlyModuleBlocks.has(request.blockId)
-    ? request.facts.filter((fact) => fact.scopeRole !== "supporting")
+    ? request.facts.filter((fact) => !candidateScopeSupporting(fact))
     : request.facts;
   const keepEveryFlow = request.blockId === "module-flows-branches.flows";
   const totalCap = request.blockId === "module-flows-branches.flows" || request.blockId === "project-roles-flows.paths"
