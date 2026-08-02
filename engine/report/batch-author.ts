@@ -1612,13 +1612,22 @@ async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, wor
 /** Prepare independently cached section prose, then hand it to the synchronous host seam. */
 export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Promise<BatchAuthorPreparation> {
   const requests = buildAuthoringRequests(options.plan, options.readers, options.decisions, options.contractsByBlockId);
+  const initialPromptByTask = new Map(requests.map((request) => [
+    request.taskId,
+    promptForDocument(request.documentId, [request], options.contractsByBlockId, options.language, null),
+  ] as const));
+  const scheduledRequests = [...requests].sort((a, b) => {
+    const sizeDifference = Buffer.byteLength(initialPromptByTask.get(b.taskId)!, "utf8")
+      - Buffer.byteLength(initialPromptByTask.get(a.taskId)!, "utf8");
+    return sizeDifference === 0 ? a.taskId.localeCompare(b.taskId) : sizeDifference;
+  });
   mkdirSync(options.cacheDir, { recursive: true });
   let agentCalls = 0;
   let cacheHits = 0;
   let agentInputBytes = 0;
   let agentOutputBytes = 0;
   const taskMetrics: AuthoringTaskMetric[] = [];
-  const responses = await mapConcurrent(requests, options.concurrency ?? 6, async (request) => {
+  const responses = await mapConcurrent(scheduledRequests, options.concurrency ?? 6, async (request) => {
     const taskStarted = performance.now();
     const attempts: AuthoringAttemptMetric[] = [];
     const documentRequests = [request];
@@ -1658,7 +1667,9 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     let correction: string | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       agentCalls += 1;
-      const prompt = promptForDocument(documentId, documentRequests, options.contractsByBlockId, options.language, correction);
+      const prompt = correction === null
+        ? initialPromptByTask.get(request.taskId)!
+        : promptForDocument(documentId, documentRequests, options.contractsByBlockId, options.language, correction);
       const promptBytes = Buffer.byteLength(prompt, "utf8");
       if (promptBytes > MAX_TASK_PROMPT_BYTES) {
         throw new Error(`authored task ${request.taskId} is ${promptBytes} bytes; bounded V1 limit is ${MAX_TASK_PROMPT_BYTES}`);
