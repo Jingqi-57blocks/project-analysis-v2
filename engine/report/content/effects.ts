@@ -365,19 +365,24 @@ export const MODULE_EFFECTS_NOTES_BLOCK: AuthoredBlockContract = {
   promptId: "module-effects-notes.v1",
   citationRule: "required",
   validatorId: "module-effects-notes.v1",
-  inputFactKinds: ["outbound-call"],
+  inputFactKinds: ["outbound-call", "notification-call", "data-access", "doc-comment", "ui-label"],
   prompt: `Explain the notifications, integrations and data impact you are given, keeping declared config, reachable calls and unconfirmed production distinct.\n\n${AUDIENCE_RULES}`,
 };
 
 /** known-issues.impact — the shared problem ledger's impact prose (product audience). */
 export const KNOWN_ISSUES_IMPACT_BLOCK: AuthoredBlockContract = {
   blockId: "known-issues.impact",
-  outputSchemaId: "problem-impact.v1",
-  promptId: "problem-impact.v1",
+  outputSchemaId: "problem-impact.v2",
+  promptId: "problem-impact.v2",
   citationRule: "required",
-  validatorId: "problem-impact.v1",
-  inputFactKinds: ["diagnostic"],
-  prompt: `Explain the impact of each known problem you are given, keeping its problem id, evidence and bounded impact. Do not add a priority, a remediation, a future requirement or a roadmap.\n\n${AUDIENCE_RULES}`,
+  validatorId: "problem-impact.v2",
+  inputFactKinds: [
+    "diagnostic", "feature-finding", "structural-finding", "health-signal",
+    "feature-flow", "condition", "decision", "guard", "business-rule",
+    "auth-annotation", "validation-rule", "state-transition", "transaction-boundary",
+    "error-handling", "discarded-error", "source-excerpt",
+  ],
+  prompt: `Review the supplied bounded code evidence for concrete behaviour problems and unresolved concerns. Preserve existing problem ids where present. A confirmed issue requires an explicit contradiction, discarded failure, unreachable outcome, or inconsistent handling shown by the supplied facts. Missing validation, permission or state enforcement is only a needs-confirmation concern unless the supplied excerpt is complete enough to prove the absence. State the observable behaviour and its bounded product impact; do not infer an intended requirement. Do not add priority, remediation, future work or a roadmap.\n\n${AUDIENCE_RULES}`,
 };
 
 export const PM_EFFECTS_AUTHORED_BLOCKS: readonly AuthoredBlockContract[] = [

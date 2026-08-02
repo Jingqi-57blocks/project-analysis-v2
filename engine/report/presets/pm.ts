@@ -55,7 +55,7 @@ export const PROJECT_BUSINESS_PATHS_BLOCK: AuthoredBlockContract = {
   promptId: "business-paths.v1",
   citationRule: "required",
   validatorId: "business-paths.v1",
-  inputFactKinds: ["route", "condition"],
+  inputFactKinds: ["feature-flow", "route", "condition", "ui-label"],
   prompt: `Describe the project's main cross-module business paths from the entries and branches you are given — the happy path and the visible rejections. Summarise across modules; do not expand every module's internals.\n\n${PM_AUDIENCE_RULES}`,
 };
 
@@ -66,7 +66,7 @@ export const PROJECT_CROSS_MODULE_RULES_BLOCK: AuthoredBlockContract = {
   promptId: "cross-module-rules.v1",
   citationRule: "required",
   validatorId: "cross-module-rules.v1",
-  inputFactKinds: ["condition", "state-transition"],
+  inputFactKinds: ["business-rule", "condition", "state", "state-transition", "value-set", "ui-label"],
   prompt: `Describe the core business objects' cross-module rules, states and exceptions from the facts you are given, keeping state names verbatim. Summarise the project-level rules; module detail belongs to the module reports.\n\n${PM_AUDIENCE_RULES}`,
 };
 
@@ -99,7 +99,7 @@ export const PM_QUESTIONS: readonly PmQuestion[] = [
   { id: "project-objects", question: "What are the core objects, their lifecycle and cross-module rules/states/exceptions?", sectionId: "project-objects-lifecycle", scope: "project" },
   { id: "project-effects", question: "What notifications, integrations and data impact does the project have?", sectionId: "project-notifications-data", scope: "project" },
   { id: "module-responsibility", question: "What is the module responsible for, and its up/downstream?", sectionId: "module-responsibility", scope: "module" },
-  { id: "module-flows", question: "What are the module's roles, entries, flows and evidenced branches?", sectionId: "module-flows-branches", scope: "module" },
+  { id: "module-flows", question: "What are the module's roles, entries, full lifecycle, business variants, flows and evidenced branches?", sectionId: "module-flows-branches", scope: "module" },
   { id: "module-objects", question: "What are the module's objects, rules, states, validation, permissions and exceptions?", sectionId: "module-objects-rules-states", scope: "module" },
   { id: "module-recovery", question: "What withdraw/cancel/retry/compensate/recover behaviours are there?", sectionId: "module-recovery", scope: "module" },
   { id: "module-effects", question: "What notifications, integrations and data impact does the module have?", sectionId: "module-notifications-data", scope: "module" },

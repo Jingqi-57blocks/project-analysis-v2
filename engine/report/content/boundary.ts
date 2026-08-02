@@ -306,7 +306,7 @@ export const CAPABILITIES_BLOCK: AuthoredBlockContract = {
   promptId: "capabilities.v1",
   citationRule: "required",
   validatorId: "capabilities.v1",
-  inputFactKinds: ["module", "route"],
+  inputFactKinds: ["module", "feature", "route", "ui-label", "readme-section"],
   prompt: `Summarise the product capabilities this project offers, grouped by the module map you are given.\n\n${AUDIENCE_RULES}`,
 };
 
@@ -317,7 +317,7 @@ export const MODULE_RESPONSIBILITY_BLOCK: AuthoredBlockContract = {
   promptId: "module-responsibility.v1",
   citationRule: "required",
   validatorId: "module-responsibility.v1",
-  inputFactKinds: ["module"],
+  inputFactKinds: ["module", "feature", "feature-flow", "ui-label", "doc-comment"],
   prompt: `Describe this module's responsibility and boundary, and its up/downstream, from the neighbours you are given.\n\n${AUDIENCE_RULES}`,
 };
 
