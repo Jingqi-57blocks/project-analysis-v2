@@ -142,20 +142,22 @@ describe("prepareBatchAuthor", () => {
     };
     const first = await prepareBatchAuthor(common);
     const second = await prepareBatchAuthor(common);
+    const agentTaskCount = first.taskMetrics.filter((task) => task.mode === "agent").length;
 
     expect(first.structuredByTask.size).toBeGreaterThan(0);
     expect([...first.structuredByTask.values()].some((artifact) => artifact.issues.length > 0)).toBe(true);
-    expect(first.agentCalls).toBe(first.structuredByTask.size + 1);
+    expect(first.agentCalls).toBe(agentTaskCount + 1);
     expect(first.taskMetrics).toHaveLength(first.structuredByTask.size);
     expect(first.taskMetrics.every((task) => !task.cacheHit)).toBe(true);
-    expect(first.taskMetrics.every((task) => task.attempts.at(-1)?.outcome === "validated")).toBe(true);
+    expect(first.taskMetrics.every((task) => task.mode === "deterministic" || task.attempts.at(-1)?.outcome === "validated")).toBe(true);
     expect(first.taskMetrics.some((task) => task.attempts.some((attempt) => attempt.kind === "flow-branch-repair"))).toBe(true);
     expect(first.taskMetrics.some((task) => (task.attempts[0]?.normalizations.length ?? 0) > 0)).toBe(true);
     expect(second.agentCalls).toBe(0);
-    expect(second.cacheHits).toBe(first.structuredByTask.size);
+    expect(second.cacheHits).toBe(agentTaskCount);
     expect(second.taskMetrics).toHaveLength(first.structuredByTask.size);
-    expect(second.taskMetrics.every((task) => task.cacheHit && task.attempts.length === 0)).toBe(true);
-    expect(calls).toBe(first.structuredByTask.size);
+    expect(second.taskMetrics.filter((task) => task.mode === "agent").every((task) => task.cacheHit && task.attempts.length === 0)).toBe(true);
+    expect(second.taskMetrics.filter((task) => task.mode === "deterministic").every((task) => !task.cacheHit && task.attempts.length === 0)).toBe(true);
+    expect(calls).toBe(agentTaskCount);
     expect(repairCalls).toBe(1);
     store.close();
   });

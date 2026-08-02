@@ -27,6 +27,15 @@ import type { CitedFact, SliceReaders } from "./slice-resolve.js";
 const BATCH_SCHEMA_VERSION = "authored-task.v11";
 const MAX_TASK_PROMPT_BYTES = 160_000;
 
+const DETERMINISTIC_AUTHORING_BLOCKS = new Set([
+  "project-boundary.capabilities",
+  "project-objects-lifecycle.rules",
+  "module-responsibility.summary",
+  "module-objects-rules-states.notes",
+  "module-recovery.notes",
+  "module-notifications-data.notes",
+]);
+
 function promptPolicyVersion(blockId: string): string {
   if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v7";
   if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v7";
@@ -1692,6 +1701,39 @@ function taskMarkdown(task: AgentTaskArtifact, facts: readonly CitedFact[]): str
   return task.claims.map((claim) => claimMarkdown(claim, facts)).join("\n\n");
 }
 
+function deterministicTask(request: AuthoringRequest, language: string): AgentTaskArtifact {
+  const facts = boundedFactsFor(request);
+  if (facts.length === 0) throw new Error(`deterministic authored task ${request.taskId} has no cited facts`);
+  const zh = language.toLowerCase().startsWith("zh");
+  const chinese: Readonly<Record<string, string>> = {
+    "project-boundary.capabilities": "项目能力边界由已识别的模块、功能、入口和界面证据共同形成；未归属或未解析内容不扩展为能力。",
+    "project-objects-lifecycle.rules": "项目级对象、状态和规则来自当前事实切片；具体类型、状态与条件在下方结构化内容中展开。",
+    "module-responsibility.summary": "模块职责以已归属的功能、流程、界面和源码说明为边界；其他模块或外部系统的行为不并入本模块。",
+    "module-objects-rules-states.notes": "本模块的对象、状态、规则和校验边界均来自当前事实切片；未建立的关系不作推断。",
+    "module-recovery.notes": "当前切片包含与状态变化或流程中止条件相关的证据；撤回、取消、重试或恢复只按已证明的行为呈现。",
+    "module-notifications-data.notes": "本模块的数据访问、外部调用和通知触点按源码事实汇总；静态源码不证明运行环境实际启用。",
+  };
+  const english: Readonly<Record<string, string>> = {
+    "project-boundary.capabilities": "The project capability boundary is formed from evidenced modules, features, entries, and user-interface facts; unresolved material is not promoted into a capability.",
+    "project-objects-lifecycle.rules": "Project-level objects, states, and rules come from the current fact slice; the structured content below presents the evidenced types, states, and conditions.",
+    "module-responsibility.summary": "The module boundary follows its attributed features, flows, interface evidence, and source documentation; behavior owned by other modules or external systems is excluded.",
+    "module-objects-rules-states.notes": "The module's objects, states, rules, and validation boundaries come from the current fact slice; missing relationships are not inferred.",
+    "module-recovery.notes": "The current slice contains evidence related to state changes or interrupted flows; withdrawal, cancellation, retry, and recovery appear only where evidenced.",
+    "module-notifications-data.notes": "The module's data access, outbound calls, and notification touchpoints are summarized from source facts; static source does not prove runtime enablement.",
+  };
+  const text = (zh ? chinese : english)[request.blockId];
+  if (text === undefined) throw new Error(`no deterministic authored text for ${request.blockId}`);
+  const factIds = facts.slice(0, 12).map((fact) => fact.factId);
+  return {
+    taskId: request.taskId,
+    claims: [{ text, factIds }],
+    flowGroups: [],
+    lifecycles: [],
+    variantGroups: [],
+    issues: [],
+  };
+}
+
 function lifecycleReaderText(task: AgentTaskArtifact): string {
   return [
     ...task.lifecycles.flatMap((lifecycle) => [
@@ -1927,6 +1969,7 @@ export interface AuthoringTaskMetric {
   readonly documentId: string;
   readonly sectionId: string;
   readonly blockId: string;
+  readonly mode: "deterministic" | "agent";
   readonly cacheHit: boolean;
   readonly totalMs: number;
   readonly attempts: readonly AuthoringAttemptMetric[];
@@ -1953,11 +1996,13 @@ async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, wor
 /** Prepare independently cached section prose, then hand it to the synchronous host seam. */
 export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Promise<BatchAuthorPreparation> {
   const requests = buildAuthoringRequests(options.plan, options.readers, options.decisions, options.contractsByBlockId);
-  const initialPromptByTask = new Map(requests.map((request) => [
+  const deterministicRequests = requests.filter((request) => DETERMINISTIC_AUTHORING_BLOCKS.has(request.blockId));
+  const agentRequests = requests.filter((request) => !DETERMINISTIC_AUTHORING_BLOCKS.has(request.blockId));
+  const initialPromptByTask = new Map(agentRequests.map((request) => [
     request.taskId,
     promptForDocument(request.documentId, [request], options.contractsByBlockId, options.language, null),
   ] as const));
-  const scheduledRequests = [...requests].sort((a, b) => {
+  const scheduledRequests = [...agentRequests].sort((a, b) => {
     const sizeDifference = Buffer.byteLength(initialPromptByTask.get(b.taskId)!, "utf8")
       - Buffer.byteLength(initialPromptByTask.get(a.taskId)!, "utf8");
     return sizeDifference === 0 ? a.taskId.localeCompare(b.taskId) : sizeDifference;
@@ -1968,7 +2013,22 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
   let agentInputBytes = 0;
   let agentOutputBytes = 0;
   const taskMetrics: AuthoringTaskMetric[] = [];
-  const responses = await mapConcurrent(scheduledRequests, options.concurrency ?? 6, async (request) => {
+  const deterministicResponses = deterministicRequests.map((request): BatchResponse => {
+    const started = performance.now();
+    const task = deterministicTask(request, options.language);
+    taskMetrics.push({
+      taskId: request.taskId,
+      documentId: request.documentId,
+      sectionId: request.sectionId,
+      blockId: request.blockId,
+      mode: "deterministic",
+      cacheHit: false,
+      totalMs: roundedMs(started),
+      attempts: [],
+    });
+    return { tasks: [task] };
+  });
+  const agentResponses = await mapConcurrent(scheduledRequests, options.concurrency ?? 6, async (request) => {
     const taskStarted = performance.now();
     const attempts: AuthoringAttemptMetric[] = [];
     const documentRequests = [request];
@@ -1998,6 +2058,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
         documentId: request.documentId,
         sectionId: request.sectionId,
         blockId: request.blockId,
+        mode: "agent",
         cacheHit: true,
         totalMs: roundedMs(taskStarted),
         attempts,
@@ -2041,6 +2102,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
           documentId: request.documentId,
           sectionId: request.sectionId,
           blockId: request.blockId,
+          mode: "agent",
           cacheHit: false,
           totalMs: roundedMs(taskStarted),
           attempts,
@@ -2068,6 +2130,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
           documentId: request.documentId,
           sectionId: request.sectionId,
           blockId: request.blockId,
+          mode: "agent",
           cacheHit: false,
           totalMs: roundedMs(taskStarted),
           attempts,
@@ -2119,6 +2182,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
                 documentId: request.documentId,
                 sectionId: request.sectionId,
                 blockId: request.blockId,
+                mode: "agent",
                 cacheHit: false,
                 totalMs: roundedMs(taskStarted),
                 attempts,
@@ -2144,6 +2208,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     }
     throw new Error(`authored task ${request.taskId} failed validation after 3 attempts: ${correction ?? "unknown validation error"}`);
   });
+  const responses = [...agentResponses, ...deterministicResponses];
 
   const structuredByTask = new Map<string, StructuredTaskArtifact>();
   const requestByTaskId = new Map(requests.map((request) => [request.taskId, request] as const));
