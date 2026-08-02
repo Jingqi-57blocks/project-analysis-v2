@@ -179,6 +179,7 @@ function roleDefinitions(options: ExportProductReportSiteOptions): readonly Role
     .filter((value): value is string => value !== null)
     .map(roleIdentity));
   const sets = resolveSliceFacts(options.readers, scope, ["value-set"])
+    .filter((fact) => /(?:role|permission|access|authority|privilege)/i.test(stringField(fact.value, "name", "valueSetName") ?? ""))
     .filter((fact) => arrayField(fact.value, "members").some((member) => {
       const name = stringField(member, "name");
       return name !== null && requirementIdentities.has(roleIdentity(name));
@@ -237,26 +238,43 @@ function roleMap(
     byIdentity.set(identity, facts);
   }
   const definitions = roleDefinitions(options);
-  const employee = definitions.find((definition) => definition.identity === "employee" || definition.raw.some((value) => value.toLowerCase() === "normal"));
-  const selected = definitions.filter((definition) => byIdentity.has(definition.identity));
-  if ((moduleId === undefined ? options.modules.length > 0 : flowGroups.length > 0) && employee !== undefined && !selected.some((definition) => definition.identity === employee.identity)) {
+  const groupedDefinitions = new Map<string, {
+    readonly label: string;
+    readonly identities: readonly string[];
+    readonly raw: readonly string[];
+    readonly evidence: readonly CitedFact[];
+  }>();
+  for (const definition of definitions) {
+    const current = groupedDefinitions.get(definition.label);
+    groupedDefinitions.set(definition.label, {
+      label: definition.label,
+      identities: unique([...(current?.identities ?? []), definition.identity]),
+      raw: unique([...(current?.raw ?? []), ...definition.raw], 10),
+      evidence: uniqueFacts([...(current?.evidence ?? []), ...definition.evidence]),
+    });
+  }
+  const groups = [...groupedDefinitions.values()];
+  const employee = groups.find((group) => group.label === "普通员工" || group.identities.some((identity) => identity === "employee" || identity === "normal"));
+  const selected = groups.filter((group) => group.identities.some((identity) => byIdentity.has(identity)));
+  if ((moduleId === undefined ? options.modules.length > 0 : flowGroups.length > 0) && employee !== undefined && !selected.some((group) => group.label === employee.label)) {
     selected.unshift(employee);
   }
   const cards = selected
     .sort((a, b) => {
-      const employeeRank = (definition: RoleDefinition) => definition.identity === employee?.identity ? 0 : 1;
-      return employeeRank(a) - employeeRank(b) || (byIdentity.get(b.identity)?.length ?? 0) - (byIdentity.get(a.identity)?.length ?? 0) || a.label.localeCompare(b.label);
+      const checks = (group: (typeof groups)[number]) => group.identities.reduce((sum, identity) => sum + (byIdentity.get(identity)?.length ?? 0), 0);
+      const employeeRank = (group: (typeof groups)[number]) => group.label === employee?.label ? 0 : 1;
+      return employeeRank(a) - employeeRank(b) || checks(b) - checks(a) || a.label.localeCompare(b.label);
     })
     .slice(0, moduleId === undefined ? 14 : 8)
-    .map((definition) => {
-      const checks = byIdentity.get(definition.identity) ?? [];
+    .map((group) => {
+      const checks = uniqueFacts(group.identities.flatMap((identity) => byIdentity.get(identity) ?? []));
       const operations = unique(flowGroups.map((group) => group.title), 5);
       const detail = checks.length > 0
         ? `在当前范围的 ${checks.length} 处权限检查中被明确引用。`
         : operations.length > 0
           ? `可通过已观测入口参与：${operations.join("、")}。`
           : "角色编码中定义的通用登录用户身份。";
-      return `<article><h3>${html(definition.label)}</h3><p>${html(detail)}</p><small>${html(definition.raw.join(" / "))}</small>${evidence(uniqueFacts([...definition.evidence, ...checks]), "查看角色定义与权限证据", 5)}</article>`;
+      return `<article><h3>${html(group.label)}</h3><p>${html(detail)}</p><small>${html(group.raw.join(" / "))}</small>${evidence(uniqueFacts([...group.evidence, ...checks]), "查看角色定义与权限证据", 5)}</article>`;
     });
   if (moduleId !== undefined && lifecycleArtifact !== null) {
     const participants = lifecycles.flatMap((lifecycle) => lifecycle.nodes)
@@ -852,7 +870,7 @@ function moduleEntries(
 ): string {
   const facts = resolveSliceFacts(options.readers, moduleScope(module.id), ["route", "auth-annotation", "ui-label"]);
   const routes = facts.filter((fact) => fact.kind === "route");
-  const controls = facts.filter((fact) => fact.kind === "auth-annotation");
+  const controls = facts.filter((fact) => fact.kind === "auth-annotation" && fact.scopeRole === "core");
   const labels = unique(
     facts
       .filter((fact) => fact.kind === "ui-label")

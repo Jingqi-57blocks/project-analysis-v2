@@ -35,7 +35,19 @@ describe("exportProductReportSite", () => {
           { name: "AdminF", value: "admin" },
           { name: "SaleC", value: 3 },
           { name: "SaleF", value: "sale" },
+          { name: "GeneralC", value: 4 },
+          { name: "GeneralF", value: "normal" },
         ],
+      },
+    });
+    insertBehaviorFact(store, {
+      factId: "header-values",
+      kind: "value-set",
+      relPath: "handlers/leave/service.go",
+      startLine: 2,
+      payload: {
+        name: "HeaderC",
+        members: [{ name: "Authorization", value: "Authorization" }],
       },
     });
     insertBehaviorFact(store, {
@@ -44,6 +56,20 @@ describe("exportProductReportSite", () => {
       relPath: "handlers/leave/service.go",
       startLine: 20,
       payload: { check: "authorization", mechanism: "role-membership", requirement: "AdminC" },
+    });
+    insertBehaviorFact(store, {
+      factId: "role-general-check",
+      kind: "auth-annotation",
+      relPath: "handlers/leave/service.go",
+      startLine: 21,
+      payload: { check: "authorization", mechanism: "role-membership", requirement: "GeneralC" },
+    });
+    insertBehaviorFact(store, {
+      factId: "header-authorization-check",
+      kind: "auth-annotation",
+      relPath: "handlers/leave/service.go",
+      startLine: 22,
+      payload: { check: "authorization", mechanism: "header", requirement: "Authorization" },
     });
     insertBehaviorFact(store, {
       factId: "role-sale-supporting-check",
@@ -204,6 +230,8 @@ describe("exportProductReportSite", () => {
     expect(overview).toContain("角色与参与方式");
     expect(overview).toContain("管理员");
     expect(overview).toContain("销售");
+    expect(overview).not.toContain("<h3>Authorization</h3>");
+    expect(overview.match(/<h3>普通员工<\/h3>/g)).toHaveLength(1);
     expect(overview).toContain("Leave 请假");
     expect(detail).toContain("提交与审批");
     expect(detail).toContain("额度不足");
@@ -213,6 +241,8 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("普通员工");
     expect(detail).toContain("管理员");
     expect(detail).not.toContain("<h3>销售</h3>");
+    expect(detail).not.toContain("<h3>Authorization</h3>");
+    expect(detail.match(/<h3>普通员工<\/h3>/g)).toHaveLength(1);
     expect(detail).toContain("参与角色与流程关系");
     expect(detail.match(/class="mermaid"/g)).toHaveLength(2);
     expect(detail).toContain("请假生命周期");
