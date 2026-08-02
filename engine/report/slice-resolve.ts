@@ -245,22 +245,27 @@ export function resolveModuleMembershipForModules(
   const coreEntryKeys = new Set<string>();
   const featureIds = new Set<string>();
   const excludedEntryKeys = options.excludedEntryKeys ?? new Set<string>();
+  // Classification can fold several raw candidates into one canonical report
+  // module (for example a legacy singular route and a current plural surface).
+  // Prefer observed entries across that whole canonical boundary, rather than
+  // independently per raw candidate, so an unresolved legacy-only candidate
+  // cannot re-enter after its observed replacement was selected elsewhere.
+  const observedFlows = selected.flatMap((module) =>
+    (kb.moduleDetail(module.id)?.features ?? []).flatMap((feature) => kb.flowsForFeature(feature.id)),
+  ).filter((flow) => flow.steps[0]?.provenance !== null && flow.steps[0]?.provenance !== undefined);
+  const observedEntryKeys = new Set(observedFlows.map((flow) => flow.entryKey));
+  const observedRoots = new Set(observedFlows.flatMap((flow) =>
+    flow.steps
+      .map((step) => step.provenance?.source.rootName)
+      .filter((rootName): rootName is string => rootName !== undefined),
+  ));
+  const preferObserved = options.preferObservedEntries === true && observedEntryKeys.size > 0;
   for (const module of selected) {
     const detail = kb.moduleDetail(module.id);
     const featureFlows = new Map((detail?.features ?? []).map((feature) => [
       feature.id,
       kb.flowsForFeature(feature.id),
     ] as const));
-    const observedFlows = [...featureFlows.values()].flat().filter((flow) =>
-      flow.steps[0]?.provenance !== null && flow.steps[0]?.provenance !== undefined,
-    );
-    const observedEntryKeys = new Set(observedFlows.map((flow) => flow.entryKey));
-    const observedRoots = new Set(observedFlows.flatMap((flow) =>
-      flow.steps
-        .map((step) => step.provenance?.source.rootName)
-        .filter((rootName): rootName is string => rootName !== undefined),
-    ));
-    const preferObserved = options.preferObservedEntries === true && observedEntryKeys.size > 0;
     // An entry independently owned by another classified report boundary wins
     // over an ambiguous raw module name. This is especially important for
     // generic identities such as `application`, `report`, or `service` that can

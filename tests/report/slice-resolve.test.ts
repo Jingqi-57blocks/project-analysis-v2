@@ -285,6 +285,52 @@ describe("resolveModuleMembershipForModules — bounded cross-root surface closu
     expect(membership.files).not.toContain("api-v1/routes/leave.js");
   });
 
+  it("omits an unresolved legacy candidate when its merged canonical module has an observed surface", () => {
+    const source = (rootName: string, relPath: string, line: number) => ({
+      resolutionClass: "declared" as const,
+      source: { rootName, relPath, startLine: line, endLine: line, startColumn: null, endColumn: null },
+    });
+    const currentFlow = {
+      entryKey: "api-v2:POST /worklogs",
+      steps: [
+        { provenance: source("ui", "src/pages/worklog/Worklog.tsx", 20) },
+        { provenance: source("api-v2", "handlers/worklogs/service.go", 40) },
+      ],
+    };
+    const legacyFlow = {
+      entryKey: "api-v1:GET /wlog/:projectKey",
+      steps: [
+        { provenance: null },
+        { provenance: source("api-v1", "handlers/wlog/export.go", 60) },
+      ],
+    };
+    const currentFeature = { id: "feat_worklogs", filePaths: ["ui/src/pages/worklog/Worklog.tsx", "api-v2/handlers/worklogs/service.go"] };
+    const legacyFeature = { id: "feat_wlog", filePaths: ["api-v1/handlers/wlog/export.go"] };
+    const fake = {
+      modules: () => [
+        { id: "mod_worklogs", name: "worklogs", entryKeys: [currentFlow.entryKey] },
+        { id: "mod_wlog", name: "wlog", entryKeys: [legacyFlow.entryKey] },
+      ],
+      moduleDetail: (id: string) => ({ features: [id === "mod_worklogs" ? currentFeature : legacyFeature] }),
+      flowsForFeature: (id: string) => id === currentFeature.id ? [currentFlow] : [legacyFlow],
+      features: () => [currentFeature, legacyFeature],
+      crossRootLinks: () => [],
+      callEdges: () => [],
+      symbols: () => [],
+      endpoints: () => [],
+      scheduledTasks: () => [],
+      dataAccess: () => [],
+    } as unknown as KnowledgeBase;
+
+    const membership = resolveModuleMembershipForModules(fake, "worklog", ["mod_worklogs", "mod_wlog"], {
+      preferObservedEntries: true,
+    });
+
+    expect([...membership.entryKeys]).toEqual([currentFlow.entryKey]);
+    expect(membership.files).toContain("ui/src/pages/worklog/Worklog.tsx");
+    expect(membership.files).not.toContain("api-v1/handlers/wlog/export.go");
+  });
+
   it("adds only the concrete backend entry reached through an owned UI helper", () => {
     const source = (rootName: string, relPath: string, line: number) => ({
       resolutionClass: "declared" as const,
