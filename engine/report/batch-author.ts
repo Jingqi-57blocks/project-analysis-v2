@@ -601,6 +601,21 @@ function lifecycleSignalScore(fact: CitedFact): number {
   return score;
 }
 
+function lifecycleNotificationEvidence(fact: CitedFact): boolean {
+  if (fact.kind === "notification-call") return true;
+  const value = factObject(fact);
+  const text = [
+    fact.citation.relPath,
+    sourceLabel(fact),
+    sourceText(fact),
+    value.channel,
+    value.mechanism,
+    value.target,
+    value.call,
+  ].map((entry) => typeof entry === "string" ? entry : "").join(" ");
+  return /\b(notification|notify|email|mail|mobile\s+push|push\s+notification|slack|postmessage|recipient)\b/i.test(text);
+}
+
 /**
  * Keep the lifecycle author's input complete in the dimensions a reader cares
  * about without handing one model thousands of raw AST conditions. Selection is
@@ -766,6 +781,13 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     .sort((a, b) => a.factId.localeCompare(b.factId))
     .slice(0, 16);
   const states = [...stateFacts, ...transitions, ...valueSets, ...relatedSchedules];
+  const communications = eligible
+    .filter((fact) => fact.kind === "notification-call" || (fact.kind === "outbound-call" && lifecycleNotificationEvidence(fact)))
+    .sort((a, b) => {
+      const rank = (fact: CitedFact) => fact.kind === "notification-call" ? 0 : 1;
+      return rank(a) - rank(b) || a.factId.localeCompare(b.factId);
+    })
+    .slice(0, 12);
 
   const signalKinds = new Set(["condition", "decision", "guard", "business-rule", "validation-rule"]);
   const dedupedSignals: CitedFact[] = [];
@@ -866,6 +888,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
       let score = contained * 140;
       if (candidateScopeCore(fact)) score += 80;
       if (relatedPaths.has(path)) score += 250;
+      if (lifecycleNotificationEvidence(fact)) score += 220;
       if (/\b(status|state|approve|reject|cancel|withdraw|submit|create|update|delete|transition)\b/i.test(text)) score += 55;
       if (/\b(if|switch|case|transaction|rollback|commit)\b/i.test(text)) score += 30;
       return { fact, score, bytes: Buffer.byteLength(text, "utf8"), contained };
@@ -884,6 +907,18 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
   };
   for (const entry of excerptCandidates.filter((candidate) => relatedPaths.has(`${candidate.fact.citation.rootName}/${candidate.fact.citation.relPath}`))) {
     addExcerpt(entry);
+  }
+  const notificationFacets = [
+    /waiting|nextapprover|applied|submit/i,
+    /approved|requestupdate/i,
+    /reject/i,
+    /cancel/i,
+  ];
+  for (const facet of notificationFacets) {
+    const match = excerptCandidates.find((candidate) =>
+      lifecycleNotificationEvidence(candidate.fact) && facet.test(`${sourceLabel(candidate.fact)} ${sourceText(candidate.fact)}`),
+    );
+    if (match !== undefined) addExcerpt(match);
   }
   const flowLabels = coreFlows.flatMap((flow) => {
     const steps = factObject(flow).steps;
@@ -926,7 +961,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
 
   const labels = eligible.filter((fact) => fact.kind === "ui-label").slice(0, 12);
   return [...new Map(
-    [...coreFlows, ...states, ...signals, ...excerpts, ...labels].map((fact) => [fact.factId, fact] as const),
+    [...coreFlows, ...states, ...signals, ...communications, ...excerpts, ...labels].map((fact) => [fact.factId, fact] as const),
   ).values()];
 }
 
@@ -1082,7 +1117,7 @@ function promptForDocument(
     "Raw fact inventories belong to deterministic rendering. Do not add a claim merely to repeat identifiers, file paths or endpoint lists.",
     "Facts are listed once in a shared fact table. Each task may use only its factIds from that table; do not use another task's facts.",
     "For a structuredFlowRequired task, group all supplied feature-flow facts into 3-8 major business flows. Put every feature-flow factId in at least one flow group's factIds. Facts with reportScopeRole=core define the module's main business flows. Preserve materially different business variants as separate flows when their steps or rules differ; do not collapse all request types into one generic create flow. Do not promote generic lookups, thumbnails, calculations, shared AI helpers or other reportScopeRole=supporting facts into separate module responsibilities: combine those into at most one final supporting-capabilities group. A supporting surface with a coherent user-visible outcome, such as time-clock records, credential management or connector configuration, is a distinct major flow; do not merge unrelated coherent surfaces into a generic supporting group. Use 2-6 steps per group. Use branches for success, rejection, conditional, exception or unknown outcomes, but return no more than 10 branch rows per group: merge related field validations or equivalent status outcomes into one reader-facing branch and attach all supporting factIds to it. A flow that contains a rejection or exception branch must also contain an explicit success branch whenever the supplied flow reaches a normal result; never present a normal create/submit operation as if every outcome were rejection. Set afterStep to the one-based step after which the branch occurs. Translate raw user-facing errors into concise business language; preserve an English token only when it materially identifies a state or rule. Put every supplied guard and decision factId in at least one branch's factIds, so evidenced branch conditions are not dropped. Each step and branch must cite only factIds from that task. For other tasks, flowGroups must be empty.",
-    "For a structuredLifecycleRequired task, return 1-4 lifecycles and the complete material variantGroups supported by the supplied bounded facts. A lifecycle is an end-to-end business path, not an endpoint list: include entry/creation, validation and submission, approval or processing stages, successful and rejected terminal outcomes, scheduled transitions, and cancel/withdraw/delete/recovery paths when evidenced. Give every node a short stable id, business label, detail and factIds; every edge must reference two node ids from that lifecycle, state the triggering condition or action, classify the edge, and cite factIds. Do not infer a missing origin, status or outcome: use an unknown node or edge. Every numeric threshold that changes the approval or processing stage must be rendered as its own lifecycle edge with the exact threshold, even when the same fact also appears in a variant rule. In variantGroups, preserve distinct type-, role-, duration-, date-, balance-, attachment- and threshold-dependent rules. Combine equivalent duplicate facts into one reader-facing rule and attach all of their factIds, but never replace a concrete number or condition with generic 'validation'. Every supplied scheduled-task, state, state-transition, value-set, condition, decision, guard, business-rule and validation-rule factId must appear in at least one lifecycle node/edge or variant rule. For other tasks, lifecycles and variantGroups must both be empty.",
+    "For a structuredLifecycleRequired task, return 1-3 lifecycles and the complete material variantGroups supported by the supplied bounded facts. The first lifecycle must be the primary end-to-end user journey, not an endpoint list: combine the user's entry, type or option selection, type-specific validation, successful submission, approval or processing stages, successful and rejected terminal outcomes, evidenced notifications, and scheduled completion in one connected lifecycle. Put type-specific detail in variantGroups but keep the selection and validation decision visible in the primary lifecycle. Use a secondary lifecycle only for an evidenced cancel, withdraw, delete or recovery path; never create a lifecycle for a caller-unresolved entry. Give every node a short stable id, business label, detail and factIds; every edge must reference two node ids from that lifecycle, state the triggering condition or action, classify the edge, and cite factIds. Do not infer a missing origin, status, notification channel or outcome: use an unknown node or edge. Connect each evidenced email, mobile-push, chat or other notification to the lifecycle action that triggers it; do not name Slack or any channel absent from the supplied facts. Every numeric threshold that changes the approval or processing stage must be rendered as its own lifecycle edge with the exact threshold, even when the same fact also appears in a variant rule. In variantGroups, preserve distinct type-, role-, duration-, date-, balance-, attachment- and threshold-dependent rules. Combine equivalent duplicate facts into one reader-facing rule and attach all of their factIds, but never replace a concrete number or condition with generic 'validation'. Every supplied scheduled-task, state, state-transition, value-set, condition, decision, guard, business-rule, validation-rule, notification-call and notification-related source-excerpt factId must appear in at least one lifecycle node/edge or variant rule. For other tasks, lifecycles and variantGroups must both be empty.",
     "For a structuredIssueReview task, return 0-8 concise issues in issues. Use status=confirmed only for an explicit contradiction, discarded failure, unreachable outcome, inconsistent handling, a complete function excerpt that performs an ID-addressed read/write without relating the record to the current actor before returning or mutating it, a write that replaces ownership from the request without first proving the actor may change that record, or a raw SQL statement that directly interpolates actor/request values. Use needs-confirmation when an excerpt is chunked, enforcement may be delegated to an omitted callee/middleware, a missing state transition is inferred from an incomplete write inventory, or the evidence only suggests a missing control. Compare related functions when the supplied evidence shows two paths implementing the same rule differently, especially role checks, boundary values, project/owner relationships, transactions and list/export filters. Each issue must state the observed code behaviour and a bounded user/business impact, cite only supplied factIds, and contain no fix or priority. Prefer module-owned excerpts over generic supporting helpers when both are supplied. For other tasks, issues must be empty.",
     correction === null ? "" : `The previous response was invalid. Correct these problems:\n${correction}`,
     "Tasks:",
@@ -1227,8 +1262,8 @@ function validateBatch(requests: readonly AuthoringRequest[], response: BatchRes
     }
     if (lifecycleTask(request)) {
       if (task.lifecycles.length === 0) problems.push(`task ${task.taskId} returned no lifecycle`);
-      const lifecycleKinds = new Set(["scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule"]);
-      const required = bounded.filter((fact) => lifecycleKinds.has(fact.kind)).map((fact) => fact.factId);
+      const lifecycleKinds = new Set(["scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call"]);
+      const required = bounded.filter((fact) => lifecycleKinds.has(fact.kind) || lifecycleNotificationEvidence(fact)).map((fact) => fact.factId);
       const placed = new Set([
         ...task.lifecycles.flatMap(idsInLifecycle),
         ...idsInVariants(task.variantGroups),

@@ -283,4 +283,46 @@ describe("bounded issue evidence", () => {
     expect(selected).toContain("condition-hours-over-16");
     expect(selected).toContain("condition-hours-over-40");
   });
+
+  it("keeps lifecycle notification channels and representative outcome builders", () => {
+    const path = "features/leave/notification.go";
+    const notification = fact(
+      "notification-email",
+      "notification-call",
+      { channel: "email", mechanism: "SES" },
+      path,
+      100,
+    );
+    const waiting = fact(
+      "excerpt-waiting-notification",
+      "source-excerpt",
+      { label: "waitingApprovedByLevelBuilder.Build", text: "NotifyEmailCpst and mobile push notification" },
+      path,
+      120,
+      170,
+    );
+    const rejected = fact(
+      "excerpt-rejected-notification",
+      "source-excerpt",
+      { label: "rejectedBuilder.Build", text: "NotifyEmailCpst and mobile push notification" },
+      path,
+      700,
+      760,
+    );
+    const request: AuthoringRequest = {
+      taskId: "lifecycle-notifications",
+      documentId: "module|leave|product",
+      sectionId: "module-flows-branches",
+      blockId: "module-flows-branches.lifecycle",
+      audience: "product",
+      prompt: "",
+      digest: "",
+      facts: [notification, waiting, rejected],
+    };
+
+    const selected = boundedFactsFor(request).map((entry) => entry.factId);
+    expect(selected).toContain("notification-email");
+    expect(selected).toContain("excerpt-waiting-notification");
+    expect(selected).toContain("excerpt-rejected-notification");
+  });
 });

@@ -452,7 +452,7 @@ export const MODULE_LIFECYCLE_BLOCK: AuthoredBlockContract = {
   promptId: "module-lifecycle.v1",
   citationRule: "required",
   validatorId: "module-lifecycle.v1",
-  inputFactKinds: ["feature-flow", "scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "source-excerpt", "ui-label"],
+  inputFactKinds: ["feature-flow", "scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call", "outbound-call", "source-excerpt", "ui-label"],
   prompt: `Build the module's evidenced end-to-end business lifecycle and its materially different business variants. Show creation or entry, validation, submission, each approval or processing stage, success/rejection, cancellation/withdrawal/deletion, scheduled transitions and recovery when evidenced. Preserve distinct type-specific rules, numeric or time thresholds, balance/attachment requirements, role-dependent approval levels and status changes; do not reduce them to a generic validation step. A route whose flow explicitly says no caller was observed exists, but is not evidence of the active lifecycle: separate it as caller-unresolved rather than merging it with observed caller paths. If a state origin or outcome is not established, label it unknown instead of inferring it.\n\n${AUDIENCE_RULES}`,
 };
 

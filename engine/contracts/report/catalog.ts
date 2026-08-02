@@ -117,7 +117,7 @@ const MODULE_PRODUCT_SECTIONS: readonly SectionDefinition[] = [
   section("module-flows-branches", "Roles, flows and evidenced branches", "required", "module", "product", [
     deterministicBlock("module-flows-branches.branches", ["feature-flow", "condition", "decision", "guard", "route", "ui-label"], "module-branches.v1"),
     authoredBlock("module-flows-branches.flows", ["feature-flow", "condition", "decision", "guard", "route", "ui-label"], "module-flows.v1"),
-    authoredBlock("module-flows-branches.lifecycle", ["feature-flow", "scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "source-excerpt", "ui-label"], "module-lifecycle.v1"),
+    authoredBlock("module-flows-branches.lifecycle", ["feature-flow", "scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call", "outbound-call", "source-excerpt", "ui-label"], "module-lifecycle.v1"),
   ], "module roles, entry points, flows and all evidenced visible branches are present"),
   section("module-objects-rules-states", "Objects, rules, states, validation and exceptions", "required", "module", "product", [
     deterministicBlock("module-objects-rules-states.facts", ["entity", "state", "state-transition", "value-set", "business-rule", "validation-rule", "auth-annotation", "discarded-error", "ui-label"], "module-rules.v1"),
