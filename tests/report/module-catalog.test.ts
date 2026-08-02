@@ -118,7 +118,7 @@ describe("classifyReportModules", () => {
       const candidates = JSON.parse(request.prompt.split("Candidate input:\n").at(-1)!) as { candidateId: string; evidenceRefs: string[] }[];
       return { candidates: candidates.map((candidate) => ({
         candidateId: candidate.candidateId,
-        classification: "product-module" as const,
+        classification: calls === 1 ? "unresolved" as const : "product-module" as const,
         confidence: 0.95,
         reason: "user entry and business object evidence",
         evidenceRefs: candidate.evidenceRefs.slice(0, 1),
@@ -140,12 +140,12 @@ describe("classifyReportModules", () => {
     const second = await classifyReportModules(options);
     const modules = productReportModules(first.artifact, first.input);
 
-    expect(first.classifierCalls).toBe(1);
+    expect(first.classifierCalls).toBe(2);
     expect(first.classifierInputBytes).toBeGreaterThan(0);
     expect(first.reused).toBe(false);
     expect(second.classifierCalls).toBe(0);
     expect(second.reused).toBe(true);
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
     expect(modules).toEqual([expect.objectContaining({ id: "mod_leave", displayName: "Leave 请假", rawNames: ["leaves"] })]);
     store.close();
   });

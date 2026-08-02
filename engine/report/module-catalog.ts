@@ -22,7 +22,7 @@ import {
 } from "./slice-resolve.js";
 import { moduleScope } from "../contracts/report/target.js";
 
-const CLASSIFIER_CONTRACT_VERSION = "report-module-classifier.v5";
+const CLASSIFIER_CONTRACT_VERSION = "report-module-classifier.v6";
 const MAX_CLASSIFIER_PROMPT_BYTES = 120_000;
 
 function unique(values: Iterable<string>, cap: number): readonly string[] {
@@ -133,7 +133,7 @@ const CLASSIFICATION_SCHEMA: Readonly<Record<string, unknown>> = {
   },
 };
 
-function classifierPrompt(candidates: ReturnType<typeof generateModuleCandidates>, language: string): string {
+function classifierPrompt(candidates: ReturnType<typeof generateModuleCandidates>, language: string, correction: string | null): string {
   const outputLanguage = language.toLowerCase().startsWith("zh") ? "简体中文" : language;
   return [
     "You classify a bounded list of project-analysis module candidates. Use only the supplied JSON; do not inspect files or run tools.",
@@ -151,9 +151,10 @@ function classifierPrompt(candidates: ReturnType<typeof generateModuleCandidates
     "A settings, connector, sync, search or credential surface whose purpose is configuring or invoking one external provider is infrastructure, not a product module, unless the supplied evidence shows an independent end-to-end user outcome beyond that provider.",
     "includedCandidateIds may name supporting formed-module candidates that are genuinely part of the same capability. Never include external-system, infrastructure, or unrelated aggregate candidates. Otherwise return an empty array.",
     "Use only evidenceRefs present on that same candidate; one valid ref is enough. Return every candidate exactly once.",
+    correction === null ? "" : `The previous response was unusable. Correct this problem:\n${correction}`,
     "Candidate input:",
     JSON.stringify(candidates),
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 export interface ClassifyReportModulesOptions {
@@ -200,26 +201,36 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
       // Sending known components and boundaries again added no information and
       // more than doubled the WCP classifier prompt.
       const judged = candidates.filter((candidate) => moduleIds.has(candidate.candidateId));
-      classifierCalls += 1;
-      const prompt = classifierPrompt(judged, options.language);
-      const promptBytes = Buffer.byteLength(prompt, "utf8");
-      if (promptBytes > MAX_CLASSIFIER_PROMPT_BYTES) {
-        throw new Error(`module classifier input is ${promptBytes} bytes; bounded V1 limit is ${MAX_CLASSIFIER_PROMPT_BYTES}`);
+      let classifiedModules: readonly ClassifiedCandidate[] | null = null;
+      let correction: string | null = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        classifierCalls += 1;
+        const prompt = classifierPrompt(judged, options.language, correction);
+        const promptBytes = Buffer.byteLength(prompt, "utf8");
+        if (promptBytes > MAX_CLASSIFIER_PROMPT_BYTES) {
+          throw new Error(`module classifier input is ${promptBytes} bytes; bounded V1 limit is ${MAX_CLASSIFIER_PROMPT_BYTES}`);
+        }
+        classifierInputBytes += promptBytes;
+        const response = await runJsonAgent<ClassificationResponse>({
+          prompt,
+          schema: CLASSIFICATION_SCHEMA,
+          identity: options.agent,
+          ...(options.run === undefined ? {} : { run: options.run }),
+        });
+        classifierOutputBytes += Buffer.byteLength(JSON.stringify(response), "utf8");
+        const foreign = response.candidates.filter((candidate) => !moduleIds.has(candidate.candidateId));
+        if (foreign.length > 0) throw new Error(`module classifier returned non-module candidate(s): ${foreign.map((candidate) => candidate.candidateId).join(", ")}`);
+        const current = response.candidates.map((candidate): ClassifiedCandidate => ({
+          ...candidate,
+          status: candidate.classification === "unresolved" ? "unresolved" : "classified",
+        }));
+        if (current.some((candidate) => candidate.classification === "product-module")) {
+          classifiedModules = current;
+          break;
+        }
+        correction = `All ${current.length} returned module candidates were non-product or unresolved. The supplied list contains formed route/workflow modules; identify every evidenced cohesive user-facing capability as product-module, while keeping technical, aggregate and infrastructure candidates in their proper classes. Do not promote candidates without evidence.`;
       }
-      classifierInputBytes += promptBytes;
-      const response = await runJsonAgent<ClassificationResponse>({
-        prompt,
-        schema: CLASSIFICATION_SCHEMA,
-        identity: options.agent,
-        ...(options.run === undefined ? {} : { run: options.run }),
-      });
-      classifierOutputBytes += Buffer.byteLength(JSON.stringify(response), "utf8");
-      const foreign = response.candidates.filter((candidate) => !moduleIds.has(candidate.candidateId));
-      if (foreign.length > 0) throw new Error(`module classifier returned non-module candidate(s): ${foreign.map((candidate) => candidate.candidateId).join(", ")}`);
-      const classifiedModules = response.candidates.map((candidate): ClassifiedCandidate => ({
-        ...candidate,
-        status: candidate.classification === "unresolved" ? "unresolved" : "classified",
-      }));
+      if (classifiedModules === null) throw new Error("module classifier produced no product modules after 2 attempts");
       const fixed = candidates
         .filter((candidate) => !moduleIds.has(candidate.candidateId))
         .map((candidate): ClassifiedCandidate => {
