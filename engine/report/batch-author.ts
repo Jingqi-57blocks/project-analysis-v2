@@ -1335,6 +1335,200 @@ function idsInVariants(groups: readonly StructuredVariantGroup[]): readonly stri
   return groups.flatMap((group) => group.rules.flatMap((rule) => rule.factIds));
 }
 
+interface MutablePlacementTarget {
+  readonly label: string;
+  readonly text: string;
+  readonly factIds: string[];
+}
+
+interface CitationHint {
+  readonly rootName: string;
+  readonly relPath: string;
+  readonly startLine: number | null;
+  readonly endLine: number | null;
+}
+
+function citationHintForId(factId: string): CitationHint | null {
+  const parts = factId.split("|");
+  if (parts[0] !== "behavioral" || parts.length < 5) return null;
+  const startLine = Number(parts[4]);
+  if (!Number.isInteger(startLine) || startLine < 1) return null;
+  return { rootName: parts[2]!, relPath: parts[3]!, startLine, endLine: startLine };
+}
+
+function citationOf(fact: CitedFact): CitationHint {
+  return {
+    rootName: fact.citation.rootName,
+    relPath: fact.citation.relPath,
+    startLine: fact.citation.startLine,
+    endLine: fact.citation.endLine,
+  };
+}
+
+function citationContains(container: CitationHint, nested: CitationHint): boolean {
+  if (container.rootName !== nested.rootName || container.relPath !== nested.relPath) return false;
+  if (container.startLine === null || nested.startLine === null) return false;
+  const containerEnd = container.endLine ?? container.startLine;
+  const nestedEnd = nested.endLine ?? nested.startLine;
+  return container.startLine <= nested.startLine && containerEnd >= nestedEnd;
+}
+
+function significantTokens(value: string): ReadonlySet<string> {
+  const stop = new Set([
+    "and", "const", "else", "error", "false", "function", "len", "null", "required", "return", "string", "true", "undefined",
+  ]);
+  return new Set((value.match(/[A-Za-z][A-Za-z0-9_-]{2,}|\d+(?:\.\d+)?/g) ?? [])
+    .map((token) => token.toLowerCase())
+    .filter((token) => !stop.has(token)));
+}
+
+function factPlacementText(fact: CitedFact): string {
+  const value = factObject(fact);
+  return [
+    sourceLabel(fact),
+    value.subject,
+    value.field,
+    value.literal,
+    value.value,
+    value.test,
+    value.fullTest,
+    value.text,
+    value.statement,
+    value.message,
+    value.guarded,
+  ].map((entry) => typeof entry === "string" || typeof entry === "number" ? String(entry) : "").join(" ");
+}
+
+function placeRequiredFact(
+  fact: CitedFact,
+  targets: readonly MutablePlacementTarget[],
+  allowedById: ReadonlyMap<string, CitedFact>,
+): MutablePlacementTarget | null {
+  const factTokens = significantTokens(factPlacementText(fact));
+  const scored = targets.map((target) => {
+    const sharesCitation = target.factIds.some((id) => {
+      const placed = allowedById.get(id);
+      return placed !== undefined && (
+        citationContains(citationOf(placed), citationOf(fact)) || citationContains(citationOf(fact), citationOf(placed))
+      );
+    });
+    const targetTokens = significantTokens(target.text);
+    const overlap = [...factTokens].filter((token) => targetTokens.has(token)).length;
+    return { target, sharesCitation, overlap };
+  }).sort((a, b) => Number(b.sharesCitation) - Number(a.sharesCitation) || b.overlap - a.overlap || a.target.label.localeCompare(b.target.label));
+  const best = scored[0];
+  if (best === undefined || (!best.sharesCitation && best.overlap < 2)) return null;
+  return best.target;
+}
+
+function normalizeAgentTask(
+  request: AuthoringRequest,
+  task: AgentTaskArtifact,
+): { readonly task: AgentTaskArtifact; readonly changes: readonly string[] } {
+  const allowedFacts = boundedFactsFor(request);
+  const allowedById = new Map(allowedFacts.map((fact) => [fact.factId, fact] as const));
+  const allById = new Map(request.facts.map((fact) => [fact.factId, fact] as const));
+  const changes: string[] = [];
+  const remap = (factIds: readonly string[]): string[] => {
+    const normalized: string[] = [];
+    for (const factId of factIds) {
+      if (allowedById.has(factId)) {
+        normalized.push(factId);
+        continue;
+      }
+      const source = allById.get(factId);
+      const hint = source === undefined ? citationHintForId(factId) : citationOf(source);
+      const candidates = hint === null ? [] : allowedFacts
+        .filter((candidate) => citationContains(citationOf(candidate), hint))
+        .sort((a, b) => {
+          const sameKind = (candidate: CitedFact) => source !== undefined && candidate.kind === source.kind ? 0 : 1;
+          const excerpt = (candidate: CitedFact) => candidate.kind === "source-excerpt" ? 0 : 1;
+          const span = (candidate: CitedFact) => (candidate.citation.endLine ?? candidate.citation.startLine ?? 0) - (candidate.citation.startLine ?? 0);
+          return sameKind(a) - sameKind(b) || excerpt(a) - excerpt(b) || span(a) - span(b) || a.factId.localeCompare(b.factId);
+        });
+      const replacement = candidates[0];
+      if (replacement === undefined) {
+        changes.push(`dropped foreign fact ${factId}`);
+      } else {
+        normalized.push(replacement.factId);
+        changes.push(`remapped foreign fact ${factId} -> ${replacement.factId}`);
+      }
+    }
+    return [...new Set(normalized)];
+  };
+
+  const placementTargets: MutablePlacementTarget[] = [];
+  const claims = task.claims.map((claim) => ({ ...claim, factIds: remap(claim.factIds) }));
+  const flowGroups = task.flowGroups.map((group, groupIndex) => ({
+    ...group,
+    factIds: remap(group.factIds),
+    steps: group.steps.map((step) => ({ ...step, factIds: remap(step.factIds) })),
+    branches: group.branches.map((branch, branchIndex) => {
+      const factIds = remap(branch.factIds);
+      placementTargets.push({ label: `flow ${groupIndex + 1} branch ${branchIndex + 1}`, text: `${branch.condition} ${branch.outcome}`, factIds });
+      return { ...branch, factIds };
+    }),
+  }));
+  const lifecycles = task.lifecycles.map((lifecycle, lifecycleIndex) => ({
+    ...lifecycle,
+    nodes: lifecycle.nodes.map((node, nodeIndex) => {
+      const factIds = remap(node.factIds);
+      placementTargets.push({ label: `lifecycle ${lifecycleIndex + 1} node ${nodeIndex + 1}`, text: `${node.label} ${node.detail}`, factIds });
+      return { ...node, factIds };
+    }),
+    edges: lifecycle.edges.map((edge, edgeIndex) => {
+      const factIds = remap(edge.factIds);
+      placementTargets.push({ label: `lifecycle ${lifecycleIndex + 1} edge ${edgeIndex + 1}`, text: edge.label, factIds });
+      return { ...edge, factIds };
+    }),
+  }));
+  const variantGroups = task.variantGroups.map((group, groupIndex) => ({
+    ...group,
+    rules: group.rules.map((rule, ruleIndex) => {
+      const factIds = remap(rule.factIds);
+      placementTargets.push({ label: `variant ${groupIndex + 1} rule ${ruleIndex + 1}`, text: `${rule.condition} ${rule.outcome}`, factIds });
+      return { ...rule, factIds };
+    }),
+  }));
+  const issues = task.issues.map((issue) => ({ ...issue, factIds: remap(issue.factIds) }));
+  const normalized: AgentTaskArtifact = { ...task, claims, flowGroups, lifecycles, variantGroups, issues };
+
+  const required = lifecycleTask(request)
+    ? requiredLifecycleFactIds(request)
+    : flowTask(request)
+      ? requiredFlowBranchFactIds(request)
+      : [];
+  const placed = new Set(lifecycleTask(request)
+    ? [...normalized.lifecycles.flatMap(idsInLifecycle), ...idsInVariants(normalized.variantGroups)]
+    : normalized.flowGroups.flatMap((group) => group.branches.flatMap((branch) => branch.factIds)));
+  for (const factId of required) {
+    if (placed.has(factId)) continue;
+    const fact = allowedById.get(factId)!;
+    const target = placeRequiredFact(fact, placementTargets, allowedById);
+    if (target === null) continue;
+    target.factIds.push(factId);
+    placed.add(factId);
+    changes.push(`placed required fact ${factId} on ${target.label}`);
+  }
+  return { task: normalized, changes: changes.slice(0, 40) };
+}
+
+function normalizeBatch(
+  requests: readonly AuthoringRequest[],
+  response: BatchResponse,
+): { readonly response: BatchResponse; readonly changes: readonly string[] } {
+  const requestById = new Map(requests.map((request) => [request.taskId, request] as const));
+  const changes: string[] = [];
+  const tasks = response.tasks.map((task) => {
+    const request = requestById.get(task.taskId);
+    if (request === undefined) return task;
+    const normalized = normalizeAgentTask(request, task);
+    changes.push(...normalized.changes);
+    return normalized.task;
+  });
+  return { response: { tasks }, changes: changes.slice(0, 40) };
+}
+
 function claimMarkdown(claim: StructuredClaim, facts: readonly CitedFact[]): string {
   const factNumbers = new Map(facts.map((fact, index) => [fact.factId, index + 1] as const));
   const markers = claim.factIds.map((id) => `[${factNumbers.get(id) ?? 0}]`).join("");
@@ -1343,7 +1537,7 @@ function claimMarkdown(claim: StructuredClaim, facts: readonly CitedFact[]): str
   // sentence terminator, including an English error message immediately
   // followed by Chinese punctuation. Decimal points are not terminators.
   let injected = false;
-  const cited = text.replace(/([。！？!?]|\.(?!\d))(?=\s|$|[；;，,]|[\p{Script=Han}])/gu, (terminator) => {
+  const cited = text.replace(/([。！？!?]|\.(?!\d))(?=(?:["'”’」』》】）)]*)(?:\s|$|[；;，,。！？!?]|[\p{Script=Han}]))/gu, (terminator) => {
     injected = true;
     return ` ${markers}${terminator}`;
   });
@@ -1579,6 +1773,7 @@ export interface AuthoringAttemptMetric {
   readonly outputBytes: number;
   readonly outcome: "validated" | "validation-failed" | "agent-error";
   readonly problems: readonly string[];
+  readonly normalizations: readonly string[];
 }
 
 export interface AuthoringTaskMetric {
@@ -1692,6 +1887,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
           outputBytes: 0,
           outcome: "agent-error",
           problems: [error instanceof Error ? error.message : String(error)],
+          normalizations: [],
         });
         taskMetrics.push({
           taskId: request.taskId,
@@ -1706,7 +1902,8 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
       }
       const responseBytes = Buffer.byteLength(stableStringify(response), "utf8");
       agentOutputBytes += responseBytes;
-      const problems = validateBatch(documentRequests, response);
+      const normalized = normalizeBatch(documentRequests, response);
+      const problems = validateBatch(documentRequests, normalized.response);
       attempts.push({
         attempt: attempt + 1,
         elapsedMs: roundedMs(attemptStarted),
@@ -1714,9 +1911,10 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
         outputBytes: responseBytes,
         outcome: problems.length === 0 ? "validated" : "validation-failed",
         problems: problems.slice(0, 20),
+        normalizations: normalized.changes,
       });
       if (problems.length === 0) {
-        writeCache(path, key, response);
+        writeCache(path, key, normalized.response);
         taskMetrics.push({
           taskId: request.taskId,
           documentId: request.documentId,
@@ -1726,7 +1924,7 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
           totalMs: roundedMs(taskStarted),
           attempts,
         });
-        return response;
+        return normalized.response;
       }
       correction = problems.slice(0, 20).join("\n");
     }

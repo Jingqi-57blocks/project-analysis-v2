@@ -67,29 +67,30 @@ describe("prepareBatchAuthor", () => {
         tasks: tasks.map((task) => {
           const ids = task.factIds;
           const first = ids[0]!;
+          const foreign = "behavioral|condition|r1|handlers/leave/service.go|10|foreign";
           return {
             taskId: task.taskId,
-            claims: [{ text: "该部分先检查条件! 然后继续处理!；最终由当前事实支持。", factIds: [first] }],
+            claims: [{ text: "该部分先检查条件! 然后继续处理!；最终由当前事实支持。", factIds: [first, foreign] }],
             flowGroups: task.structuredFlowRequired ? [{
               title: "主要流程",
               summary: "按已知条件处理",
               factIds: [first],
               steps: [{ label: "处理请求", detail: "读取当前事实", factIds: [first] }],
-              branches: [{ afterStep: 1, condition: "已知条件", outcome: "继续处理", kind: "conditional" as const, factIds: ids }],
+              branches: [{ afterStep: 1, condition: "已知条件", outcome: "继续处理", kind: "conditional" as const, factIds: [...ids, foreign] }],
             }] : [],
             lifecycles: task.structuredLifecycleRequired ? [{
               title: "业务生命周期",
               summary: "从进入到处理完成",
               nodes: [
-                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: ids },
-                { id: "done", label: "完成", detail: "处理结束", kind: "terminal" as const, factIds: ids },
+                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [first, foreign] },
+                { id: "done", label: "完成", detail: "处理结束", kind: "terminal" as const, factIds: [first] },
               ],
-              edges: [{ from: "start", to: "done", label: "通过校验", kind: "normal" as const, factIds: ids }],
+              edges: [{ from: "start", to: "done", label: "通过校验", kind: "normal" as const, factIds: [first] }],
             }] : [],
             variantGroups: task.structuredLifecycleRequired ? [{
               title: "条件规则",
               summary: "保留当前切片中的条件",
-              rules: [{ condition: "满足已知条件", outcome: "继续处理", factIds: ids }],
+              rules: [{ condition: "满足已知条件", outcome: "继续处理", factIds: [first] }],
             }] : [],
             issues: task.structuredIssueReview ? [{
               title: "需要核对的行为",
@@ -121,6 +122,7 @@ describe("prepareBatchAuthor", () => {
     expect(first.taskMetrics).toHaveLength(first.structuredByTask.size);
     expect(first.taskMetrics.every((task) => !task.cacheHit)).toBe(true);
     expect(first.taskMetrics.every((task) => task.attempts.length === 1 && task.attempts[0]?.outcome === "validated")).toBe(true);
+    expect(first.taskMetrics.some((task) => (task.attempts[0]?.normalizations.length ?? 0) > 0)).toBe(true);
     expect(second.agentCalls).toBe(0);
     expect(second.cacheHits).toBe(first.structuredByTask.size);
     expect(second.taskMetrics).toHaveLength(first.structuredByTask.size);
