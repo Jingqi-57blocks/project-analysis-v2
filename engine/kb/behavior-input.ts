@@ -22,6 +22,7 @@ import type { RootFacts } from "./extract.js";
 import { gatherRecords } from "./gather.js";
 import type { AssembleInput } from "./behavior-assemble.js";
 import { deriveNotificationsForRoots } from "./notification-reachability.js";
+import { observeOutboundIntegration } from "./outbound-integration-observe.js";
 import { observeStateChanges } from "./state-transition-observe.js";
 import { observeAuthorization, promoteGuardValidations } from "./boundary-observe.js";
 import { deriveTestRelations } from "../providers/tests/provider.js";
@@ -66,6 +67,17 @@ export function behaviorInputFrom(
     sinks: g.notifications,
     ...(opts.codeIndexPath === undefined ? {} : { codeIndexPath: opts.codeIndexPath }),
     ...(opts.rootPaths === undefined ? {} : { rootPaths: opts.rootPaths }),
+  });
+
+  // Observe library-standard outbound sinks (AWS SDK / net-http / net-smtp / axios
+  // / fetch) and reverse-reach each to the handlers that trigger it, so an SDK call
+  // whose endpoint is baked into the client — invisible to the URL-literal reader —
+  // becomes an outbound-call, and the wrapper's caller lands one too. Fails open:
+  // without root paths nothing is scanned, without an index nothing is reached.
+  const outbound = observeOutboundIntegration({
+    roots,
+    ...(opts.rootPaths === undefined ? {} : { rootPaths: opts.rootPaths }),
+    ...(opts.codeIndexPath === undefined ? {} : { codeIndexPath: opts.codeIndexPath }),
   });
 
   // Observe state changes generically — a value-set member of a state-bearing set
@@ -141,13 +153,15 @@ export function behaviorInputFrom(
       discarded: g.discarded,
     },
     // Data access, transactions, outbound and notification calls are extracted;
-    // no provider emits external-call, so it stays empty. The reverse-reachability
-    // records join the directly-matched sinks under the same notification kind.
+    // external library outbound sinks (AWS SDK / net-http / net-smtp / axios /
+    // fetch) come from the generic observer above, both the direct call sites and
+    // their reverse-reached handlers. The reverse-reachability notification records
+    // join the directly-matched sinks under the same notification kind.
     sideEffects: {
       dataAccess: g.dataAccess,
       transactions: g.transactions,
       outbound: g.calls,
-      external: [],
+      external: outbound.external,
       notifications: [...g.notifications, ...reached.notifications],
     },
     // Test relations are linked generically (PI-84). providerRan is true only when
@@ -156,5 +170,8 @@ export function behaviorInputFrom(
     // index could not be trusted to have shown them.
     tests: { testRelations, providerRan: testProviderRan },
   };
-  return { input, notes: [...reached.notes, ...observed.notes, ...observedAuth.notes, ...testNotes] };
+  return {
+    input,
+    notes: [...reached.notes, ...outbound.notes, ...observed.notes, ...observedAuth.notes, ...testNotes],
+  };
 }
