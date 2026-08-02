@@ -343,6 +343,33 @@ const FLOW_BRANCH_REPAIR_SCHEMA: Readonly<Record<string, unknown>> = {
   },
 };
 
+interface LifecycleRuleRepairResponse {
+  readonly rules: readonly StructuredVariantRule[];
+}
+
+const LIFECYCLE_RULE_REPAIR_SCHEMA: Readonly<Record<string, unknown>> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["rules"],
+  properties: {
+    rules: {
+      type: "array",
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["condition", "outcome", "factIds"],
+        properties: {
+          condition: { type: "string" },
+          outcome: { type: "string" },
+          factIds: { type: "array", minItems: 1, items: { type: "string" } },
+        },
+      },
+    },
+  },
+};
+
 function digest(value: unknown): string {
   return createHash("sha256").update(stableStringify(value)).digest("hex");
 }
@@ -1709,6 +1736,130 @@ function applyFlowBranchRepair(task: AgentTaskArtifact, repair: FlowBranchRepair
   };
 }
 
+const LIFECYCLE_RULE_REPAIR_KINDS = new Set([
+  "business-rule",
+  "condition",
+  "decision",
+  "guard",
+  "validation-rule",
+  "value-set",
+]);
+
+function missingLifecycleFactIds(request: AuthoringRequest, task: AgentTaskArtifact): readonly string[] {
+  const placed = new Set([
+    ...task.lifecycles.flatMap(idsInLifecycle),
+    ...idsInVariants(task.variantGroups),
+  ]);
+  return requiredLifecycleFactIds(request).filter((factId) => !placed.has(factId));
+}
+
+function onlyMissingLifecycleRules(
+  request: AuthoringRequest,
+  problems: readonly string[],
+  missingFactIds: readonly string[],
+): boolean {
+  const prefix = `task ${request.taskId} omitted `;
+  if (problems.length === 0 || !problems.every((problem) => problem.startsWith(prefix) && problem.includes(" lifecycle/rule fact(s):"))) {
+    return false;
+  }
+  const byId = new Map(boundedFactsFor(request).map((fact) => [fact.factId, fact] as const));
+  return missingFactIds.length > 0 && missingFactIds.every((factId) => LIFECYCLE_RULE_REPAIR_KINDS.has(byId.get(factId)?.kind ?? ""));
+}
+
+function lifecycleRuleRepairPrompt(
+  request: AuthoringRequest,
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  language: string,
+): string {
+  const byId = new Map(boundedFactsFor(request).map((fact) => [fact.factId, fact] as const));
+  const existingRules = task.variantGroups.flatMap((group) => group.rules.map((rule) => ({
+    group: group.title,
+    condition: rule.condition,
+    outcome: rule.outcome,
+  })));
+  return [
+    `Repair omitted lifecycle rules for task ${request.taskId}. Do not rewrite the report or inspect files.`,
+    `Write concise ${language.toLowerCase().startsWith("zh") ? "Simplified Chinese" : language} for a non-technical reader.`,
+    "Return only reader-visible rules needed to place the missing facts. Use each supplied missing factId exactly once and no other factIds. Group facts only when they express the same rule. Preserve concrete types, states, thresholds, required fields and outcomes. Do not invent an outcome absent from evidence; state that the outcome is not identified when necessary.",
+    "Existing rules (avoid duplicating their wording):",
+    JSON.stringify(existingRules),
+    "Missing rule facts:",
+    JSON.stringify(missingFactIds.map((factId) => ({
+      factId,
+      evidence: authorFactLine(byId.get(factId)!, request.blockId),
+    }))),
+  ].join("\n\n");
+}
+
+function normalizeLifecycleRuleRepair(
+  repair: LifecycleRuleRepairResponse,
+  missingFactIds: readonly string[],
+): { readonly repair: LifecycleRuleRepairResponse; readonly changes: readonly string[] } {
+  const missing = new Set(missingFactIds);
+  const changes: string[] = [];
+  const normalize = (raw: string): string => {
+    if (missing.has(raw)) return raw;
+    const matches = missingFactIds.filter((factId) => raw.includes(`[${factId}]`));
+    if (matches.length !== 1) return raw;
+    changes.push(`normalized lifecycle repair fact ${raw} -> ${matches[0]}`);
+    return matches[0]!;
+  };
+  return {
+    repair: {
+      rules: repair.rules.map((rule) => ({
+        ...rule,
+        factIds: [...new Set(rule.factIds.map(normalize))],
+      })),
+    },
+    changes: changes.slice(0, 40),
+  };
+}
+
+function validateLifecycleRuleRepair(
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  repair: LifecycleRuleRepairResponse,
+): readonly string[] {
+  const problems: string[] = [];
+  const missing = new Set(missingFactIds);
+  const seen = new Set<string>();
+  if (task.variantGroups.length >= 14) problems.push("lifecycle repair cannot add another variant group");
+  for (const [index, rule] of repair.rules.entries()) {
+    if (rule.condition.trim() === "" || rule.outcome.trim() === "") {
+      problems.push(`lifecycle repair rule ${index} has an empty condition or outcome`);
+    }
+    for (const factId of rule.factIds) {
+      if (!missing.has(factId)) problems.push(`lifecycle repair rule ${index} cites non-missing fact ${factId}`);
+      if (seen.has(factId)) problems.push(`lifecycle repair repeats fact ${factId}`);
+      seen.add(factId);
+    }
+  }
+  for (const factId of missingFactIds) {
+    if (!seen.has(factId)) problems.push(`lifecycle repair omits fact ${factId}`);
+  }
+  return problems;
+}
+
+function applyLifecycleRuleRepair(
+  task: AgentTaskArtifact,
+  repair: LifecycleRuleRepairResponse,
+  language: string,
+): AgentTaskArtifact {
+  const chinese = language.toLowerCase().startsWith("zh");
+  return {
+    ...task,
+    variantGroups: [
+      ...task.variantGroups,
+      {
+        title: chinese ? "补充业务规则" : "Additional business rules",
+        summary: chinese ? "以下规则补充主生命周期中的具体条件。" : "These rules add concrete conditions to the primary lifecycle.",
+        rules: repair.rules,
+      },
+    ],
+  };
+}
+
 function claimMarkdown(claim: StructuredClaim, facts: readonly CitedFact[]): string {
   const factNumbers = new Map(facts.map((fact, index) => [fact.factId, index + 1] as const));
   const markers = claim.factIds.map((id) => `[${factNumbers.get(id) ?? 0}]`).join("");
@@ -1968,6 +2119,7 @@ export interface PrepareBatchAuthorOptions {
   readonly concurrency?: number;
   readonly run?: JsonAgentRunner<BatchResponse>;
   readonly repairRun?: JsonAgentRunner<FlowBranchRepairResponse>;
+  readonly lifecycleRepairRun?: JsonAgentRunner<LifecycleRuleRepairResponse>;
 }
 
 export interface BatchAuthorPreparation {
@@ -1982,7 +2134,7 @@ export interface BatchAuthorPreparation {
 
 export interface AuthoringAttemptMetric {
   readonly attempt: number;
-  readonly kind: "author" | "flow-branch-repair";
+  readonly kind: "author" | "flow-branch-repair" | "lifecycle-rule-repair";
   readonly elapsedMs: number;
   readonly inputBytes: number;
   readonly outputBytes: number;
@@ -2222,6 +2374,77 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
             attempts.push({
               attempt: attempts.length + 1,
               kind: "flow-branch-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: 0,
+              outcome: "agent-error",
+              problems: [error instanceof Error ? error.message : String(error)],
+              normalizations: [],
+            });
+          }
+        }
+      }
+      const missingLifecycleFacts = normalizedTask === undefined ? [] : missingLifecycleFactIds(request, normalizedTask);
+      if (
+        normalizedTask !== undefined &&
+        onlyMissingLifecycleRules(request, problems, missingLifecycleFacts)
+      ) {
+        const repairPrompt = lifecycleRuleRepairPrompt(request, normalizedTask, missingLifecycleFacts, options.language);
+        const repairInputBytes = Buffer.byteLength(repairPrompt, "utf8");
+        if (repairInputBytes <= MAX_TASK_PROMPT_BYTES) {
+          agentCalls += 1;
+          agentInputBytes += repairInputBytes;
+          const repairStarted = performance.now();
+          try {
+            const repair = await runJsonAgent<LifecycleRuleRepairResponse>({
+              prompt: repairPrompt,
+              schema: LIFECYCLE_RULE_REPAIR_SCHEMA,
+              identity: options.agent,
+              ...(options.lifecycleRepairRun === undefined ? {} : { run: options.lifecycleRepairRun }),
+            });
+            const repairOutputBytes = Buffer.byteLength(stableStringify(repair), "utf8");
+            agentOutputBytes += repairOutputBytes;
+            const normalizedRepair = normalizeLifecycleRuleRepair(repair, missingLifecycleFacts);
+            let repairProblems = [...validateLifecycleRuleRepair(normalizedTask, missingLifecycleFacts, normalizedRepair.repair)];
+            let repairedResponse: BatchResponse | null = null;
+            let repairNormalizations: readonly string[] = normalizedRepair.changes;
+            if (repairProblems.length === 0) {
+              const repaired = normalizeBatch(documentRequests, {
+                tasks: [applyLifecycleRuleRepair(normalizedTask, normalizedRepair.repair, options.language)],
+              });
+              repairedResponse = repaired.response;
+              repairNormalizations = [...normalizedRepair.changes, ...repaired.changes].slice(0, 40);
+              repairProblems = [...validateBatch(documentRequests, repaired.response)];
+            }
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "lifecycle-rule-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: repairOutputBytes,
+              outcome: repairProblems.length === 0 ? "validated" : "validation-failed",
+              problems: repairProblems.slice(0, 20),
+              normalizations: repairNormalizations,
+            });
+            if (repairProblems.length === 0 && repairedResponse !== null) {
+              writeCache(path, key, repairedResponse);
+              taskMetrics.push({
+                taskId: request.taskId,
+                documentId: request.documentId,
+                sectionId: request.sectionId,
+                blockId: request.blockId,
+                mode: "agent",
+                cacheHit: false,
+                totalMs: roundedMs(taskStarted),
+                attempts,
+              });
+              return repairedResponse;
+            }
+            retryProblems = repairProblems;
+          } catch (error) {
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "lifecycle-rule-repair",
               elapsedMs: roundedMs(repairStarted),
               inputBytes: repairInputBytes,
               outputBytes: 0,

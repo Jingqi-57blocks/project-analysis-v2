@@ -77,6 +77,7 @@ describe("prepareBatchAuthor", () => {
         tasks: tasks.map((task) => {
           const ids = task.factIds;
           const first = ids[0]!;
+          const lifecycleFirst = ids.find((id) => id !== secondaryDecisionId) ?? first;
           const nearbyDecision = ids.find((id) => id.includes("primaryDecision")) ?? first;
           const foreign = "behavioral|condition|r1|handlers/leave/service.go|10|foreign";
           return {
@@ -93,15 +94,15 @@ describe("prepareBatchAuthor", () => {
               title: "业务生命周期",
               summary: "从进入到处理完成",
               nodes: [
-                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [...ids, foreign] },
-                { id: "done", label: "完成", detail: "处理结束", kind: "terminal" as const, factIds: [first] },
+                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [...ids.filter((id) => id !== secondaryDecisionId), foreign] },
+                { id: "done", label: "完成", detail: "处理结束", kind: "terminal" as const, factIds: [lifecycleFirst] },
               ],
-              edges: [{ from: "start", to: "done", label: "通过校验", kind: "normal" as const, factIds: [first] }],
+              edges: [{ from: "start", to: "done", label: "通过校验", kind: "normal" as const, factIds: [lifecycleFirst] }],
             }] : [],
             variantGroups: task.structuredLifecycleRequired ? [{
               title: "条件规则",
               summary: "保留当前切片中的条件",
-              rules: [{ condition: "满足已知条件", outcome: "继续处理", factIds: [first] }],
+              rules: [{ condition: "满足已知条件", outcome: "继续处理", factIds: [lifecycleFirst] }],
             }] : [],
             issues: task.structuredIssueReview ? [{
               title: "需要核对的行为",
@@ -112,6 +113,19 @@ describe("prepareBatchAuthor", () => {
             }] : [],
           };
         }),
+      };
+    };
+    let lifecycleRepairCalls = 0;
+    const lifecycleRepairRunner = async (agentRequest: { prompt: string }) => {
+      lifecycleRepairCalls += 1;
+      expect(agentRequest.prompt).toContain(secondaryDecisionId);
+      expect(agentRequest.prompt).toContain(`\"factId\":\"${secondaryDecisionId}\"`);
+      return {
+        rules: [{
+          condition: "触发次级决策",
+          outcome: "进入对应处理结果",
+          factIds: [`[${secondaryDecisionId}] «evidence copied from the prompt»`],
+        }],
       };
     };
     let repairCalls = 0;
@@ -140,6 +154,7 @@ describe("prepareBatchAuthor", () => {
       cacheDir,
       run: runner,
       repairRun: repairRunner,
+      lifecycleRepairRun: lifecycleRepairRunner,
     };
     const first = await prepareBatchAuthor(common);
     const second = await prepareBatchAuthor(common);
@@ -147,13 +162,16 @@ describe("prepareBatchAuthor", () => {
 
     expect(first.structuredByTask.size).toBeGreaterThan(0);
     expect([...first.structuredByTask.values()].some((artifact) => artifact.issues.length > 0)).toBe(true);
-    expect(first.agentCalls).toBe(agentTaskCount + 1);
+    expect(first.agentCalls).toBe(agentTaskCount + 2);
     expect(first.taskMetrics).toHaveLength(first.structuredByTask.size);
     expect(first.taskMetrics.every((task) => !task.cacheHit)).toBe(true);
     expect(first.taskMetrics.every((task) => task.mode === "deterministic" || task.attempts.at(-1)?.outcome === "validated")).toBe(true);
     expect(first.taskMetrics.some((task) => task.attempts.some((attempt) => attempt.kind === "flow-branch-repair"))).toBe(true);
     expect(first.taskMetrics.some((task) => task.attempts.some((attempt) =>
       attempt.kind === "flow-branch-repair" && attempt.normalizations.some((change) => change.startsWith("normalized repair fact ")),
+    ))).toBe(true);
+    expect(first.taskMetrics.some((task) => task.attempts.some((attempt) =>
+      attempt.kind === "lifecycle-rule-repair" && attempt.normalizations.some((change) => change.startsWith("normalized lifecycle repair fact ")),
     ))).toBe(true);
     expect(first.taskMetrics.some((task) => (task.attempts[0]?.normalizations.length ?? 0) > 0)).toBe(true);
     expect(second.agentCalls).toBe(0);
@@ -163,6 +181,7 @@ describe("prepareBatchAuthor", () => {
     expect(second.taskMetrics.filter((task) => task.mode === "deterministic").every((task) => !task.cacheHit && task.attempts.length === 0)).toBe(true);
     expect(calls).toBe(agentTaskCount);
     expect(repairCalls).toBe(1);
+    expect(lifecycleRepairCalls).toBe(1);
     store.close();
   });
 });
