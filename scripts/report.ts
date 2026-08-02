@@ -93,9 +93,9 @@ function parseArgs(argv: readonly string[]): Args {
   if (!["low", "medium", "high", "xhigh"].includes(classifierReasoning)) {
     throw new Error(`--classifier-reasoning must be low, medium, high or xhigh; got ${classifierReasoning}`);
   }
-  const concurrency = Number(value(argv, "--concurrency") ?? "8");
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) {
-    throw new Error("--concurrency must be an integer from 1 to 8");
+  const concurrency = Number(value(argv, "--concurrency") ?? "16");
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
+    throw new Error("--concurrency must be an integer from 1 to 16");
   }
   const optional = (flag: string): string | undefined => value(argv, flag);
   const runId = optional("--run");
