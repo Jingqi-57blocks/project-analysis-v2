@@ -23,7 +23,7 @@ afterAll(() => {
 });
 
 const artifact: ModuleClassificationArtifact = {
-  schemaVersion: "module-classification.v1",
+  schemaVersion: "module-classification.v2",
   sourceSnapshotId: "snap-1",
   candidateSetDigest: "abc",
   classifier: { executor: "agent", model: "m", contractVersion: "v1" },

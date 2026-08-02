@@ -51,7 +51,7 @@ import {
   type RepositoryProfile,
 } from "./profiles.js";
 import { STRUCTURAL_KINDS, isUniversalKind } from "../structural/kinds.js";
-import type { ImportRecord, SourceFileRecord } from "../structural/code.js";
+import type { CallEdgeRecord, ImportRecord, SourceFileRecord, SymbolRecord } from "../structural/code.js";
 import type {
   CoverageNote,
   FeatureFact,
@@ -308,6 +308,21 @@ export class KnowledgeBase {
 
   modules(): readonly ModuleFact[] {
     return this.derived("module");
+  }
+
+  /** Source inventory with parser-confirmed language, used by report summaries. */
+  sourceFiles(): readonly SourceFileRecord[] {
+    return this.structural("source-file") as readonly SourceFileRecord[];
+  }
+
+  /** Declared symbols, exposed for bounded report-scope dependency joins. */
+  symbols(): readonly SymbolRecord[] {
+    return this.structural("symbol") as readonly SymbolRecord[];
+  }
+
+  /** Resolved and unresolved calls, exposed without provider-native fields. */
+  callEdges(): readonly CallEdgeRecord[] {
+    return this.structural("call-edge") as readonly CallEdgeRecord[];
   }
 
   moduleDetail(moduleId: string): ModuleDetail | null {

@@ -15,7 +15,7 @@ import type { ModuleClassificationArtifact } from "../contracts/module-classific
 import { MODULE_CLASSIFICATION_SCHEMA_VERSION } from "../contracts/module-classification/schema.js";
 import { stableStringify } from "../contracts/shared-fact/merge.js";
 
-export const MODULE_CLASSIFICATION_FILENAME = "module-classification.v1.json";
+export const MODULE_CLASSIFICATION_FILENAME = "module-classification.v2.json";
 
 export function classificationArtifactPath(runDir: string): string {
   return join(runDir, MODULE_CLASSIFICATION_FILENAME);
