@@ -763,9 +763,18 @@ function coverage(options: ExportProductReportSiteOptions, moduleId?: string): s
     const scope = moduleScope(moduleId);
     const rows = kinds.map((kind) => {
       const resolved = resolveSliceFacts(options.readers, scope, [kind]);
-      const count = (kind === "module" || kind === "feature-flow")
-        ? resolved.length
-        : resolved.filter((fact) => fact.scopeRole !== "supporting").length;
+      let count = kind === "module"
+        ? (options.modules.some((module) => module.id === moduleId) ? 1 : resolved.length)
+        : kind === "feature-flow"
+          ? resolved.length
+          : resolved.filter((fact) => fact.scopeRole !== "supporting").length;
+      if (kind === "notification-call" && count === 0) {
+        count = resolveSliceFacts(options.readers, scope, ["source-excerpt"]).filter((fact) => {
+          if (fact.scopeRole === "supporting") return false;
+          const text = stringField(fact.value, "text") ?? "";
+          return /Notify(?:Email|Mail)Cpst|Notify(?:Mobile|Push)Cpst|mobile\s+push\s+notification/i.test(text);
+        }).length;
+      }
       return `<tr><td>${html(labels[kind] ?? readableIdentifier(kind))}</td><td class="${count > 0 ? "coverage-ok" : "coverage-limit"}">${count > 0 ? "有证据" : "未建立"}</td><td>${count} 条可归属事实；0 表示本次未建立，不解释为业务上不存在。</td></tr>`;
     }).join("");
     return `<table class="coverage-table"><thead><tr><th>核对层</th><th>状态</th><th>覆盖说明</th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -944,9 +953,16 @@ function moduleEffects(options: ExportProductReportSiteOptions, module: ReportMo
       return /Notify(?:Email|Mail)Cpst|Notify(?:Mobile|Push)Cpst|mobile\s+push\s+notification/i.test(text);
     })
     .slice(0, 8);
+  const explicitChannels = unique(channelFacts.flatMap((fact) => {
+    const text = stringField(fact.value, "text") ?? "";
+    return [
+      /Notify(?:Email|Mail)Cpst/i.test(text) ? "邮件" : "",
+      /Notify(?:Mobile|Push)Cpst|mobile\s+push\s+notification/i.test(text) ? "移动推送" : "",
+    ];
+  }));
   const counts = new Map<string, number>();
   for (const fact of facts) counts.set(fact.kind, (counts.get(fact.kind) ?? 0) + 1);
-  const stats = `<div class="stat-grid"><div><strong>${counts.get("data-access") ?? 0}</strong><span>数据访问事实</span></div><div><strong>${counts.get("outbound-call") ?? 0}</strong><span>外部调用事实</span></div><div><strong>${counts.get("notification-call") ?? 0}</strong><span>通知事实</span></div><div><strong>${unique(facts.map((fact) => fact.citation.rootName)).length}</strong><span>涉及源码根</span></div></div>`;
+  const stats = `<div class="stat-grid"><div><strong>${counts.get("data-access") ?? 0}</strong><span>数据访问事实</span></div><div><strong>${counts.get("outbound-call") ?? 0}</strong><span>外部调用事实</span></div><div><strong>${Math.max(counts.get("notification-call") ?? 0, explicitChannels.length)}</strong><span>通知方式</span></div><div><strong>${unique([...facts, ...channelFacts].map((fact) => fact.citation.rootName)).length}</strong><span>涉及源码根</span></div></div>`;
   const ranked = (kind: string, fields: readonly string[], cap: number): readonly string[] => {
     const frequency = new Map<string, number>();
     for (const fact of facts.filter((entry) => entry.kind === kind)) {
@@ -959,13 +975,6 @@ function moduleEffects(options: ExportProductReportSiteOptions, module: ReportMo
       .slice(0, cap)
       .map(([name]) => readableIdentifier(name).replace(/^wcp\s+/i, ""));
   };
-  const explicitChannels = unique(channelFacts.flatMap((fact) => {
-    const text = stringField(fact.value, "text") ?? "";
-    return [
-      /Notify(?:Email|Mail)Cpst/i.test(text) ? "邮件" : "",
-      /Notify(?:Mobile|Push)Cpst|mobile\s+push\s+notification/i.test(text) ? "移动推送" : "",
-    ];
-  }));
   const groups = [
     ["主要数据对象", ranked("data-access", ["entity"], 10)],
     ["调用与集成触点", ranked("outbound-call", ["target", "baseIdentifier"], 10)],

@@ -270,6 +270,7 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("主要数据对象");
     expect(detail).toContain("主要数据对象</h3><p>leave</p>");
     expect(detail).not.toContain("主要数据对象</h3><p>worklog</p>");
+    expect(detail).toContain("<td>模块身份</td><td class=\"coverage-ok\">有证据</td>");
     expect(detail).not.toContain("<h3>Authorization</h3>");
     expect(detail).toContain("<h3>项目经理</h3>");
     expect(detail).not.toContain("var(--bs-indigo)");
