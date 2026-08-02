@@ -4,28 +4,39 @@
  *
  * The prose-authoring host injects a `ProseAuthor` (a model, in phase B) and hands
  * it a block's cited-fact digest; whatever prose comes back is checked here before
- * the block is accepted. This validator is purely lexical and deterministic — it
- * proves the prose CITES the facts and does not QUOTE a value the cited fact does
- * not carry. It does NOT attempt semantic entailment (whether the prose's meaning
- * follows from the facts) — that judgement is deferred to a human/LLM reviewer.
+ * the block is accepted. This validator is purely lexical and deterministic. What it
+ * guarantees is CITATION INTEGRITY and SENTENCE-LOCAL QUOTE INTEGRITY: every citation
+ * resolves to an in-slice fact, and a value the prose quotes VERBATIM inside a
+ * sentence that also cites a fact is actually carried by that cited fact. It does NOT
+ * guarantee that every quoted value anywhere is correct — a quote moved into a
+ * marker-free sentence is not hard-checked (it surfaces through the best-effort
+ * uncited-sentence signal instead) — and it does NOT attempt semantic entailment
+ * (whether the prose's meaning follows from the facts). Those are deferred to a
+ * human/LLM reviewer, which is what the best-effort channel is for.
  *
  * Marker convention. The author cites each claim with a bracketed marker:
  *   - `[n]` — a 1-based index into the ordered digest, which is the resolver's
  *     stable fact-id order (the exact order `facts` is given in here);
- *   - `[factId]` — the raw fact id, also accepted.
- * A marker that resolves to no in-slice fact is a foreign citation.
+ *   - `[factId]` — the raw fact id, also accepted;
+ *   - a composite bracket — `[1, 2]`, `[1;2]`, `[1 2]` — is split on commas,
+ *     semicolons and whitespace into its elements and each is resolved on its own.
+ * An element that resolves to no in-slice fact is a foreign citation.
  *
  * Hard fails (ok=false):
- *   (a) foreign-citation — a marker resolving to no in-slice fact;
- *   (b) value-mismatch — a token the prose quotes (guillemets/backticks/double
- *       quotes) inside a sentence that also carries a marker, whose text is absent
- *       from that sentence's cited fact(s) — matched against `stableStringify(value)`
- *       and the citation, normalized on whitespace and case, as a substring;
+ *   (a) foreign-citation — a citation element resolving to no in-slice fact;
+ *   (b) value-mismatch — a token the prose quotes with a VERBATIM delimiter
+ *       (guillemets «…», the digest's own value delimiter, or backticks `code`)
+ *       inside a sentence that also carries a marker, whose text is absent from that
+ *       sentence's cited fact(s) — matched against `stableStringify(value)` and the
+ *       citation, normalized on whitespace and case, as a substring. Double- and
+ *       single-quoted spans are ADVISORY, not hard-checked: a model uses those for
+ *       emphasis or a term of art, not only for a claimed verbatim value;
  *   (c) no-citation — a block with ≥1 fact whose prose carries no resolvable marker.
  *
  * Best-effort (reported; only fails when `requireEveryFactualSentenceCited`):
  *   uncited factual sentences — a sentence with no marker that nonetheless carries a
- *   backticked span, a path-like token, a code identifier, or a bare number.
+ *   backticked span, a path-like token, a code identifier, or a bare number. This is
+ *   the channel a reviewer reads; the host and the step-2 audit surface it.
  *
  * Pure, no I/O: the same prose and facts give the same result on every run, and
  * `groundedFactIds` is sorted so the grounded set is reproducible.
@@ -105,11 +116,16 @@ function extractMarkers(sentence: string): Marker[] {
   return out;
 }
 
-/** Quoted spans: guillemets, backticks, and straight/curly double quotes. Single quotes are
- *  excluded — an apostrophe would make them unreliable, and value-mismatch is a hard fail. */
+/**
+ * Verbatim-quoted spans — the only ones the value-mismatch HARD check reads:
+ * guillemets («…», the digest's own value delimiter) and backticks (`code`). Double-
+ * and single-quoted spans are deliberately excluded: a model uses them for emphasis
+ * or a term of art, not only for a claimed verbatim value, so treating them as a
+ * verbatim claim yields false hard fails. They remain advisory (best-effort only).
+ */
 function extractQuoted(sentence: string): string[] {
   const out: string[] = [];
-  const patterns: readonly RegExp[] = [/«([^»]+)»/g, /`([^`]+)`/g, /"([^"]+)"/g, /“([^”]+)”/g];
+  const patterns: readonly RegExp[] = [/«([^»]+)»/g, /`([^`]+)`/g];
   for (const re of patterns) {
     let m: RegExpExecArray | null;
     while ((m = re.exec(sentence)) !== null) out.push(m[1]!);
@@ -117,14 +133,42 @@ function extractQuoted(sentence: string): string[] {
   return out;
 }
 
-/** Resolve a marker to an in-slice fact: `[n]` by 1-based digest index, else by raw fact id. */
-function resolveMarker(inner: string, facts: readonly CitedFact[], byFactId: ReadonlyMap<string, CitedFact>): CitedFact | null {
-  const trimmed = inner.trim();
-  if (/^\d+$/.test(trimmed)) {
-    const n = Number(trimmed);
+/** One in-slice fact for a citation element: a pure-digit 1-based digest index, or a raw fact id. */
+function resolveElement(element: string, facts: readonly CitedFact[], byFactId: ReadonlyMap<string, CitedFact>): CitedFact | null {
+  if (/^\d+$/.test(element)) {
+    const n = Number(element);
     return n >= 1 && n <= facts.length ? facts[n - 1]! : null;
   }
-  return byFactId.get(trimmed) ?? null;
+  return byFactId.get(element) ?? null;
+}
+
+/**
+ * Resolve one bracket to its grounded facts and its foreign elements. A raw fact id
+ * is tried whole first (a fact id may itself contain separators), then the bracket is
+ * split on commas/semicolons/whitespace so a composite citation like `[1, 2]` grounds
+ * each element on its own; any element resolving to no in-slice fact is foreign.
+ */
+function resolveBracket(
+  inner: string,
+  facts: readonly CitedFact[],
+  byFactId: ReadonlyMap<string, CitedFact>,
+): { readonly grounded: readonly CitedFact[]; readonly foreign: readonly string[] } {
+  const trimmed = inner.trim();
+  // Whole-inner raw fact id first — never split a fact id that carries separators.
+  const whole = byFactId.get(trimmed);
+  if (whole !== undefined) return { grounded: [whole], foreign: [] };
+
+  const elements = trimmed.split(/[,;\s]+/).filter((e) => e.length > 0);
+  const grounded: CitedFact[] = [];
+  const foreign: string[] = [];
+  for (const element of elements) {
+    const fact = resolveElement(element, facts, byFactId);
+    if (fact !== null) grounded.push(fact);
+    else foreign.push(`[${element}]`);
+  }
+  // A bracket that split to nothing (only separators) is itself a foreign citation.
+  if (grounded.length === 0 && foreign.length === 0) return { grounded: [], foreign: [`[${trimmed}]`] };
+  return { grounded, foreign };
 }
 
 /**
@@ -174,14 +218,13 @@ export function validateGrounding(
 
     for (const marker of markers) {
       markerTokens.push(marker.token);
-      const fact = resolveMarker(marker.inner, facts, byFactId);
-      if (fact === null) {
-        foreignCitations.add(marker.token);
-      } else {
+      const { grounded, foreign } = resolveBracket(marker.inner, facts, byFactId);
+      for (const fact of grounded) {
         groundedFactIds.add(fact.factId);
         sentenceFacts.push(fact);
         anyResolvableMarker = true;
       }
+      for (const token of foreign) foreignCitations.add(token);
     }
 
     // A quoted token only draws a value-mismatch when its sentence actually cites a

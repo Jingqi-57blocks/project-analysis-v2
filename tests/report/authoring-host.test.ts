@@ -75,6 +75,21 @@ describe("authoringHost — accepts grounded prose, writes it to the store, cite
   });
 });
 
+describe("authoringHost — surfaces the best-effort uncited-sentence signal in the receipt (P1-d)", () => {
+  it("accepts grounded prose and reports its uncited-factual-sentence count in the detail", () => {
+    const baseline = buildPipeline(seedGroundedKb(), [moduleTarget("leave", "developer")]);
+    const taskId = [...baseline.proseStore.keys()][0]!;
+    // Grounded (cites [1]) but with a second, marker-free factual sentence.
+    const prose = "Fact one is recorded [1]. The file service.go is central.";
+    const p = buildPipeline(seedGroundedKb(), [moduleTarget("leave", "developer")], { proseByTask: { [taskId]: prose } });
+    expect(p.validatedTaskIds.has(taskId)).toBe(true);
+    const adopted = p.run.ledgers.find((l) => l.taskId === taskId)!.attempts.at(-1)!;
+    expect(adopted.outcome).toBe("accepted");
+    expect(adopted.detail).toContain("uncited factual sentence");
+    expect(p.proseStore.get(taskId)!.prose).toBe(prose);
+  });
+});
+
 describe("authoringHost — rejects ungrounded prose, feeding the retry/gap loop", () => {
   it("reject-on-ungrounded→gap: a foreign-citing block is retried, never validated, and left a marked gap", () => {
     // First find an authored task whose own slice actually grounds (so it is authored).

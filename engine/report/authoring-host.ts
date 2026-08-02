@@ -160,12 +160,16 @@ export function authoringHost(options: AuthoringHostOptions): HostAgent {
       }
 
       options.proseStore.set(task.taskId, { prose: authored.prose, groundedFactIds: grounding.groundedFactIds, facts });
+      // The uncited-factual-sentence count rides along in the detail: grounding passed,
+      // but these sentences carry a factual signal with no citation — a best-effort
+      // flag the reviewer (M6) reads, never a hard fail here.
+      const uncited = grounding.uncitedFactualSentences.length;
       return {
         ...base,
         outcome: "accepted",
         artifactRef: `authored-prose://${task.taskId}`,
         validationOk: true,
-        detail: `grounded prose: ${grounding.groundedFactIds.length} of ${facts.length} cited fact(s) cited`,
+        detail: `grounded prose: ${grounding.groundedFactIds.length} of ${facts.length} cited fact(s) cited; ${uncited} uncited factual sentence(s) flagged for review`,
       };
     },
   };

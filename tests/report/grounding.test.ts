@@ -47,6 +47,38 @@ describe("validateGrounding — grounded prose passes, its grounded set is sorte
   });
 });
 
+describe("validateGrounding — composite [1, 2] citations split and each element resolves (P1-b)", () => {
+  for (const marker of ["[1, 2]", "[1,2]", "[1; 2]", "[1 2]"]) {
+    it(`grounds both facts for a composite ${marker}`, () => {
+      const out = validateGrounding(`Two facts back this claim ${marker}.`, FACTS);
+      expect(out.ok).toBe(true);
+      expect(out.groundedFactIds).toEqual([...FACTS.map((f) => f.factId)].sort());
+      expect(out.foreignCitations).toEqual([]);
+    });
+  }
+
+  it("grounds the valid element and reports the foreign one in a mixed composite", () => {
+    const out = validateGrounding("One real, one not [1, 99].", FACTS);
+    expect(out.ok).toBe(false);
+    expect(out.groundedFactIds).toEqual([FACTS[0]!.factId]);
+    expect(out.foreignCitations).toEqual(["[99]"]);
+  });
+});
+
+describe("validateGrounding — double quotes are advisory, guillemets/backticks are hard (P1-c)", () => {
+  it("does not hard-fail a double-quoted term of art co-located with a marker", () => {
+    const out = validateGrounding('The request is "auto-approved" by policy [1].', FACTS);
+    expect(out.ok).toBe(true);
+    expect(out.valueMismatches).toEqual([]);
+  });
+
+  it("still hard-fails a guillemet misquote co-located with a marker", () => {
+    const out = validateGrounding("The table «wcp_payroll» is read [1].", FACTS);
+    expect(out.ok).toBe(false);
+    expect(out.valueMismatches).toEqual([{ quoted: "wcp_payroll", marker: "[1]" }]);
+  });
+});
+
 describe("validateGrounding — hard fails", () => {
   it("(a) foreign citation: a marker resolving to no in-slice fact", () => {
     const out = validateGrounding("A claim cites nothing real [99].", FACTS);

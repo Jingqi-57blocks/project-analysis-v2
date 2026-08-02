@@ -27,7 +27,7 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
 import { runAnalyze } from "../engine/run/analyze.js";
 import { openStore } from "../engine/store/open.js";
@@ -183,6 +183,9 @@ interface AuthoredBlockAudit {
   readonly groundedFactIds: readonly string[];
   readonly foreignCitations: readonly string[];
   readonly valueMismatches: readonly { readonly quoted: string; readonly marker: string }[];
+  /** Best-effort: factual sentences that carry no citation — the reviewer's (M6) trail. */
+  readonly uncitedFactualSentenceCount: number;
+  readonly uncitedFactualSentences: readonly string[];
   readonly noRoadmapHits: readonly string[];
 }
 
@@ -206,6 +209,8 @@ const authoredBlocks: AuthoredBlockAudit[] = authoredTasks(executable.plan)
         groundedFactIds: [],
         foreignCitations: [],
         valueMismatches: [],
+        uncitedFactualSentenceCount: 0,
+        uncitedFactualSentences: [],
         noRoadmapHits: [],
       };
     }
@@ -224,6 +229,8 @@ const authoredBlocks: AuthoredBlockAudit[] = authoredTasks(executable.plan)
       groundedFactIds: grounding.groundedFactIds,
       foreignCitations: grounding.foreignCitations,
       valueMismatches: grounding.valueMismatches,
+      uncitedFactualSentenceCount: grounding.uncitedFactualSentences.length,
+      uncitedFactualSentences: grounding.uncitedFactualSentences,
       noRoadmapHits: [...new Set(artifact.prose.match(NO_ROADMAP) ?? [])].sort(),
     };
   })
@@ -266,7 +273,8 @@ const audit = {
   target: {
     module: MODULE,
     root: ROOT,
-    workspace: WORKSPACE,
+    // Basename only — the machine-absolute path never enters the audit (portable if compared).
+    workspace: basename(WORKSPACE),
     snapshotId: analysis.snapshotId,
     contentIdentity: analysis.identity,
     kbModule: { id: membership.kbModuleId, name: membership.kbModuleName, memberFiles: membership.fileCount },
