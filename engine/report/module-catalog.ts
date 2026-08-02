@@ -22,7 +22,7 @@ import {
 } from "./slice-resolve.js";
 import { moduleScope } from "../contracts/report/target.js";
 
-const CLASSIFIER_CONTRACT_VERSION = "report-module-classifier.v7";
+const CLASSIFIER_CONTRACT_VERSION = "report-module-classifier.v8";
 const MAX_CLASSIFIER_PROMPT_BYTES = 120_000;
 
 function unique(values: Iterable<string>, cap: number): readonly string[] {
@@ -81,7 +81,7 @@ export function reportModuleCandidateInput(store: Store, kb: KnowledgeBase): Can
 
 interface ClassificationResponse {
   readonly candidates: readonly {
-    readonly candidateId: string;
+    readonly candidateIndex: number;
     readonly classification: "product-module" | "aggregate-surface" | "technical-component" | "external-system" | "infrastructure" | "unresolved";
     readonly confidence: number;
     readonly reason: string;
@@ -89,7 +89,7 @@ interface ClassificationResponse {
     readonly displayName: string;
     readonly summary: string;
     readonly group: string;
-    readonly includedCandidateIds: readonly string[];
+    readonly includedCandidateIndexes: readonly number[];
   }[];
 }
 
@@ -104,7 +104,7 @@ const CLASSIFICATION_SCHEMA: Readonly<Record<string, unknown>> = {
         type: "object",
         additionalProperties: false,
         required: [
-          "candidateId",
+          "candidateIndex",
           "classification",
           "confidence",
           "reason",
@@ -112,10 +112,10 @@ const CLASSIFICATION_SCHEMA: Readonly<Record<string, unknown>> = {
           "displayName",
           "summary",
           "group",
-          "includedCandidateIds",
+          "includedCandidateIndexes",
         ],
         properties: {
-          candidateId: { type: "string" },
+          candidateIndex: { type: "integer", minimum: 0 },
           classification: {
             type: "string",
             enum: ["product-module", "aggregate-surface", "technical-component", "external-system", "infrastructure", "unresolved"],
@@ -126,14 +126,14 @@ const CLASSIFICATION_SCHEMA: Readonly<Record<string, unknown>> = {
           displayName: { type: "string" },
           summary: { type: "string" },
           group: { type: "string" },
-          includedCandidateIds: { type: "array", items: { type: "string" } },
+          includedCandidateIndexes: { type: "array", items: { type: "integer", minimum: 0 } },
         },
       },
     },
   },
 };
 
-function classifierPrompt(candidates: ReturnType<typeof generateModuleCandidates>, language: string, correction: string | null): string {
+function classifierPrompt(candidates: readonly unknown[], language: string, correction: string | null): string {
   const outputLanguage = language.toLowerCase().startsWith("zh") ? "简体中文" : language;
   return [
     "You classify a bounded list of project-analysis module candidates. Use only the supplied JSON; do not inspect files or run tools.",
@@ -146,10 +146,10 @@ function classifierPrompt(candidates: ReturnType<typeof generateModuleCandidates
     "- infrastructure: authentication, plumbing, jobs, download/config/support infrastructure without an independent business capability.",
     "- unresolved: evidence is insufficient.",
     "For every candidate, write a non-empty reader-facing displayName, one-sentence summary, and broad group in " + outputLanguage + ". Product modules use business language; other labels state their structural role without promoting them to product capabilities.",
-    "Do not create duplicate product modules for two route surfaces of the same capability. Choose the best canonical candidate, put genuine supporting formed-module ids in includedCandidateIds, and label the supporting surface by its actual aggregate/technical/infrastructure role. Identity or access with its own user-visible flows may be a product module; authentication plumbing without an independent user path is infrastructure.",
+    "Do not create duplicate product modules for two route surfaces of the same capability. Choose the best canonical candidate, put genuine supporting formed-module indexes in includedCandidateIndexes, and label the supporting surface by its actual aggregate/technical/infrastructure role. Identity or access with its own user-visible flows may be a product module; authentication plumbing without an independent user path is infrastructure.",
     "Use aggregate-surface only for a presentation or navigation facade: dashboards, read-only lists, reports, search, or a shallow dispatcher. A candidate that accepts submissions and owns approval, rejection, cancellation, state transitions, validations, or other end-to-end workflow behaviour is a product-module even when it unifies several business subtypes.",
     "A settings, connector, sync, search or credential surface whose purpose is configuring or invoking one external provider is infrastructure, not a product module, unless the supplied evidence shows an independent end-to-end user outcome beyond that provider.",
-    "includedCandidateIds may name supporting formed-module candidates that are genuinely part of the same capability. Never include external-system, infrastructure, or unrelated aggregate candidates. Otherwise return an empty array.",
+    "includedCandidateIndexes may name supporting formed-module candidates that are genuinely part of the same capability. Never include external-system, infrastructure, or unrelated aggregate candidates. Otherwise return an empty array.",
     "Use only evidenceRefs present on that same candidate; one valid ref is enough. Return every candidate exactly once.",
     correction === null ? "" : `The previous response was unusable. Correct this problem:\n${correction}`,
     "Candidate input:",
@@ -203,11 +203,16 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
       // Sending known components and boundaries again added no information and
       // more than doubled the WCP classifier prompt.
       const judged = candidates.filter((candidate) => moduleIds.has(candidate.candidateId));
+      const classifierCandidates = judged.map(({ candidateId: _candidateId, ...candidate }, candidateIndex) => ({
+        candidateIndex,
+        ...candidate,
+      }));
       let classifiedModules: readonly ClassifiedCandidate[] | null = null;
       let correction: string | null = null;
+      let lastProblem = "no product modules were identified";
       for (let attempt = 0; attempt < 2; attempt += 1) {
         classifierCalls += 1;
-        const prompt = classifierPrompt(judged, options.language, correction);
+        const prompt = classifierPrompt(classifierCandidates, options.language, correction);
         const promptBytes = Buffer.byteLength(prompt, "utf8");
         if (promptBytes > MAX_CLASSIFIER_PROMPT_BYTES) {
           throw new Error(`module classifier input is ${promptBytes} bytes; bounded V1 limit is ${MAX_CLASSIFIER_PROMPT_BYTES}`);
@@ -220,11 +225,36 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
           ...(options.run === undefined ? {} : { run: options.run }),
         });
         classifierOutputBytes += Buffer.byteLength(JSON.stringify(response), "utf8");
-        const foreign = response.candidates.filter((candidate) => !moduleIds.has(candidate.candidateId));
-        if (foreign.length > 0) throw new Error(`module classifier returned non-module candidate(s): ${foreign.map((candidate) => candidate.candidateId).join(", ")}`);
-        const judgedById = new Map(judged.map((candidate) => [candidate.candidateId, candidate] as const));
-        const current = response.candidates.map((candidate): ClassifiedCandidate => {
-          const inputCandidate = judgedById.get(candidate.candidateId);
+        const returnedIndexes = response.candidates.map((candidate) => candidate.candidateIndex);
+        const invalidIndexes = returnedIndexes.filter((index) => !Number.isInteger(index) || index < 0 || index >= judged.length);
+        const duplicateIndexes = returnedIndexes.filter((index, position) => returnedIndexes.indexOf(index) !== position);
+        const missingIndexes = classifierCandidates
+          .map((candidate) => candidate.candidateIndex)
+          .filter((index) => !returnedIndexes.includes(index));
+        const invalidIncludedIndexes = response.candidates
+          .flatMap((candidate) => candidate.includedCandidateIndexes)
+          .filter((index) => !Number.isInteger(index) || index < 0 || index >= judged.length);
+        if (
+          response.candidates.length !== judged.length ||
+          invalidIndexes.length > 0 ||
+          duplicateIndexes.length > 0 ||
+          missingIndexes.length > 0 ||
+          invalidIncludedIndexes.length > 0
+        ) {
+          lastProblem = [
+            `expected ${judged.length} candidates but received ${response.candidates.length}`,
+            `invalid indexes: ${[...new Set(invalidIndexes)].join(", ") || "none"}`,
+            `duplicate indexes: ${[...new Set(duplicateIndexes)].join(", ") || "none"}`,
+            `missing indexes: ${missingIndexes.join(", ") || "none"}`,
+            `invalid included indexes: ${[...new Set(invalidIncludedIndexes)].join(", ") || "none"}`,
+          ].join("; ");
+          correction = `Return the complete candidate list using each supplied candidateIndex exactly once. ${lastProblem}`;
+          continue;
+        }
+        const responseByIndex = new Map(response.candidates.map((candidate) => [candidate.candidateIndex, candidate] as const));
+        const current = judged.map((inputCandidate, candidateIndex): ClassifiedCandidate => {
+          const responseCandidate = responseByIndex.get(candidateIndex)!;
+          const { candidateIndex: _candidateIndex, includedCandidateIndexes, ...candidate } = responseCandidate;
           const allowed = new Set(inputCandidate?.evidenceRefs ?? []);
           let evidenceRefs = candidate.evidenceRefs.filter((ref) => allowed.has(ref));
           if (candidate.classification !== "unresolved" && evidenceRefs.length === 0 && inputCandidate?.evidenceRefs[0] !== undefined) {
@@ -233,8 +263,12 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
           }
           return {
             ...candidate,
+            candidateId: inputCandidate.candidateId,
             evidenceRefs,
             status: candidate.classification === "unresolved" ? "unresolved" : "classified",
+            includedCandidateIds: [...new Set(includedCandidateIndexes)]
+              .filter((index) => index !== candidateIndex)
+              .map((index) => judged[index]!.candidateId),
           };
         });
         if (current.some((candidate) => candidate.classification === "product-module")) {
@@ -242,8 +276,9 @@ export async function classifyReportModules(options: ClassifyReportModulesOption
           break;
         }
         correction = `All ${current.length} returned module candidates were non-product or unresolved. The supplied list contains formed route/workflow modules; identify every evidenced cohesive user-facing capability as product-module, while keeping technical, aggregate and infrastructure candidates in their proper classes. Do not promote candidates without evidence.`;
+        lastProblem = correction;
       }
-      if (classifiedModules === null) throw new Error("module classifier produced no product modules after 2 attempts");
+      if (classifiedModules === null) throw new Error(`module classifier produced no usable product modules after 2 attempts: ${lastProblem}`);
       const fixed = candidates
         .filter((candidate) => !moduleIds.has(candidate.candidateId))
         .map((candidate): ClassifiedCandidate => {
