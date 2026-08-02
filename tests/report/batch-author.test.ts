@@ -46,6 +46,15 @@ describe("prepareBatchAuthor", () => {
         payload: kind === "condition" ? { subject: "hours", text: "hours > 8", guarded: "rejects" } : { target: "service", operation: "read" },
       });
     }
+    for (const [name, line] of [["primaryDecision", 12], ["secondaryDecision", 24]] as const) {
+      insertBehaviorFact(store, {
+        factId: `behavioral|decision|r1|${relPath}:${line}|${name}`,
+        kind: "decision",
+        relPath,
+        startLine: line,
+        payload: { subject: name, text: `${name} chooses an outcome` },
+      });
+    }
     const readers = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", [relPath]));
     const request: readonly ReportTarget[] = [moduleTarget("leave", "product")];
     const snapshot: AnalysisSnapshotIdentity = { sourceIdentity: "s", codeGraphIdentity: "s", providerIdentity: "s", schemaVersion: "1", configIdentity: "s" };
@@ -67,6 +76,7 @@ describe("prepareBatchAuthor", () => {
         tasks: tasks.map((task) => {
           const ids = task.factIds;
           const first = ids[0]!;
+          const nearbyDecision = ids.find((id) => id.includes("primaryDecision")) ?? first;
           const foreign = "behavioral|condition|r1|handlers/leave/service.go|10|foreign";
           return {
             taskId: task.taskId,
@@ -76,13 +86,13 @@ describe("prepareBatchAuthor", () => {
               summary: "按已知条件处理",
               factIds: [first],
               steps: [{ label: "处理请求", detail: "读取当前事实", factIds: [first] }],
-              branches: [{ afterStep: 1, condition: "已知条件", outcome: "继续处理", kind: "conditional" as const, factIds: [...ids, foreign] }],
+              branches: [{ afterStep: 1, condition: "已知条件", outcome: "继续处理", kind: "conditional" as const, factIds: [first, nearbyDecision, foreign] }],
             }] : [],
             lifecycles: task.structuredLifecycleRequired ? [{
               title: "业务生命周期",
               summary: "从进入到处理完成",
               nodes: [
-                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [first, foreign] },
+                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [first, nearbyDecision, foreign] },
                 { id: "done", label: "完成", detail: "处理结束", kind: "terminal" as const, factIds: [first] },
               ],
               edges: [{ from: "start", to: "done", label: "通过校验", kind: "normal" as const, factIds: [first] }],

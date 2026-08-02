@@ -1373,6 +1373,15 @@ function citationContains(container: CitationHint, nested: CitationHint): boolea
   return container.startLine <= nested.startLine && containerEnd >= nestedEnd;
 }
 
+function citationDistance(left: CitationHint, right: CitationHint): number | null {
+  if (left.rootName !== right.rootName || left.relPath !== right.relPath) return null;
+  if (left.startLine === null || right.startLine === null) return null;
+  const leftEnd = left.endLine ?? left.startLine;
+  const rightEnd = right.endLine ?? right.startLine;
+  if (left.startLine <= rightEnd && right.startLine <= leftEnd) return 0;
+  return leftEnd < right.startLine ? right.startLine - leftEnd : left.startLine - rightEnd;
+}
+
 function significantTokens(value: string): ReadonlySet<string> {
   const stop = new Set([
     "and", "const", "else", "error", "false", "function", "len", "null", "required", "return", "string", "true", "undefined",
@@ -1406,18 +1415,21 @@ function placeRequiredFact(
 ): MutablePlacementTarget | null {
   const factTokens = significantTokens(factPlacementText(fact));
   const scored = targets.map((target) => {
+    let nearbySameKind = Number.POSITIVE_INFINITY;
     const sharesCitation = target.factIds.some((id) => {
       const placed = allowedById.get(id);
-      return placed !== undefined && (
-        citationContains(citationOf(placed), citationOf(fact)) || citationContains(citationOf(fact), citationOf(placed))
-      );
+      if (placed === undefined) return false;
+      if (placed.kind === fact.kind) {
+        nearbySameKind = Math.min(nearbySameKind, citationDistance(citationOf(placed), citationOf(fact)) ?? Number.POSITIVE_INFINITY);
+      }
+      return citationContains(citationOf(placed), citationOf(fact)) || citationContains(citationOf(fact), citationOf(placed));
     });
     const targetTokens = significantTokens(target.text);
     const overlap = [...factTokens].filter((token) => targetTokens.has(token)).length;
-    return { target, sharesCitation, overlap };
-  }).sort((a, b) => Number(b.sharesCitation) - Number(a.sharesCitation) || b.overlap - a.overlap || a.target.label.localeCompare(b.target.label));
+    return { target, sharesCitation, nearbySameKind, overlap };
+  }).sort((a, b) => Number(b.sharesCitation) - Number(a.sharesCitation) || a.nearbySameKind - b.nearbySameKind || b.overlap - a.overlap || a.target.label.localeCompare(b.target.label));
   const best = scored[0];
-  if (best === undefined || (!best.sharesCitation && best.overlap < 2)) return null;
+  if (best === undefined || (!best.sharesCitation && best.nearbySameKind > 20 && best.overlap < 2)) return null;
   return best.target;
 }
 
