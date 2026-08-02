@@ -291,6 +291,8 @@ describe("exportProductReportSite", () => {
     expect(result.manifest.outputFiles).toContain("assets/report.css");
     expect(stylesheet).toContain(".object-map article{min-width:0;overflow-wrap:anywhere}");
     expect(stylesheet).toContain(".lifecycle-cards,.lifecycle-card,.lifecycle-card>header>div{min-width:0}");
+    expect(stylesheet).toContain(".journey,.journey>header,.journey>div{min-width:0}");
+    expect(stylesheet).toContain(".integration-table,.coverage-table{display:block;max-width:100%;overflow-x:auto}");
     expect(result.manifest.outputFiles).toContain("assets/mermaid.min.js");
     expect(result.elapsedMs).toBeLessThan(5_000);
     store.close();
