@@ -8,12 +8,19 @@
  */
 
 import type { DataAccessRecord, OutboundCallRecord, RouteRecord } from "../structural/boundaries.js";
-import type { SymbolRecord } from "../structural/code.js";
-import type { ValidationRuleRecord } from "../structural/rules.js";
+import type {
+  ReferenceRecord,
+  SymbolRecord,
+  TypeRelationRecord,
+} from "../structural/code.js";
+import type { ConditionRecord, GuardRecord, ValidationRuleRecord } from "../structural/rules.js";
 import type { CrossRootLink } from "../linking/types.js";
 import type { DomainFeature } from "../modules/features.js";
 import { featureForRoute } from "../modules/features.js";
 import type { FeatureFlow, FlowStep, FlowSet } from "./types.js";
+import type { Trace } from "../modules/trace.js";
+import { looksInfrastructural } from "../modules/form.js";
+import { inferred, type Provenance } from "../structural/provenance.js";
 
 export interface FlowInput {
   readonly features: readonly DomainFeature[];
@@ -23,8 +30,207 @@ export interface FlowInput {
   readonly calls: readonly OutboundCallRecord[];
   readonly dataAccess: readonly DataAccessRecord[];
   readonly validations: readonly ValidationRuleRecord[];
+  readonly conditions?: readonly ConditionRecord[];
+  readonly guards?: readonly GuardRecord[];
+  /** Bounded route traces already built from the shared call graph. */
+  readonly traces?: readonly Trace[];
+  /** Symbol-local references, including concrete types instantiated by an entry. */
+  readonly references?: readonly ReferenceRecord[];
+  /** Type relationships used to disambiguate interface dispatch per entry. */
+  readonly typeRelations?: readonly TypeRelationRecord[];
   /** Why a route has no handler symbol, keyed by entry key. */
   readonly handlerGaps: ReadonlyMap<string, string>;
+}
+
+interface ContextualTraceStep {
+  readonly symbol: SymbolRecord;
+  /** Replaced interface targets are inferred from entry-local construction. */
+  readonly provenance: Provenance;
+  readonly contextResolved: boolean;
+}
+
+function addToSetMap<K, V>(map: Map<K, Set<V>>, key: K, value: V): void {
+  const values = map.get(key) ?? new Set<V>();
+  values.add(value);
+  map.set(key, values);
+}
+
+/**
+ * Correct a context-insensitive interface target only when the graph contains
+ * enough evidence to choose exactly one implementation for this entry.
+ *
+ * CodeGraph resolves a call made through an interface to one concrete method.
+ * That target is useful for reachability, but it is not necessarily the object
+ * constructed by the current route. An entry-local `instantiates` edge tells
+ * us which subtype is actually supplied. If the recorded target and that
+ * subtype implement the same interface and the subtype owns one method with
+ * the same name, the latter is the contextual target. Anything less stays as
+ * reported; no type or method name is guessed.
+ */
+function contextualTraceSteps(
+  trace: Trace | undefined,
+  symbols: readonly SymbolRecord[],
+  references: readonly ReferenceRecord[],
+  typeRelations: readonly TypeRelationRecord[],
+): readonly ContextualTraceStep[] {
+  if (trace === undefined) return [];
+
+  const symbolsById = new Map(symbols.map((symbol) => [symbol.id, symbol] as const));
+  const entryId = trace.steps[0]?.symbolId;
+  if (entryId === undefined) return [];
+
+  const instantiationByType = new Map(
+    references
+      .filter((reference) => reference.kind === "instantiate" && reference.fromSymbolId === entryId)
+      .map((reference) => [reference.symbolId, reference] as const),
+  );
+  if (instantiationByType.size === 0) {
+    return trace.steps.flatMap((step) => {
+      const symbol = symbolsById.get(step.symbolId);
+      return symbol === undefined
+        ? []
+        : [{ symbol, provenance: symbol.provenance, contextResolved: false }];
+    });
+  }
+
+  const supertypesBySubtype = new Map<string, Set<string>>();
+  for (const relation of typeRelations) {
+    if (relation.supertypeId !== null) {
+      addToSetMap(supertypesBySubtype, relation.subtypeId, relation.supertypeId);
+    }
+  }
+
+  const methodsByName = new Map<string, SymbolRecord[]>();
+  for (const symbol of symbols) {
+    if (symbol.kind !== "method" || symbol.containerId === null) continue;
+    const methods = methodsByName.get(symbol.name) ?? [];
+    methods.push(symbol);
+    methodsByName.set(symbol.name, methods);
+  }
+
+  const instantiatedTypes = new Set(instantiationByType.keys());
+  const seen = new Set<string>();
+  const resolved: ContextualTraceStep[] = [];
+
+  for (const step of trace.steps) {
+    const original = symbolsById.get(step.symbolId);
+    if (original === undefined) continue;
+
+    let chosen = original;
+    let evidence: ReferenceRecord | undefined;
+    let contextResolved = false;
+    const originalContainer = original.containerId;
+    if (
+      original.kind === "method" &&
+      originalContainer !== null &&
+      !instantiatedTypes.has(originalContainer)
+    ) {
+      const originalSupers = supertypesBySubtype.get(originalContainer) ?? new Set<string>();
+      const alternatives = (methodsByName.get(original.name) ?? []).filter((candidate) => {
+        if (candidate.containerId === null || !instantiatedTypes.has(candidate.containerId)) return false;
+        const candidateSupers = supertypesBySubtype.get(candidate.containerId) ?? new Set<string>();
+        return [...originalSupers].some((supertype) => candidateSupers.has(supertype));
+      });
+      if (alternatives.length === 1) {
+        chosen = alternatives[0]!;
+        evidence = instantiationByType.get(chosen.containerId!);
+        contextResolved = evidence !== undefined;
+      } else if (originalSupers.size > 0) {
+        // The current entry instantiated another member of the same interface
+        // family, so retaining a method on the context-insensitive target would
+        // be a known-wrong claim. Without one replacement, omit the step.
+        const hasActiveSibling = [...instantiatedTypes].some((typeId) => {
+          const activeSupers = supertypesBySubtype.get(typeId) ?? new Set<string>();
+          return [...originalSupers].some((supertype) => activeSupers.has(supertype));
+        });
+        if (hasActiveSibling) continue;
+      }
+    }
+
+    if (seen.has(chosen.id)) continue;
+    seen.add(chosen.id);
+    resolved.push({
+      symbol: chosen,
+      provenance: contextResolved && evidence !== undefined
+        ? inferred(evidence.source, "high")
+        : chosen.provenance,
+      contextResolved,
+    });
+  }
+  return resolved;
+}
+
+function traceFiles(
+  steps: readonly ContextualTraceStep[],
+): ReadonlySet<string> {
+  return new Set(steps.map(({ symbol }) =>
+    `${symbol.provenance.source.rootName}\0${symbol.provenance.source.relPath}`,
+  ));
+}
+
+function traceSymbolIds(steps: readonly ContextualTraceStep[]): ReadonlySet<string> {
+  return new Set(steps.map(({ symbol }) => symbol.id));
+}
+
+function ruleConditions(
+  symbol: SymbolRecord,
+  validations: readonly ValidationRuleRecord[],
+  conditions: readonly ConditionRecord[],
+  guards: readonly GuardRecord[],
+): readonly string[] {
+  const source = symbol.provenance.source;
+  const sameFile = (rootName: string, relPath: string): boolean =>
+    rootName === source.rootName && relPath === source.relPath;
+  const names = new Set([symbol.name, symbol.qualifiedName ?? symbol.name]);
+  return [...new Set([
+    ...validations
+      .filter((record) => sameFile(record.rootName, record.source.relPath) && (record.subjectSymbolId === null || record.subjectSymbolId === symbol.id))
+      .map((record) => record.field === null ? `校验 ${record.rule}` : `校验 ${record.field}（${record.rule}）`),
+    ...guards
+      .filter((record) => sameFile(record.rootName, record.source.relPath) && (record.enclosingFunction === null || names.has(record.enclosingFunction)))
+      .map((record) => `${record.test}：${record.message}`),
+    ...conditions
+      .filter((record) => sameFile(record.rootName, record.source.relPath) && (record.enclosingFunction === null || names.has(record.enclosingFunction)))
+      .map((record) => record.fullTest ?? record.text),
+  ])].sort().slice(0, 6);
+}
+
+function serviceSteps(
+  trace: Trace | undefined,
+  contextual: readonly ContextualTraceStep[],
+  validations: readonly ValidationRuleRecord[],
+  conditions: readonly ConditionRecord[],
+  guards: readonly GuardRecord[],
+): FlowStep[] {
+  if (trace === undefined) return [];
+  const steps: FlowStep[] = [];
+  for (const { symbol, provenance, contextResolved } of contextual.slice(1)) {
+    if (looksInfrastructural(symbol.name)) continue;
+    steps.push({
+      kind: "service",
+      label: symbol.qualifiedName ?? symbol.name,
+      rootName: symbol.provenance.source.rootName,
+      conditions: [
+        ...(contextResolved ? ["根据入口实例化类型解析接口分派"] : []),
+        ...ruleConditions(symbol, validations, conditions, guards),
+      ].slice(0, 6),
+      unresolvedReason: null,
+      provenance,
+    });
+    if (steps.length >= 12) break;
+  }
+  if (trace.steps.length - 1 > steps.length && steps.length >= 12) {
+    steps.push({
+      kind: "service",
+      label: `${trace.steps.length - 1 - steps.length} 个后续调用未展开`,
+      rootName: trace.entryRoot,
+      conditions: [],
+      unresolvedReason: "调用路径为保持可读性已截断",
+      truncated: true,
+      provenance: null,
+    });
+  }
+  return steps;
 }
 
 export interface FlowLimits {
@@ -134,6 +340,8 @@ function dataSteps(
   symbol: SymbolRecord | null,
   dataAccess: readonly DataAccessRecord[],
   limits: FlowLimits,
+  reachedFiles: ReadonlySet<string> = new Set(),
+  reachedSymbolIds: ReadonlySet<string> = new Set(),
 ): FlowStep[] {
   if (symbol === null) {
     return [
@@ -159,7 +367,16 @@ function dataSteps(
   const packagePath = relPath.includes("/") ? relPath.slice(0, relPath.lastIndexOf("/")) : "";
   const sameRoot = dataAccess.filter((access) => access.rootName === route.rootName);
 
-  const inFile = sameRoot.filter((access) => access.provenance.source.relPath === relPath);
+  const onTrace = reachedFiles.size === 0
+    ? []
+    : dataAccess.filter((access) => {
+        if (!reachedFiles.has(`${access.rootName}\0${access.provenance.source.relPath}`)) return false;
+        if (access.symbolId !== null) return reachedSymbolIds.has(access.symbolId);
+        return access.rootName === route.rootName && access.provenance.source.relPath === relPath;
+      });
+  const inFile = onTrace.length > 0
+    ? onTrace
+    : sameRoot.filter((access) => access.provenance.source.relPath === relPath);
   const inPackage =
     inFile.length > 0
       ? inFile
@@ -170,7 +387,7 @@ function dataSteps(
             : "";
           return accessPackage === packagePath;
         });
-  const scope = inFile.length > 0 ? "file" : "package";
+  const scope = onTrace.length > 0 ? "trace" : inFile.length > 0 ? "file" : "package";
 
   if (inPackage.length === 0) {
     return [
@@ -210,7 +427,11 @@ function dataSteps(
       // on it needs to know which one this is.
       conditions: [
         ...[...operations].sort(),
-        ...(scope === "package" ? ["observed in the handler's package"] : []),
+        ...(scope === "trace"
+          ? ["observed on the traced call path"]
+          : scope === "package"
+            ? ["observed in the handler's package"]
+            : []),
       ],
       unresolvedReason: null,
       indirect: scope === "package",
@@ -236,20 +457,38 @@ function outboundSteps(
   route: RouteRecord,
   symbol: SymbolRecord | null,
   links: readonly CrossRootLink[],
+  calls: readonly OutboundCallRecord[],
+  reachedFiles: ReadonlySet<string>,
+  reachedSymbolIds: ReadonlySet<string>,
 ): FlowStep[] {
   if (symbol === null) return [];
 
   const relPath = symbol.provenance.source.relPath;
-  const packagePath = relPath.includes("/") ? relPath.slice(0, relPath.lastIndexOf("/")) : "";
   const outgoing = links.filter((link) => {
     if (link.fromRoot !== route.rootName) return false;
     const from = link.provenance.source.relPath;
-    const fromPackage = from.includes("/") ? from.slice(0, from.lastIndexOf("/")) : "";
-    return fromPackage === packagePath;
+    if (link.fromSymbolId !== null) return reachedSymbolIds.has(link.fromSymbolId);
+    return from === relPath;
   });
 
   const seen = new Set<string>();
   const steps: FlowStep[] = [];
+  for (const call of calls) {
+    if (!reachedFiles.has(`${call.rootName}\0${call.provenance.source.relPath}`)) continue;
+    if (call.callerSymbolId !== null && !reachedSymbolIds.has(call.callerSymbolId)) continue;
+    if (call.callerSymbolId === null && (call.rootName !== route.rootName || call.provenance.source.relPath !== relPath)) continue;
+    const label = call.target ?? call.baseIdentifier ?? `${call.kind} target unresolved`;
+    if (seen.has(label)) continue;
+    seen.add(label);
+    steps.push({
+      kind: "outbound",
+      label,
+      rootName: null,
+      conditions: [call.method ?? call.kind],
+      unresolvedReason: call.target === null && call.baseIdentifier === null ? "outbound target is determined at runtime" : null,
+      provenance: call.provenance,
+    });
+  }
   for (const link of outgoing) {
     const label = `${link.toRoot} ${link.toMethod ?? "ANY"} ${link.toPath}`;
     if (seen.has(label)) continue;
@@ -275,6 +514,7 @@ function outboundSteps(
  */
 export function assembleFlows(input: FlowInput, limits: FlowLimits = DEFAULT_FLOW_LIMITS): FlowSet {
   const symbolsById = new Map(input.symbols.map((symbol) => [symbol.id, symbol]));
+  const tracesByEntry = new Map((input.traces ?? []).map((trace) => [trace.entryKey, trace] as const));
   const flows: FeatureFlow[] = [];
   const skipped: { entryKey: string; reason: string }[] = [];
 
@@ -289,12 +529,22 @@ export function assembleFlows(input: FlowInput, limits: FlowLimits = DEFAULT_FLO
     }
 
     const handler = handlerStep(route, symbolsById, input.handlerGaps, input.validations);
+    const trace = tracesByEntry.get(entryKeyOf(route));
+    const contextual = contextualTraceSteps(
+      trace,
+      input.symbols,
+      input.references ?? [],
+      input.typeRelations ?? [],
+    );
+    const reached = traceFiles(contextual);
+    const reachedIds = traceSymbolIds(contextual);
     const steps: FlowStep[] = [
       frontendStep(route, input.links),
       routeStep(route),
       handler.step,
-      ...outboundSteps(route, handler.symbol, input.links),
-      ...dataSteps(route, handler.symbol, input.dataAccess, limits),
+      ...serviceSteps(trace, contextual, input.validations, input.conditions ?? [], input.guards ?? []),
+      ...outboundSteps(route, handler.symbol, input.links, input.calls, reached, reachedIds),
+      ...dataSteps(route, handler.symbol, input.dataAccess, limits, reached, reachedIds),
     ];
 
     flows.push({
