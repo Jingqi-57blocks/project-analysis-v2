@@ -3,9 +3,8 @@
  *
  * This is the design boundary PI-6 implements and later M1 tasks read from. One
  * batch read enumerates everything downstream needs — nodes, edges, unresolved
- * references, metadata and truncation — instead of the current per-symbol CLI
- * loop (one subprocess per callable symbol, ~96% of a run, which is why
- * call-edges are off by default today).
+ * references, metadata and truncation — instead of the former per-symbol CLI
+ * loop (one subprocess per callable symbol, ~96% of a run).
  *
  * Two boundaries are fixed here and must not be crossed:
  *
@@ -19,10 +18,9 @@
  *    produced it. A schema the adapter does not support fails closed.
  *
  * Interactive commands (explore/impact) are per-query and are NOT the base
- * import path — they are exactly what makes the current adapter N+1. The
- * implementation prefers the official TypeScript API; only if the graph cannot
- * be fully enumerated that way does it fall back to an isolated, read-only,
- * version-pinned index database. Nothing is ever written into analyzed source.
+ * import path — they are exactly what made the old adapter N+1. The batch path
+ * reads an isolated, read-only, version-gated index database. Nothing is ever
+ * written into analyzed source.
  */
 
 import { VERIFIED_VERSION } from "./cli.js";

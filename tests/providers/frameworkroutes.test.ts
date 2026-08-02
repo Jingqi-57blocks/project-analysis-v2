@@ -179,6 +179,31 @@ func Reg(e *gin.Engine) {
     expect(candidates["/d"]).toEqual([]);
   });
 
+  it("normalizes an imported package alias before handler linking", () => {
+    write("go.mod", GO_MOD);
+    write(
+      "r.go",
+      `package r
+import (
+  aplyGeneral "example.com/svc/internal/handlers/application/general"
+  e "example.com/svc/internal/pkg/error"
+  "github.com/gin-gonic/gin"
+)
+func Reg(engine *gin.Engine) {
+  engine.GET("/applications", e.CatchError(aplyGeneral.Pagination))
+}
+`,
+    );
+
+    const reading = createGinReader().read(root(["go.mod", "r.go"]));
+    expect(reading.routes[0]!.handlerCandidates).toEqual([
+      "aplyGeneral.Pagination",
+      "general.Pagination",
+      "e.CatchError",
+      "error.CatchError",
+    ]);
+  });
+
   it("does not detect a Go project without gin", () => {
     write("go.mod", "module x\n\nrequire github.com/pkg/errors v0.9.1\n");
     expect(createGinReader().detect(root(["go.mod"]))).toBe(false);
