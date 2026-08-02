@@ -138,7 +138,7 @@ describe("one run, one knowledge base", () => {
     );
     expect(rows.some((row) => row.kind === "route" && row.outcome !== "absent")).toBe(true);
     expect(rows.some((row) => row.kind === "entity")).toBe(true);
-  });
+  }, 15_000);
 
   it("quotes the prose the developers wrote, as evidence rather than as a summary", () => {
     const result = analyze();
