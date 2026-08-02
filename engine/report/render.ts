@@ -37,12 +37,28 @@ export interface DocumentManifestEntry {
   readonly documentId: string;
   readonly complete: boolean;
   readonly sections: readonly { readonly sectionId: string; readonly blocks: readonly string[] }[];
+  /**
+   * REPRODUCIBLE — the gate. The ordered sections/blocks, their slice digests and
+   * validation outcomes, plus the grounded-fact-id set of each authored block. It
+   * does NOT fold the rendered prose bytes, so an authored run gates on structure and
+   * grounding, not on the model's exact wording.
+   */
   readonly structureDigest: string;
+  /** INFORMATIONAL — the Markdown/HTML bytes. Byte-equal for deterministic runs; it varies with authored prose. */
+  readonly renderedBytesDigest: string;
 }
 
 export interface RenderManifest {
   readonly documents: readonly DocumentManifestEntry[];
-  readonly digest: string;
+  /** REPRODUCIBLE fold over the per-document `structureDigest` — the run's grounding/structure gate. */
+  readonly structureDigest: string;
+  /** INFORMATIONAL fold over the per-document rendered bytes — equal only when the prose is byte-stable. */
+  readonly renderedBytesDigest: string;
+}
+
+/** Grounded fact ids per authored task — folded into `structureDigest` so grounding is gated. */
+export interface RenderOptions {
+  readonly groundedFactIdsByTask?: ReadonlyMap<string, readonly string[]>;
 }
 
 export interface RenderedReport {
@@ -99,23 +115,50 @@ function renderDocument(doc: AssembledDocument, content: BlockContent): Rendered
   return { documentId: doc.documentId, markdown, html, digest: digest({ documentId: doc.documentId, structure: doc.digest, markdown, html }) };
 }
 
-function manifestEntry(doc: AssembledDocument): DocumentManifestEntry {
+/** The grounded fact-id set of each authored block in the document, digest order, sorted. */
+function groundedOfDocument(
+  doc: AssembledDocument,
+  groundedByTask: ReadonlyMap<string, readonly string[]>,
+): readonly { readonly blockId: string; readonly factIds: readonly string[] }[] {
+  return doc.sections
+    .flatMap((s) => s.blocks)
+    .filter((b) => b.taskId !== null && groundedByTask.has(b.taskId))
+    .map((b) => ({ blockId: b.blockId, factIds: [...groundedByTask.get(b.taskId!)!].sort() }))
+    .sort((a, b) => (a.blockId < b.blockId ? -1 : a.blockId > b.blockId ? 1 : 0));
+}
+
+function manifestEntry(
+  doc: AssembledDocument,
+  rendered: RenderedDocument,
+  groundedByTask: ReadonlyMap<string, readonly string[]>,
+): DocumentManifestEntry {
   return {
     documentId: doc.documentId,
     complete: doc.complete,
     sections: doc.sections.map((s) => ({ sectionId: s.sectionId, blocks: s.blocks.map((b) => b.blockId) })),
-    structureDigest: doc.digest,
+    // Structure + slice digests + validation outcomes (doc.digest) plus the grounded
+    // fact sets — the reproducible gate. Prose bytes are excluded on purpose.
+    structureDigest: digest({ structure: doc.digest, grounded: groundedOfDocument(doc, groundedByTask) }),
+    renderedBytesDigest: rendered.digest,
   };
 }
 
 /**
  * Render every document to Markdown and HTML in one mechanical step, with one
- * manifest binding both serializations to the assembled structure. Deterministic
- * over the report and the content function.
+ * manifest binding both serializations to the assembled structure. The manifest
+ * carries two folds: `structureDigest` (structure + grounding — the reproducible
+ * gate) and `renderedBytesDigest` (the Markdown/HTML bytes — informational, since
+ * authored prose varies). Deterministic over the report, the content and the
+ * grounded-fact sets.
  */
-export function renderReport(report: AssembledReport, content: BlockContent): RenderedReport {
+export function renderReport(report: AssembledReport, content: BlockContent, options: RenderOptions = {}): RenderedReport {
+  const groundedByTask = options.groundedFactIdsByTask ?? new Map<string, readonly string[]>();
   const documents = report.documents.map((doc) => renderDocument(doc, content));
-  const entries = report.documents.map(manifestEntry);
-  const manifest: RenderManifest = { documents: entries, digest: digest(entries) };
+  const entries = report.documents.map((doc, i) => manifestEntry(doc, documents[i]!, groundedByTask));
+  const manifest: RenderManifest = {
+    documents: entries,
+    structureDigest: digest(entries.map((e) => ({ documentId: e.documentId, structureDigest: e.structureDigest }))),
+    renderedBytesDigest: digest(entries.map((e) => ({ documentId: e.documentId, renderedBytesDigest: e.renderedBytesDigest }))),
+  };
   return { documents, manifest };
 }

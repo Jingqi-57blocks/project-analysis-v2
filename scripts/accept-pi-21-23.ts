@@ -130,18 +130,18 @@ const determinism = {
   planDigest: executable.plan.planDigest,
   auditDigest: executable.auditDigest,
   executionDigest: run.executionDigest,
-  renderedManifestDigest: dual.rendered.manifest.digest,
+  renderedManifestDigest: dual.rendered.manifest.structureDigest,
   secondRun: {
     planDigest: second.executable.plan.planDigest,
     auditDigest: second.executable.auditDigest,
     executionDigest: second.run.executionDigest,
-    renderedManifestDigest: second.dual.rendered.manifest.digest,
+    renderedManifestDigest: second.dual.rendered.manifest.structureDigest,
   },
   equalAcrossTwoRuns:
     executable.plan.planDigest === second.executable.plan.planDigest &&
     executable.auditDigest === second.executable.auditDigest &&
     run.executionDigest === second.run.executionDigest &&
-    dual.rendered.manifest.digest === second.dual.rendered.manifest.digest,
+    dual.rendered.manifest.structureDigest === second.dual.rendered.manifest.structureDigest,
 };
 
 // --- 5. Question coverage per audience (the FULL required question sets) ---------

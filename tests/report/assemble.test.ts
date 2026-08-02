@@ -175,9 +175,13 @@ describe("renderReport — Markdown and HTML from one audited structure", () => 
     // the manifest binds both serializations to the assembled structure
     expect(a.manifest.documents.map((d) => d.documentId).sort()).toEqual(["project|developer", "project|product"]);
     for (const entry of a.manifest.documents) {
-      const assembled = report.documents.find((d) => d.documentId === entry.documentId)!;
-      expect(entry.structureDigest).toBe(assembled.digest); // same audited structure
+      // structureDigest folds the assembled structure (and the grounded-fact sets,
+      // empty here) — reproducible; renderedBytesDigest folds the Markdown/HTML bytes.
+      expect(entry.structureDigest).toMatch(/^[0-9a-f]{64}$/);
+      expect(entry.renderedBytesDigest).toMatch(/^[0-9a-f]{64}$/);
     }
+    // The two folds are distinct concerns: structure/grounding vs rendered bytes.
+    expect(a.manifest.structureDigest).not.toBe(a.manifest.renderedBytesDigest);
   });
 
   it("renders a marked gap for a required block that did not validate, without failing the render", () => {

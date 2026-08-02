@@ -15,8 +15,6 @@
  * byte-identical text, which is what keeps the rendered report digests reproducible.
  */
 
-import { stableStringify } from "../contracts/shared-fact/merge.js";
-import type { SourceRef } from "../contracts/shared-fact/provenance.js";
 import { SECTION_CATALOG, type SectionDefinition } from "../contracts/report/catalog.js";
 import type { ContentBlock } from "../contracts/report/blocks.js";
 import type { Scope } from "../contracts/report/target.js";
@@ -24,6 +22,7 @@ import type { SectionApplicabilityDecision } from "./applicability.js";
 import type { AssembledBlock } from "./assemble.js";
 import type { BlockContent } from "./render.js";
 import { type CitedFact, type SliceReaders, resolveSliceFacts } from "./slice-resolve.js";
+import { DEFAULT_VALUE_CAP, citedFactLine } from "./author-prompt.js";
 
 /** Applicability decisions, indexed documentId → sectionId → decision. */
 export type DecisionIndex = ReadonlyMap<string, ReadonlyMap<string, SectionApplicabilityDecision>>;
@@ -40,7 +39,6 @@ export interface DeterministicContentOptions {
 }
 
 const DEFAULT_BULLET_CAP = 40;
-const DEFAULT_VALUE_CAP = 200;
 
 interface CatalogEntry {
   readonly section: SectionDefinition;
@@ -59,25 +57,10 @@ function scopeLabel(scope: Scope): string {
   return scope.kind === "project" ? "project" : `module:${scope.moduleId}`;
 }
 
-/** `root/relPath:line` — the reader-facing citation, with a line range when it has one. */
-function citationLabel(citation: SourceRef): string {
-  const path = `${citation.rootName}/${citation.relPath}`;
-  if (citation.startLine === null) return path;
-  const line =
-    citation.endLine !== null && citation.endLine !== citation.startLine
-      ? `${citation.startLine}-${citation.endLine}`
-      : `${citation.startLine}`;
-  return `${path}:${line}`;
-}
-
-/** A fact's verbatim value as one stable, bounded line. */
-function valueLabel(value: unknown, valueCap: number): string {
-  const text = stableStringify(value).replace(/\s+/g, " ");
-  return text.length > valueCap ? `${text.slice(0, valueCap)}…` : text;
-}
-
+/** One cited bullet, reusing the shared fact-line formatter so the reader's digest
+ *  and the author's digest are the same bytes. */
 function citedBullet(fact: CitedFact, valueCap: number): string {
-  return `- [${fact.factId}] «${valueLabel(fact.value, valueCap)}» (${fact.kind}) — ${citationLabel(fact.citation)}`;
+  return `- ${citedFactLine(fact, valueCap)}`;
 }
 
 /**

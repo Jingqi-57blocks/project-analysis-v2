@@ -93,6 +93,8 @@ describe("determinism — two full runs over one frozen KB give identical digest
     expect(first.executable.plan.planDigest).toEqual(second.executable.plan.planDigest);
     expect(first.executable.auditDigest).toEqual(second.executable.auditDigest);
     expect(first.run.executionDigest).toEqual(second.run.executionDigest);
-    expect(first.dual.rendered.manifest.digest).toEqual(second.dual.rendered.manifest.digest);
+    expect(first.dual.rendered.manifest.structureDigest).toEqual(second.dual.rendered.manifest.structureDigest);
+    // A deterministic run also renders byte-stable prose, so the informational fold matches too.
+    expect(first.dual.rendered.manifest.renderedBytesDigest).toEqual(second.dual.rendered.manifest.renderedBytesDigest);
   });
 });

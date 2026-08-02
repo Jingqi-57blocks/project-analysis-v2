@@ -16,7 +16,7 @@
 
 import { type AssembledReport, assembleReport } from "./assemble.js";
 import { type AuditReport, auditReport } from "./audit.js";
-import { type BlockContent, type RenderedReport, renderReport } from "./render.js";
+import { type BlockContent, type RenderOptions, type RenderedReport, renderReport } from "./render.js";
 import type { ReportPlan } from "../contracts/report/pipeline.js";
 import type { MaterializedSlices } from "./slice.js";
 import type { BlockArtifact } from "./bundle.js";
@@ -45,10 +45,11 @@ export function produceDualReport(
   slices: MaterializedSlices,
   artifacts: readonly BlockArtifact[],
   content: BlockContent,
+  renderOptions: RenderOptions = {},
 ): DualReportResult {
   const assembled = assembleReport(plan, slices, artifacts);
   const audit = auditReport(assembled);
-  const rendered = renderReport(assembled, content);
+  const rendered = renderReport(assembled, content, renderOptions);
   const complete = assembled.complete && audit.ok;
   // Only when the whole run is complete is any document exportable — a partial run
   // exports nothing formally, even its individually-complete documents, because a
