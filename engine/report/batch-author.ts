@@ -629,11 +629,21 @@ function lifecycleChannelEvidence(fact: CitedFact): boolean {
   return /Notify(?:Email|Mail|Mobile|Push)|mobile\s+push\s+notification|push\s+notification|email\.InputParam|genMobileComposite|\b(?:email|mail|mobile\s+push)\b/i.test(text);
 }
 
+function lifecycleCompositeChannelEvidence(fact: CitedFact): boolean {
+  const text = sourceText(fact);
+  return /Notify(?:Email|Mail)Cpst/i.test(text) && /Notify(?:Mobile|Push)Cpst/i.test(text);
+}
+
+function lifecycleApprovalStageEvidence(fact: CitedFact): boolean {
+  if (fact.kind !== "source-excerpt") return false;
+  return /(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(sourceText(fact));
+}
+
 /** Source-level state writes used when a provider cannot yet form the transition. */
 function lifecycleTransitionEvidence(fact: CitedFact): boolean {
   if (fact.kind !== "source-excerpt") return false;
   const text = `${sourceLabel(fact)} ${sourceText(fact)}`;
-  return /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)|(?:status|state)\s*(?:=|:)|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
+  return /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)|(?:\.|\b)(?:status|state)\s*=|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
 }
 
 /**
@@ -810,11 +820,25 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     .slice(0, 12);
 
   const signalKinds = new Set(["condition", "decision", "guard", "business-rule", "validation-rule"]);
+  const comparisonKey = (fact: CitedFact): string => {
+    const value = factObject(fact);
+    return stableStringify({
+      subject: value.subject ?? value.field ?? null,
+      operator: value.operator ?? null,
+      literal: value.literal ?? null,
+    });
+  };
+  const conditionComparisons = new Set(eligible
+    .filter((fact) => fact.kind === "condition")
+    .map(comparisonKey));
   const dedupedSignals: CitedFact[] = [];
   const seenSignals = new Set<string>();
   for (const fact of eligible
     .filter((entry) => signalKinds.has(entry.kind))
     .sort((a, b) => lifecycleRank(b) - lifecycleRank(a) || a.factId.localeCompare(b.factId))) {
+    const value = factObject(fact);
+    const meanings = Array.isArray(value.meanings) ? value.meanings : [];
+    if (fact.kind === "business-rule" && meanings.length === 0 && conditionComparisons.has(comparisonKey(fact))) continue;
     const key = lifecycleSignalKey(fact);
     if (seenSignals.has(key)) continue;
     seenSignals.add(key);
@@ -836,11 +860,41 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
   const selectedSignalIds = new Set<string>();
   // Preserve actual branch and validation evidence before threshold-heavy
   // conditions consume the diversity budget.
+  const reservedByKind = new Map<string, number>([["guard", 11], ["decision", 5], ["validation-rule", 4]]);
   for (const kind of ["guard", "decision", "validation-rule"]) {
-    for (const fact of dedupedSignals.filter((entry) => entry.kind === kind).slice(0, 14)) {
+    const candidates = dedupedSignals.filter((entry) => {
+      if (entry.kind !== kind) return false;
+      if (kind !== "decision") return true;
+      const subject = normalizedToken(String(factObject(entry).subject ?? ""));
+      return subject !== "" && !/^(?:err|error|ok|found|loaded|loading|index|i)$/.test(subject);
+    });
+    for (const fact of candidates.slice(0, reservedByKind.get(kind) ?? 0)) {
       signals.push(fact);
       selectedSignalIds.add(fact.factId);
     }
+  }
+  // Reader-facing subtype names are often expressed as string literals in UI
+  // conditions. Reserve them before numeric/status comparisons consume the
+  // material-threshold budget, so a module with many rules still keeps every
+  // major selectable variant (leave type, application kind, expense category,
+  // and similar vocabularies) without relying on a project keyword list.
+  const namedVariants = dedupedSignals
+    .filter((fact) => {
+      if (fact.kind !== "condition") return false;
+      const value = factObject(fact);
+      const subject = normalizedToken(String(value.subject ?? value.field ?? ""));
+      return typeof value.literal === "string" && value.literal.trim() !== "" && /(?:type|category|kind)$/.test(subject);
+    })
+    .sort((a, b) => lifecycleRank(b) - lifecycleRank(a) || a.factId.localeCompare(b.factId));
+  const selectedNamedVariants = new Set<string>();
+  for (const fact of namedVariants) {
+    if (signals.length >= 36) break;
+    const value = factObject(fact);
+    const key = `${normalizedToken(String(value.subject ?? value.field ?? ""))}:${String(value.literal).toLowerCase()}`;
+    if (selectedNamedVariants.has(key) || selectedSignalIds.has(fact.factId)) continue;
+    selectedNamedVariants.add(key);
+    signals.push(fact);
+    selectedSignalIds.add(fact.factId);
   }
   // Approval stages and validation variants commonly compare the same field
   // against several thresholds (for example >16 and >40 hours). A single
@@ -865,7 +919,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     });
   };
   for (const fact of dedupedSignals) {
-    if (signals.length >= 72) break;
+    if (signals.length >= 46) break;
     const key = materialThresholdKey(fact);
     if (key === null || selectedThresholds.has(key)) continue;
     selectedThresholds.add(key);
@@ -874,7 +928,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     selectedSignalIds.add(fact.factId);
   }
   const groups = [...bySubject.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, list]) => list);
-  for (let round = 0; signals.length < 84; round += 1) {
+  for (let round = 0; signals.length < 48; round += 1) {
     const candidates = groups
       .map((group) => group[round])
       .filter((fact): fact is CitedFact => fact !== undefined)
@@ -883,7 +937,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
       if (selectedSignalIds.has(fact.factId)) continue;
       signals.push(fact);
       selectedSignalIds.add(fact.factId);
-      if (signals.length >= 84) break;
+      if (signals.length >= 48) break;
     }
     if (candidates.length === 0) break;
   }
@@ -910,7 +964,9 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
       if (relatedPaths.has(path)) score += 250;
       if (lifecycleNotificationEvidence(fact)) score += 120;
       if (lifecycleChannelEvidence(fact)) score += 500;
+      if (lifecycleCompositeChannelEvidence(fact)) score += 500;
       if (lifecycleTransitionEvidence(fact)) score += 400;
+      if (lifecycleApprovalStageEvidence(fact)) score += 700;
       if (/\b(status|state|approve|reject|cancel|withdraw|submit|create|update|delete|transition)\b/i.test(text)) score += 55;
       if (/\b(if|switch|case|transaction|rollback|commit)\b/i.test(text)) score += 30;
       return { fact, score, bytes: Buffer.byteLength(text, "utf8"), contained };
@@ -927,15 +983,16 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     excerptBytes += entry.bytes;
     return true;
   };
+  const relatedExcerptIds = new Set(relatedExcerpts.map((fact) => fact.factId));
   let relatedExcerptCount = 0;
-  for (const entry of excerptCandidates.filter((candidate) => relatedPaths.has(`${candidate.fact.citation.rootName}/${candidate.fact.citation.relPath}`))) {
+  for (const entry of excerptCandidates.filter((candidate) => relatedExcerptIds.has(candidate.fact.factId))) {
     if (addExcerpt(entry)) relatedExcerptCount += 1;
     if (relatedExcerptCount >= 4) break;
   }
-  let transitionExcerptCount = 0;
-  for (const entry of excerptCandidates.filter((candidate) => candidate.contained > 0 && lifecycleTransitionEvidence(candidate.fact))) {
-    if (addExcerpt(entry)) transitionExcerptCount += 1;
-    if (transitionExcerptCount >= 4) break;
+  let approvalStageExcerptCount = 0;
+  for (const entry of excerptCandidates.filter((candidate) => lifecycleApprovalStageEvidence(candidate.fact))) {
+    if (addExcerpt(entry)) approvalStageExcerptCount += 1;
+    if (approvalStageExcerptCount >= 4) break;
   }
   const notificationFacets = [
     /waiting|nextapprover|applied|submit/i,
@@ -945,9 +1002,18 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
   ];
   for (const facet of notificationFacets) {
     const match = excerptCandidates.find((candidate) =>
-      lifecycleChannelEvidence(candidate.fact) && facet.test(`${sourceLabel(candidate.fact)} ${sourceText(candidate.fact)}`),
+      !excerptIds.has(candidate.fact.factId) &&
+      lifecycleCompositeChannelEvidence(candidate.fact) &&
+      facet.test(`${sourceLabel(candidate.fact)} ${sourceText(candidate.fact)}`),
     );
     if (match !== undefined) addExcerpt(match);
+  }
+  let transitionExcerptCount = 0;
+  for (const entry of excerptCandidates.filter((candidate) =>
+    !excerptIds.has(candidate.fact.factId) && candidate.contained > 0 && lifecycleTransitionEvidence(candidate.fact),
+  )) {
+    if (addExcerpt(entry)) transitionExcerptCount += 1;
+    if (transitionExcerptCount >= 2) break;
   }
   const flowLabels = coreFlows.flatMap((flow) => {
     const steps = factObject(flow).steps;
@@ -988,7 +1054,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     addExcerpt(entry);
   }
 
-  const labels = eligible.filter((fact) => fact.kind === "ui-label").slice(0, 12);
+  const labels = eligible.filter((fact) => fact.kind === "ui-label").slice(0, 6);
   return [...new Map(
     [...coreFlows, ...states, ...signals, ...communications, ...excerpts, ...labels].map((fact) => [fact.factId, fact] as const),
   ).values()];

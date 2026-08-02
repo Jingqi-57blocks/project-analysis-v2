@@ -218,6 +218,13 @@ describe("bounded issue evidence", () => {
       "features/leave/rules.go",
       30,
     );
+    const namedVariants = ["pto", "uto", "special_leave", "maternity_leave", "prenatal_leave"].map((name, index) => fact(
+      `condition-leave-type-${name}`,
+      "condition",
+      { subject: "leaveType", test: `leaveType === '${name}'`, operator: "===", literal: name },
+      "features/leave/form.tsx",
+      40 + index,
+    ));
     const request: AuthoringRequest = {
       taskId: "lifecycle",
       documentId: "module|leave|product",
@@ -226,12 +233,13 @@ describe("bounded issue evidence", () => {
       audience: "product",
       prompt: "",
       digest: "",
-      facts: [...ordinary, bto, attachment],
+      facts: [...ordinary, bto, attachment, ...namedVariants],
     };
 
     const selected = boundedFactsFor(request).map((entry) => entry.factId);
     expect(selected).toContain("condition-bto-eight-hours");
     expect(selected).toContain("guard-sick-attachment");
+    for (const variant of namedVariants) expect(selected).toContain(variant.factId);
     expect(selected.length).toBeGreaterThan(20);
   });
 
