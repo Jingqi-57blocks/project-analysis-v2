@@ -26,7 +26,7 @@ import type { CitedFact, SliceReaders } from "./slice-resolve.js";
 
 const BATCH_SCHEMA_VERSION = "authored-task.v12";
 const MAX_TASK_PROMPT_BYTES = 160_000;
-export const DEFAULT_AUTHORING_CONCURRENCY = 9;
+export const DEFAULT_AUTHORING_CONCURRENCY = 8;
 
 const DETERMINISTIC_AUTHORING_BLOCKS = new Set([
   "project-boundary.capabilities",
