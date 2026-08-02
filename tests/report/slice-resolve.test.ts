@@ -123,11 +123,19 @@ describe("coverageInputForKind — honest per-kind coverage for the applicabilit
     expect(classifyCoverage(coverageInputForKind(resolveKindCoverage(readers, moduleScope("leave"), "diagnostic"))).state).toBe("unknown");
   });
 
-  it("identity, coverage and the `*` ledger are always found — rendered from the run, not a KB slice", () => {
+  it("the `*` fact ledger is found when it resolves facts", () => {
     const store = seedNotificationKb();
     const readers = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", IN_MODULE));
-    for (const kind of ["run-identity", "coverage", "*"]) {
-      expect(classifyCoverage(coverageInputForKind(resolveKindCoverage(readers, moduleScope("leave"), kind))).state).toBe("found");
+    expect(classifyCoverage(coverageInputForKind(resolveKindCoverage(readers, moduleScope("leave"), "*"))).state).toBe("found");
+  });
+
+  it("identity and coverage resolve no cited facts in this pass and are unknown — never a fiat 'evidence present'", () => {
+    const store = seedNotificationKb();
+    const readers = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", IN_MODULE));
+    for (const kind of ["run-identity", "scope-identity", "coverage", "gap"]) {
+      const result = resolveKindCoverage(readers, moduleScope("leave"), kind);
+      expect(result.count).toBe(0);
+      expect(classifyCoverage(coverageInputForKind(result)).state).toBe("unknown");
     }
   });
 });

@@ -366,17 +366,19 @@ export function resolveKindCoverage(readers: SliceReaders, scope: Scope, kind: F
 
 /**
  * Turn a resolved kind's coverage into a `CoverageInput` the applicability
- * classifier reads. The mapping is deliberately honest per reader:
+ * classifier reads — strictly from the facts this deterministic pass actually
+ * resolved, never a fiat "present":
  *
- * - a behaviour or structural kind with facts is `found`; with none, `not-found`
- *   (the module's files were scanned and genuinely hold none);
- * - identity, coverage and the `*` ledger are `found` — they are always rendered
- *   from the run's own identity and accounting, not a KB fact slice;
- * - a diagnostic with no module-attributed fact is `unknown`, not `not-found`:
- *   diagnostics are not scoped to a module here, so their module state is
- *   genuinely undetermined — never laundered into a confirmed clean;
- * - a kind this resolver cannot read (`none`) is `unknown`, not an absence — the
- *   capability exists elsewhere; this layer simply cannot tell.
+ * - a behaviour or structural kind, and the `*` fact ledger, are `found` when the
+ *   slice resolved ≥1 cited fact and `not-found` when the module's files were
+ *   scanned and genuinely hold none;
+ * - every other reader (`diagnostic`, `identity`, `coverage`, `none`) is `found`
+ *   only if it actually resolved a cited fact; with none it is `unknown` via an
+ *   undefined scope — an honest "this deterministic pass established nothing here",
+ *   never a confirmed clean and never a claim of evidence a rendered section does
+ *   not carry. Identity and coverage tables are rendered elsewhere (from run
+ *   identity / coverage accounting), so their emptiness here is a deferred gap the
+ *   caller lists, not a covered success.
  */
 export function coverageInputForKind(result: KindCoverageResult): CoverageInput {
   const base = {
@@ -392,20 +394,14 @@ export function coverageInputForKind(result: KindCoverageResult): CoverageInput 
   switch (result.reader) {
     case "behavior":
     case "structural":
+    case "ledger":
       return { ...base, evidencePresent: result.count > 0 };
+    case "diagnostic":
     case "identity":
     case "coverage":
-    case "ledger":
-      // Rendered deterministically from run identity / coverage accounting / the
-      // whole fact base — always present, so the section is included.
-      return { ...base, evidencePresent: true };
-    case "diagnostic":
-      // Module-scoped diagnostic state is undetermined when none is attributed —
-      // an honest `unknown`, reached via an undefined scope, not a fake empty.
-      return result.count > 0 ? { ...base, evidencePresent: true } : { ...base, scopeDefined: false };
     case "none":
-      // The resolver has no reader for this kind; the capability may exist, so this
-      // is `unknown` (undefined scope here), never `not-found`.
-      return { ...base, scopeDefined: false };
+      // Nothing was resolved for these in this deterministic fact-grounded pass —
+      // an honest `unknown` (undefined scope), never a fabricated "evidence present".
+      return result.count > 0 ? { ...base, evidencePresent: true } : { ...base, scopeDefined: false };
   }
 }

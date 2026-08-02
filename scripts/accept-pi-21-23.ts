@@ -1,25 +1,31 @@
 /**
- * Deterministic acceptance of the WCP-V2 leave dual detail reports
- * (PI-21 product + PI-22 developer + PI-23 source audit).
+ * Deterministic, SOURCE-REPRODUCIBLE acceptance of the WCP-V2 leave dual detail
+ * reports (PI-21 product + PI-22 developer + PI-23 source audit).
  *
- *   tsx scripts/accept-pi-21-23.ts
+ *   tsx scripts/accept-pi-21-23.ts [workspacePath]
  *
- * Read-only over the frozen knowledge base in .analysis/kb.sqlite: it resolves the
- * latest published wcp-service-v2 snapshot, compiles the leave module product +
- * developer plan with REAL per-kind coverage from the slice resolver, executes the
- * authored tasks through the deterministic (model-free) Host Agent, and produces
- * the dual report plus a machine-readable audit. It calls no model — the LLM prose
- * is deferred and recorded as open, never faked. It runs the whole pipeline twice
- * and asserts the digests are identical.
+ * It runs its OWN fresh, deterministic per-root analysis of the leave golden-slice
+ * root into a dedicated database (never the shared .analysis/kb.sqlite, and never
+ * "the latest published snapshot", either of which could silently retarget), then
+ * compiles the leave module product + developer plan with REAL per-kind coverage
+ * from the slice resolver, executes the authored tasks through the deterministic
+ * (model-free) Host Agent, and produces the dual report plus a machine-readable
+ * audit. Every digest is keyed off the analysis CONTENT identity, not the run's
+ * random run id, so two machines analysing the same frozen source reach identical
+ * digests, audit and reports — reproducible from source, not from one KB file.
  *
- * Writes only to .analysis: the two rendered reports and one acceptance JSON.
+ * It calls no model — the LLM prose is deferred and recorded as open, never faked.
+ * Writes only to .analysis: a dedicated KB, the two rendered reports and one
+ * acceptance JSON.
  */
 
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 
+import { runAnalyze } from "../engine/run/analyze.js";
 import { openStore } from "../engine/store/open.js";
-import { openKnowledgeBase, resolveSnapshot } from "../engine/kb/query.js";
+import { openKnowledgeBase } from "../engine/kb/query.js";
 import { readBehaviorModel } from "../engine/kb/behavior-persist.js";
 import { compileExecutablePlan } from "../engine/report/plan.js";
 import { produceDualReport } from "../engine/report/dual-report.js";
@@ -30,7 +36,7 @@ import { gradeBehaviorTruth } from "../engine/gates/behavior-truth.js";
 import { itemsForFacet, loadLeaveTruthLedger } from "../engine/contracts/truth/leave.js";
 import { type ReportTarget, type Scope, moduleTarget, targetKey } from "../engine/contracts/report/target.js";
 import { type SectionDefinition, sectionById } from "../engine/contracts/report/catalog.js";
-import { authoredTasks, type GenerationParams } from "../engine/contracts/report/pipeline.js";
+import { type AuthoredBlockTask, authoredTasks, type GenerationParams } from "../engine/contracts/report/pipeline.js";
 import type { AnalysisSnapshotIdentity } from "../engine/contracts/report/snapshot.js";
 import type { KindCoverageInput, SectionApplicabilityDecision } from "../engine/report/applicability.js";
 import { PM_QUESTIONS, pmQuestionCoverage, validatePmPreset } from "../engine/report/presets/pm.js";
@@ -47,37 +53,37 @@ import { deterministicHost } from "../engine/report/deterministic-host.js";
 
 const MODULE = "leave";
 const ROOT = "wcp-service-v2";
-const dbPath = resolve(".analysis/kb.sqlite");
 const outDir = ".analysis";
+const WORKSPACE = resolve(process.argv[2] ?? resolve(homedir(), "Documents/WCP-V2"));
+const rootPath = resolve(WORKSPACE, ROOT);
+// A dedicated KB, rebuilt fresh each run so the acceptance can never collide with
+// or retarget the shared .analysis/kb.sqlite.
+const dbPath = resolve(outDir, "pi21-accept.sqlite");
 
-// --- 1. Frozen KB, resolved to the latest published wcp-service-v2 snapshot ------
+// --- 1. Fresh, deterministic per-root analysis pinned to THIS run's snapshot -----
+// The index is rooted at the root itself so every code-index path is relative to
+// it (internal/...) — the same rooting the truth citations use.
+mkdirSync(outDir, { recursive: true });
+for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true });
+const analysis = runAnalyze({ paths: [rootPath], indexRoot: rootPath, dbPath });
+
 const store = openStore(dbPath);
-const runRow = store.get<{ run_id: string | null }>(
-  `SELECT s.run_id FROM snapshots s
-     JOIN source_roots r ON r.snapshot_id = s.id
-    WHERE r.name = ? AND s.published_at IS NOT NULL
-    ORDER BY s.published_at DESC, s.id DESC LIMIT 1`,
-  [ROOT],
-);
-if (runRow?.run_id == null) {
-  console.error(`No published ${ROOT} snapshot in ${dbPath}. Run an analysis first.`);
-  process.exit(1);
-}
-const runId = runRow.run_id;
-const snapshot = resolveSnapshot(store, runId);
-const kb = openKnowledgeBase(store, runId);
+const kb = openKnowledgeBase(store, analysis.runId);
 const membership = resolveModuleMembership(kb, MODULE);
-const readers = createSliceReaders(store, snapshot.id, membership);
+const readers = createSliceReaders(store, analysis.snapshotId, membership);
 
+// Every identity dimension is the analysis CONTENT identity (a content digest that
+// is equal for two runs over unchanged source), never the per-run random run id —
+// so the plan, audit, execution and render digests are functions of the source.
 const snapshotIdentity: AnalysisSnapshotIdentity = {
-  sourceIdentity: snapshot.identity,
-  codeGraphIdentity: snapshot.identity,
-  providerIdentity: snapshot.identity,
+  sourceIdentity: analysis.identity,
+  codeGraphIdentity: analysis.identity,
+  providerIdentity: analysis.identity,
   schemaVersion: "1.0.0",
-  configIdentity: snapshot.identity,
+  configIdentity: analysis.identity,
 };
 const params: GenerationParams = { executorKind: "host-agent", modelId: "unbound-pi21", language: "en" };
-const analysisRunId = snapshot.runId ?? snapshot.identity;
+const analysisRunId = analysis.identity;
 const request: readonly ReportTarget[] = [moduleTarget(MODULE, "product"), moduleTarget(MODULE, "developer")];
 const moduleScope: Scope = moduleTarget(MODULE, "product").scope;
 
@@ -118,8 +124,9 @@ const first = runPipeline();
 const second = runPipeline();
 const { executable, decisions, run, validatedTaskIds, dual } = first;
 
-// --- 4. Determinism — the same frozen KB gives byte-identical digests twice ------
+// --- 4. Determinism — content-keyed digests, byte-identical across two runs ------
 const determinism = {
+  keyedOff: "analysis content identity (not the run id) — reproducible from source",
   planDigest: executable.plan.planDigest,
   auditDigest: executable.auditDigest,
   executionDigest: run.executionDigest,
@@ -204,21 +211,44 @@ const reportGrade = gradeReportTruth(itemsForFacet(ledger, "M3"), executable, va
 const notPrinted = reportGrade.results
   .filter((r) => r.status === "missing" || r.status === "unsupported" || r.status === "unknown")
   .map((r) => ({ truthId: r.truthId, category: r.category, status: r.status, reason: r.detail }));
+
+// The gapped authored blocks — an authored block whose own slice resolved no facts
+// and whose section carried no not-applicable/unknown decision. Reported explicitly
+// so no gap is silent; the block renders as a marked skeleton gap.
+const taskById = new Map(authoredTasks(executable.plan).map((t) => [t.taskId, t] as const));
+const gappedAuthoredBlocks = run.artifacts
+  .filter((a) => !a.validated)
+  .map((a) => {
+    const task: AuthoredBlockTask | undefined = taskById.get(a.taskId);
+    return { blockId: a.blockId, documentId: task?.documentId ?? null, sectionId: task?.sectionId ?? null, ownKinds: task?.factSlice.factKinds ?? [] };
+  })
+  .sort((x, y) => (`${x.documentId}/${x.blockId}` < `${y.documentId}/${y.blockId}` ? -1 : 1));
+
+// Placement (the section is present) is a weaker fact than printed (present AND its
+// required authored blocks validated). Reported apart so neither overstates.
+const mustPrintResults = reportGrade.results.filter((r) => r.mustPrint);
+const mustPrintSectionPresent = mustPrintResults.filter((r) => r.placements.length > 0 && r.placements.every((p) => p.present)).length;
+
 const mustPrintAccounting = {
   mustPrintTotal: reportGrade.mustPrintTotal,
   mustPrintPrinted: reportGrade.mustPrintPrinted,
+  mustPrintSectionPresent,
   criticalIssues: reportGrade.criticalIssues,
   sliceOutClaims: reportGrade.sliceOutClaims,
   crossReportConflicts: reportGrade.crossReportConflicts,
   passed: reportGrade.passed,
   counts: reportGrade.counts,
+  note:
+    "A must-print item is 'printed' only when its section is present AND every required authored block in it validated (its own slice grounded). The 8 notification items route to module-notifications-data (product): the section is PRESENT — its deterministic effects block carries the module's data-access facts — so section placement is 8/8, but its authored notes block declares only `outbound-call` (0 facts in leave scope) and is a deterministic GAP, so those items count present-but-not-printed. This is the honest state: the notification/outbound CONTENT is a deferred gap (report-author phase + outbound-sink capture), not a produced success.",
   assertions: {
     mustPrintAllPrinted: reportGrade.mustPrintPrinted === reportGrade.mustPrintTotal,
+    mustPrintAllPlaced: mustPrintSectionPresent === reportGrade.mustPrintTotal,
     criticalIssuesZero: reportGrade.criticalIssues === 0,
     sliceOutClaimsZero: reportGrade.sliceOutClaims === 0,
     crossReportConflictsZero: reportGrade.crossReportConflicts === 0,
   },
   notPrintedItems: notPrinted,
+  gappedAuthoredBlocks,
 };
 
 // --- 7. Project-level footprint + dedup (module-only ⇒ {0,0}) --------------------
@@ -292,8 +322,8 @@ const targetSpecializationScan = {
 };
 
 // --- 9. Deferred to the LLM host — recorded OPEN, never a pass -------------------
-const model = readBehaviorModel(store, snapshot.id);
-const behaviorGrade = gradeBehaviorTruth(itemsForFacet(ledger, "M2"), model, ROOT);
+const model = readBehaviorModel(store, analysis.snapshotId);
+const behaviorGrade = gradeBehaviorTruth(itemsForFacet(ledger, "M2"), model, ROOT, analysis.testCoverage);
 // In-scope misses (status not-found) are the true must-find gap; out-of-scope
 // must-find items (unresolved/unsupported) are outside the found/not-found
 // denominator and reported apart, so the number is not inflated.
@@ -306,11 +336,25 @@ const behaviorOutOfScope = behaviorGrade.results
 const notificationCallFacts = resolveKindCoverage(readers, moduleScope, "notification-call").count;
 const outboundCallFacts = resolveKindCoverage(readers, moduleScope, "outbound-call").count;
 const authoredCount = authoredTasks(executable.plan).length;
+
+// Shared sections rendered from run identity / coverage accounting rather than a KB
+// fact slice — this deterministic pass resolves no cited facts for them, so they are
+// reported as deferred here rather than as a covered success.
+const emptyDeterministicSections = productCoverage.rows
+  .concat(developerCoverage.rows)
+  .filter((r) => r.scope !== "project" && r.boundFactCount === 0 && r.applicability === "unknown" && (r.sectionId === "identity" || r.sectionId === "coverage"))
+  .map((r) => ({ documentQuestion: r.questionId, sectionId: r.sectionId }));
+
 const deferredToLLM = {
   authoredProse: {
-    note: "Every authored block renders a deterministic fact digest here; the audience-specific prose is the LLM authoring phase's to write and is deferred, not produced.",
+    note: "Every validated authored block renders a deterministic fact digest here; the audience-specific prose is the LLM authoring phase's to write and is deferred, not produced.",
     authoredTaskCount: authoredCount,
     validatedAsGroundedOrDisclosure: validatedTaskIds.size,
+    gappedAuthoredBlocks,
+  },
+  emptyDeterministicSections: {
+    note: "identity and coverage are rendered from run/snapshot identity and coverage accounting, not a KB fact slice; this fact-grounded pass resolves 0 cited facts for them, so they are marked structured-unknown and deferred here, not reported as covered.",
+    sections: emptyDeterministicSections,
   },
   verbatimSourceEquality: {
     note: "Re-reading each cited value against the live source (verbatim-text equality) is the M4 fresh-run content match — deferred, not asserted here.",
@@ -318,14 +362,15 @@ const deferredToLLM = {
   behaviorMustFind: {
     found: behaviorGrade.mustFindFound,
     total: behaviorGrade.mustFindTotal,
-    note: "Behaviour must-find over the frozen KB with test coverage not re-run (not-run); a fresh analysis grades it with the run's own test coverage and reaches 35/38. The in-scope misses are open; out-of-scope must-find items are outside the denominator.",
+    testCoverage: analysis.testCoverage,
+    note: "Behaviour must-find over this run's own fresh analysis (test coverage graded from the run). The in-scope misses are open; out-of-scope must-find items are outside the found/not-found denominator.",
     inScopeUnfound: behaviorInScopeUnfound,
     outOfScope: behaviorOutOfScope,
   },
   effectGroundingGaps: {
     notificationCallFacts,
     outboundCallFacts,
-    note: "The leave module's notification/outbound authoring sites are not captured as behaviour effect facts in this KB (0 in scope); grounding those specific facts is deferred to notification-reachability / the LLM host. The notification SECTION is still grounded by its data-access facts.",
+    note: "The leave module's notification/outbound authoring sites are not captured as behaviour effect facts in this KB (0 in scope); the authored notes block that reads them is a deferred gap, and the 8 notification must-print items are present-but-not-printed. Grounding those specific facts is deferred to notification-reachability / outbound-sink capture / the LLM host. The notification section itself is still placed and carries its data-access facts.",
   },
   reportItemsOpen: notPrinted,
 };
@@ -335,9 +380,10 @@ const acceptance = {
   target: {
     module: MODULE,
     root: ROOT,
-    snapshotId: snapshot.id,
-    runId: snapshot.runId,
-    snapshotIdentity: snapshot.identity,
+    workspace: WORKSPACE,
+    snapshotId: analysis.snapshotId,
+    runId: analysis.runId,
+    contentIdentity: analysis.identity,
     kbModule: { id: membership.kbModuleId, name: membership.kbModuleName, memberFiles: membership.fileCount },
   },
   presetValidation: { pm: validatePmPreset(), dev: validateDevPreset() },
@@ -352,7 +398,6 @@ const acceptance = {
   deferredToLLM,
 };
 
-mkdirSync(outDir, { recursive: true });
 const productRendered = dual.rendered.documents.find((d) => d.documentId === productDoc);
 const developerRendered = dual.rendered.documents.find((d) => d.documentId === developerDoc);
 if (productRendered !== undefined) writeFileSync(resolve(outDir, "pi21-leave-product.md"), productRendered.markdown);
@@ -361,7 +406,7 @@ writeFileSync(resolve(outDir, "pi21-23-acceptance.json"), `${JSON.stringify(acce
 
 // --- 11. Console summary --------------------------------------------------------
 const pmOk = acceptance.presetValidation.pm.ok && acceptance.presetValidation.dev.ok;
-console.log(`PI-21/22/23 acceptance over ${ROOT}/${MODULE} (snapshot ${snapshot.id}, ${snapshot.identity.slice(0, 12)})`);
+console.log(`PI-21/22/23 acceptance over ${ROOT}/${MODULE} (content ${analysis.identity.slice(0, 12)}, fresh snapshot ${analysis.snapshotId})`);
 console.log(`  kb module: ${membership.kbModuleName} (${membership.kbModuleId}), ${membership.fileCount} member files`);
 console.log(`  reports rendered: product=${productRendered !== undefined}, developer=${developerRendered !== undefined}; dual complete=${dual.complete}`);
 console.log(`  preset validation ok: pm+dev=${pmOk}`);
@@ -372,13 +417,15 @@ console.log(
   `  question coverage developer: ${developerCoverage.summary.includedWithFacts} with facts, ${developerCoverage.summary.structuredUnknownOrNa} structured unknown/na, ${developerCoverage.summary.includedZeroFacts} included(0 facts), ${developerCoverage.summary.projectNotApplicable} project-na`,
 );
 console.log(
-  `  mustPrint ${reportGrade.mustPrintPrinted}/${reportGrade.mustPrintTotal}; criticalIssues ${reportGrade.criticalIssues}; sliceOut ${reportGrade.sliceOutClaims}; crossReport ${reportGrade.crossReportConflicts}; gate passed=${reportGrade.passed}`,
+  `  mustPrint PRINTED ${reportGrade.mustPrintPrinted}/${reportGrade.mustPrintTotal} (section PLACED ${mustPrintSectionPresent}/${reportGrade.mustPrintTotal}); criticalIssues ${reportGrade.criticalIssues}; sliceOut ${reportGrade.sliceOutClaims}; crossReport ${reportGrade.crossReportConflicts}; gate passed=${reportGrade.passed}`,
 );
+console.log(`  gapped authored blocks: ${gappedAuthoredBlocks.map((g) => `${g.documentId}/${g.blockId}(${g.ownKinds.join(",")})`).join("; ") || "none"}`);
 console.log(`  project footprint {docs:${footprint.projectDocumentCount}, tasks:${footprint.projectTaskCount}} zero=${projectFootprint.isZeroZero}; dedup ok=${dedup.ok}`);
 console.log(`  target-specialization scan clean=${targetSpecializationScan.clean} (${scanFindings.length} classified findings)`);
-console.log(`  determinism digests equal across two runs=${determinism.equalAcrossTwoRuns}`);
+console.log(`  determinism (content-keyed) equal across two runs=${determinism.equalAcrossTwoRuns}`);
+console.log(`    planDigest ${determinism.planDigest.slice(0, 16)} auditDigest ${determinism.auditDigest.slice(0, 16)} execDigest ${determinism.executionDigest.slice(0, 16)} renderDigest ${determinism.renderedManifestDigest.slice(0, 16)}`);
 console.log(
-  `  deferred: authored prose (${authoredCount} tasks), verbatim re-read, behaviour must-find ${behaviorGrade.mustFindFound}/${behaviorGrade.mustFindTotal} (${behaviorInScopeUnfound.length} in-scope open, ${behaviorOutOfScope.length} out-of-scope), notification/outbound facts in scope ${notificationCallFacts}/${outboundCallFacts}, report items open ${notPrinted.length}`,
+  `  deferred: authored prose (${authoredCount} tasks, ${gappedAuthoredBlocks.length} gapped), identity/coverage deterministic sections, verbatim re-read, behaviour must-find ${behaviorGrade.mustFindFound}/${behaviorGrade.mustFindTotal} (${behaviorInScopeUnfound.length} in-scope open, ${behaviorOutOfScope.length} out-of-scope), notification/outbound facts in scope ${notificationCallFacts}/${outboundCallFacts}, report items open ${notPrinted.length}`,
 );
 console.log(`  -> ${outDir}/pi21-leave-product.md, ${outDir}/pi22-leave-developer.md, ${outDir}/pi21-23-acceptance.json`);
 
