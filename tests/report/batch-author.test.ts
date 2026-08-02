@@ -88,7 +88,13 @@ describe("prepareBatchAuthor", () => {
               summary: "按已知条件处理",
               factIds: [first],
               steps: [{ label: "处理请求", detail: "读取当前事实", factIds: [first] }],
-              branches: [{ afterStep: 1, condition: "已知条件", outcome: "继续处理", kind: "conditional" as const, factIds: [first, nearbyDecision, foreign] }],
+              branches: Array.from({ length: 10 }, (_, index) => ({
+                afterStep: 1,
+                condition: `已知条件 ${index + 1}`,
+                outcome: "继续处理",
+                kind: "conditional" as const,
+                factIds: [first, nearbyDecision, foreign],
+              })),
             }] : [],
             lifecycles: task.structuredLifecycleRequired ? [{
               title: "业务生命周期",
