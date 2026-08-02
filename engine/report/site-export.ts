@@ -121,12 +121,152 @@ function unique(values: Iterable<string>, cap = Number.POSITIVE_INFINITY): reado
   return [...new Set([...values].map((value) => value.trim()).filter(Boolean))].sort().slice(0, cap);
 }
 
+function uniqueFacts(facts: Iterable<CitedFact>): readonly CitedFact[] {
+  return [...new Map([...facts].map((fact) => [fact.factId, fact] as const)).values()];
+}
+
 function readableIdentifier(value: string): string {
   return value
     .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replaceAll(/[_-]+/g, " ")
     .replaceAll(/\s+/g, " ")
     .trim();
+}
+
+function roleIdentity(value: string): string {
+  return value
+    .replace(/Code$/i, "")
+    .replace(/[CF]$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function readableRole(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const known: Readonly<Record<string, string>> = {
+    normal: "普通员工",
+    employee: "普通员工",
+    admin: "管理员",
+    projectmanagement: "项目经理",
+    projectmanager: "项目经理",
+    hrspecialist: "HR 专员",
+    hr: "HR 专员",
+    reviewadmin: "评审管理员",
+    reviewmanager: "评审经理",
+    client: "客户",
+    systemadmin: "系统管理员",
+    sale: "销售",
+    sales: "销售",
+    rateadmin: "费率管理员",
+    officemanagement: "办公室管理",
+    invoicemanager: "发票管理员",
+  };
+  return known[normalized] ?? readableIdentifier(value);
+}
+
+interface RoleDefinition {
+  readonly identity: string;
+  readonly label: string;
+  readonly raw: readonly string[];
+  readonly evidence: readonly CitedFact[];
+}
+
+function roleDefinitions(options: ExportProductReportSiteOptions): readonly RoleDefinition[] {
+  const scope = projectTarget("product").scope;
+  const auth = resolveSliceFacts(options.readers, scope, ["auth-annotation"]);
+  const requirementIdentities = new Set(auth
+    .map((fact) => stringField(fact.value, "requirement"))
+    .filter((value): value is string => value !== null)
+    .map(roleIdentity));
+  const sets = resolveSliceFacts(options.readers, scope, ["value-set"])
+    .filter((fact) => arrayField(fact.value, "members").some((member) => {
+      const name = stringField(member, "name");
+      return name !== null && requirementIdentities.has(roleIdentity(name));
+    }));
+  const members = sets.flatMap((fact) => arrayField(fact.value, "members").map((member) => ({ fact, member })));
+  const byIdentity = new Map<string, RoleDefinition>();
+  for (const { fact, member } of members) {
+    const name = stringField(member, "name");
+    if (name === null) continue;
+    const identity = roleIdentity(name);
+    const same = members.filter((candidate) => {
+      const candidateName = stringField(candidate.member, "name");
+      return candidateName !== null && roleIdentity(candidateName) === identity;
+    });
+    const readableValue = same
+      .map((candidate) => asRecord(candidate.member).value)
+      .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+    const raw = unique(same.flatMap((candidate) => {
+      const candidateName = stringField(candidate.member, "name");
+      const value = asRecord(candidate.member).value;
+      return [candidateName ?? "", typeof value === "string" ? value : ""];
+    }), 6);
+    const current = byIdentity.get(identity);
+    byIdentity.set(identity, {
+      identity,
+      label: readableRole(readableValue ?? name),
+      raw,
+      evidence: current === undefined ? [fact] : uniqueFacts([...current.evidence, fact]),
+    });
+  }
+  return [...byIdentity.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function roleMap(
+  options: ExportProductReportSiteOptions,
+  moduleId?: string,
+  flowGroups: readonly StructuredFlowGroup[] = [],
+  lifecycles: readonly StructuredLifecycle[] = [],
+  lifecycleArtifact: ProseArtifact | null = null,
+): string {
+  const scope = moduleId === undefined ? projectTarget("product").scope : moduleScope(moduleId);
+  const auth = resolveSliceFacts(options.readers, scope, ["auth-annotation"]);
+  const byIdentity = new Map<string, CitedFact[]>();
+  for (const fact of auth) {
+    const requirement = stringField(fact.value, "requirement");
+    if (requirement === null) continue;
+    const identity = roleIdentity(requirement);
+    const facts = byIdentity.get(identity) ?? [];
+    facts.push(fact);
+    byIdentity.set(identity, facts);
+  }
+  const definitions = roleDefinitions(options);
+  const employee = definitions.find((definition) => definition.identity === "employee" || definition.raw.some((value) => value.toLowerCase() === "normal"));
+  const selected = definitions.filter((definition) => byIdentity.has(definition.identity));
+  if ((moduleId === undefined ? options.modules.length > 0 : flowGroups.length > 0) && employee !== undefined && !selected.some((definition) => definition.identity === employee.identity)) {
+    selected.unshift(employee);
+  }
+  const cards = selected
+    .sort((a, b) => {
+      const employeeRank = (definition: RoleDefinition) => definition.identity === employee?.identity ? 0 : 1;
+      return employeeRank(a) - employeeRank(b) || (byIdentity.get(b.identity)?.length ?? 0) - (byIdentity.get(a.identity)?.length ?? 0) || a.label.localeCompare(b.label);
+    })
+    .slice(0, moduleId === undefined ? 14 : 8)
+    .map((definition) => {
+      const checks = byIdentity.get(definition.identity) ?? [];
+      const operations = unique(flowGroups.map((group) => group.title), 5);
+      const detail = checks.length > 0
+        ? `在当前范围的 ${checks.length} 处权限检查中被明确引用。`
+        : operations.length > 0
+          ? `可通过已观测入口参与：${operations.join("、")}。`
+          : "角色编码中定义的通用登录用户身份。";
+      return `<article><h3>${html(definition.label)}</h3><p>${html(detail)}</p><small>${html(definition.raw.join(" / "))}</small>${evidence(uniqueFacts([...definition.evidence, ...checks]), "查看角色定义与权限证据", 5)}</article>`;
+    });
+  if (moduleId !== undefined && lifecycleArtifact !== null) {
+    const participants = lifecycles.flatMap((lifecycle) => lifecycle.nodes)
+      .filter((node) => node.kind !== "terminal" && /approve|approval|approver|审批|负责人|经理|\bHR\b/i.test(`${node.label} ${node.detail}`));
+    if (participants.length > 0) {
+      const byId = new Map(lifecycleArtifact.facts.map((fact) => [fact.factId, fact] as const));
+      const facts = unique(participants.flatMap((node) => node.factIds))
+        .map((id) => byId.get(id))
+        .filter((fact): fact is CitedFact => fact !== undefined);
+      cards.push(`<article><h3>流程审批参与者</h3><p>${html(unique(participants.map((node) => node.detail), 5).join("；"))}</p><small>由当前生命周期关系确定</small>${evidence(facts, "查看审批关系证据", 6)}</article>`);
+    }
+  }
+  if (cards.length === 0) {
+    return `<p class="callout unknown"><strong>角色名称未解析</strong>当前范围存在入口，但没有把权限标识关联到可读的角色定义；报告不以猜测补齐。</p>`;
+  }
+  return `<div class="role-map">${cards.join("")}</div>`;
 }
 
 function citationLabel(fact: CitedFact): string {
@@ -628,7 +768,7 @@ function renderProjectPage(options: ExportProductReportSiteOptions, artifacts: A
     ["阅读对象", "产品与非技术角色"],
     ["源码快照", generatedDate],
     ["表达原则", "事实 / 推断 / 未知分离"],
-  ])}<div class="summary-strip"><p>项目概览覆盖全部已分类的产品模块；只为本次指定的 ${options.selectedModules.length} 个模块生成独立详情页。所有页面共用同一份分析快照和事实库。</p><a href="#capabilities">从功能地图开始 ↓</a></div></header>${section("capabilities", 1, "全部功能模块", "由代码入口、业务对象、关系和界面证据形成；外部服务与基础设施单独列示。", `${proseHtml(capabilitiesProse)}${capabilityMap(options)}${evidence(projectFacts, "查看模块分类证据", 20)}`)}${section("structure", 2, "项目结构图", "从源码组成到业务能力、核心对象和外部触点的四层结构。", architecture(options))}${section("journeys", 3, "主要跨模块业务路径", "展示项目级端到端关系；模块内部的条件和分支在详情页展开。", `${proseHtml(pathsProse)}${projectJourneys(paths?.flowGroups ?? [], flowFacts)}`)}${section("objects", 4, "核心业务对象与规则", "按实际数据访问频率展示主要对象，生命周期与跨模块规则来自同一事实切片。", `${proseHtml(rulesProse)}${projectObjects(options)}`)}${section("integrations", 5, "通知、集成与数据影响", "外部系统是业务触点，不因为独立客户端或目录被误作产品模块。", integrations(options))}${section("problems", 6, "已知问题与待确认事项", "结构化源码审查与分析器问题记录分开展示；不添加优先级或整改建议。", combinedProblemRows(issues?.issues ?? [], issuesProse, problemFacts(options)))}${section("coverage", 7, "覆盖范围与源码快照", "区分有证据、已检查但未发现、未执行和无法由静态源码确认。", coverage(options))}${options.selectedModules.length === 0 ? "" : `<nav class="next-report"><a href="${pagePath(options.selectedModules[0]!)}"><span>开始阅读模块详情</span><strong>${html(options.selectedModules[0]!.displayName)} →</strong></a><a href="${pagePath(options.selectedModules.at(-1)!)}"><span>直接查看</span><strong>${html(options.selectedModules.at(-1)!.displayName)} →</strong></a></nav>`}`;
+  ])}<div class="summary-strip"><p>项目概览覆盖全部已分类的产品模块；只为本次指定的 ${options.selectedModules.length} 个模块生成独立详情页。所有页面共用同一份分析快照和事实库。</p><a href="#capabilities">从功能地图开始 ↓</a></div></header>${section("capabilities", 1, "全部功能模块", "由代码入口、业务对象、关系和界面证据形成；外部服务与基础设施单独列示。", `${proseHtml(capabilitiesProse)}${capabilityMap(options)}${evidence(projectFacts, "查看模块分类证据", 20)}`)}${section("roles", 2, "角色与参与方式", "把数据库角色编码、权限检查和可读名称关联起来；未在当前源码中引用的角色不列入正文。", roleMap(options))}${section("structure", 3, "项目结构图", "从源码组成到业务能力、核心对象和外部触点的四层结构。", architecture(options))}${section("journeys", 4, "主要跨模块业务路径", "展示项目级端到端关系；模块内部的条件和分支在详情页展开。", `${proseHtml(pathsProse)}${projectJourneys(paths?.flowGroups ?? [], flowFacts)}`)}${section("objects", 5, "核心业务对象与规则", "按实际数据访问频率展示主要对象，生命周期与跨模块规则来自同一事实切片。", `${proseHtml(rulesProse)}${projectObjects(options)}`)}${section("integrations", 6, "通知、集成与数据影响", "外部系统是业务触点，不因为独立客户端或目录被误作产品模块。", integrations(options))}${section("problems", 7, "已知问题与待确认事项", "结构化源码审查与分析器问题记录分开展示；不添加优先级或整改建议。", combinedProblemRows(issues?.issues ?? [], issuesProse, problemFacts(options)))}${section("coverage", 8, "覆盖范围与源码快照", "区分有证据、已检查但未发现、未执行和无法由静态源码确认。", coverage(options))}${options.selectedModules.length === 0 ? "" : `<nav class="next-report"><a href="${pagePath(options.selectedModules[0]!)}"><span>开始阅读模块详情</span><strong>${html(options.selectedModules[0]!.displayName)} →</strong></a><a href="${pagePath(options.selectedModules.at(-1)!)}"><span>直接查看</span><strong>${html(options.selectedModules.at(-1)!.displayName)} →</strong></a></nav>`}`;
   return documentShell({
     options,
     projectName,
@@ -636,7 +776,7 @@ function renderProjectPage(options: ExportProductReportSiteOptions, artifacts: A
     current: "project",
     depth: 0,
     title: `${projectName} 项目概览`,
-    sectionLinks: [["capabilities", "功能模块"], ["structure", "项目结构"], ["journeys", "主要业务路径"], ["objects", "核心业务对象"], ["integrations", "通知与集成"], ["problems", "问题与未知"], ["coverage", "覆盖说明"]],
+    sectionLinks: [["capabilities", "功能模块"], ["roles", "角色与参与方式"], ["structure", "项目结构"], ["journeys", "主要业务路径"], ["objects", "核心业务对象"], ["integrations", "通知与集成"], ["problems", "问题与未知"], ["coverage", "覆盖说明"]],
   }, body);
 }
 
@@ -695,6 +835,8 @@ function moduleEntries(
   options: ExportProductReportSiteOptions,
   module: ReportModule,
   flowGroups: readonly StructuredFlowGroup[],
+  lifecycles: readonly StructuredLifecycle[],
+  lifecycleArtifact: ProseArtifact | null,
 ): string {
   const facts = resolveSliceFacts(options.readers, moduleScope(module.id), ["route", "auth-annotation", "ui-label"]);
   const routes = facts.filter((fact) => fact.kind === "route");
@@ -725,7 +867,7 @@ function moduleEntries(
       note: `${labels.length} 项代表性文字`,
     },
   ];
-  return `<div class="object-map compact-map">${cards.map((card) => `<article><h3>${html(card.title)}</h3><p>${html(card.detail)}</p><small>${html(card.note)}</small></article>`).join("")}</div>${evidence(facts, "查看入口与访问边界证据", 18)}`;
+  return `<h3 class="minor-heading">参与角色与流程关系</h3>${roleMap(options, module.id, flowGroups, lifecycles, lifecycleArtifact)}<h3 class="minor-heading">入口与可见操作</h3><div class="object-map compact-map">${cards.map((card) => `<article><h3>${html(card.title)}</h3><p>${html(card.detail)}</p><small>${html(card.note)}</small></article>`).join("")}</div>${evidence(facts, "查看入口与访问边界证据", 18)}`;
 }
 
 function moduleRules(options: ExportProductReportSiteOptions, module: ReportModule): string {
@@ -805,7 +947,7 @@ function renderModulePage(
     ["分析文件", `${membership?.fileCount ?? 0} 个`],
     ["事实总数", `${allFacts.length} 条`],
     ["源码快照", generatedDate],
-  ])}<div class="summary-strip"><p>${html(module.summary)}</p><a href="#flows">查看主要流程 ↓</a></div></header>${section("responsibility", 1, "模块职责与边界", "说明该模块负责什么，以及它在项目功能地图中的位置。", proseHtml(responsibility))}${section("entries", 2, "角色、入口与可见操作", "用业务操作汇总入口和访问边界；具体源码位置按需展开。", moduleEntries(options, module, flows?.flowGroups ?? []))}${section("flows", 3, "主要流程与分支条件", "复杂流程使用 Mermaid 展示分支；简单流程直接列出步骤，避免为少量节点增加阅读负担。", `${proseHtml(flowProse)}${flowLanes(flows?.flowGroups ?? [], flowFacts)}`)}${section("lifecycle", 4, "完整业务生命周期与变体", "从进入或创建开始，贯穿校验、提交、审批或处理、终止结果以及撤回和恢复；类型与阈值规则单独列明。", `${proseHtml(lifecycleProse)}${lifecycleAndVariants(lifecycle?.lifecycles ?? [], lifecycle?.variantGroups ?? [], lifecycleProse)}`)}${section("rules", 5, "对象、状态与业务规则", "保留源码中的状态名、校验、权限和异常边界；原始事实默认折叠。", `${proseHtml(rulesProse)}${moduleRules(options, module)}`)}${recovery}${section("effects", effectsNumber, "通知、外部调用与数据影响", "先说明业务影响，再提供可展开的源码证据；静态源码不证明生产环境实际启用。", `${proseHtml(effectsProse)}${moduleEffects(options, module)}`)}${section("problems", problemsNumber, "已知问题与待确认事项", "区分源码可直接确认的问题与需要更多上下文才能确认的关注点。", combinedProblemRows(issues?.issues ?? [], issuesProse, problemFacts(options, module.id)))}${section("coverage", coverageNumber, "覆盖范围与事实边界", "按事实类别核算；0 条表示当前分析未建立，不表示业务上确认不存在。", coverage(options, module.id))}${nextNav}`;
+  ])}<div class="summary-strip"><p>${html(module.summary)}</p><a href="#flows">查看主要流程 ↓</a></div></header>${section("responsibility", 1, "模块职责与边界", "说明该模块负责什么，以及它在项目功能地图中的位置。", proseHtml(responsibility))}${section("entries", 2, "角色、入口与可见操作", "角色来自项目角色定义和本模块权限检查；流程关系与可见操作分别列示。", moduleEntries(options, module, flows?.flowGroups ?? [], lifecycle?.lifecycles ?? [], lifecycleProse))}${section("flows", 3, "主要流程与分支条件", "复杂流程使用 Mermaid 展示分支；简单流程直接列出步骤，避免为少量节点增加阅读负担。", `${proseHtml(flowProse)}${flowLanes(flows?.flowGroups ?? [], flowFacts)}`)}${section("lifecycle", 4, "完整业务生命周期与变体", "从进入或创建开始，贯穿校验、提交、审批或处理、终止结果以及撤回和恢复；类型与阈值规则单独列明。", `${proseHtml(lifecycleProse)}${lifecycleAndVariants(lifecycle?.lifecycles ?? [], lifecycle?.variantGroups ?? [], lifecycleProse)}`)}${section("rules", 5, "对象、状态与业务规则", "保留源码中的状态名、校验、权限和异常边界；原始事实默认折叠。", `${proseHtml(rulesProse)}${moduleRules(options, module)}`)}${recovery}${section("effects", effectsNumber, "通知、外部调用与数据影响", "先说明业务影响，再提供可展开的源码证据；静态源码不证明生产环境实际启用。", `${proseHtml(effectsProse)}${moduleEffects(options, module)}`)}${section("problems", problemsNumber, "已知问题与待确认事项", "区分源码可直接确认的问题与需要更多上下文才能确认的关注点。", combinedProblemRows(issues?.issues ?? [], issuesProse, problemFacts(options, module.id)))}${section("coverage", coverageNumber, "覆盖范围与事实边界", "按事实类别核算；0 条表示当前分析未建立，不表示业务上确认不存在。", coverage(options, module.id))}${nextNav}`;
   return documentShell({ options, projectName, generatedDate, current: module.id, depth: 1, title: `${module.displayName} · ${projectName}`, sectionLinks }, body);
 }
 

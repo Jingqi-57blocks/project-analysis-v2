@@ -11,7 +11,7 @@ import { openKnowledgeBase } from "../../engine/kb/query.js";
 import { compileExecutablePlan } from "../../engine/report/plan.js";
 import { exportProductReportSite } from "../../engine/report/site-export.js";
 import { createSliceReaders } from "../../engine/report/slice-resolve.js";
-import { membershipOf, seedStore } from "./helpers/seed-resolver-kb.js";
+import { insertBehaviorFact, membershipOf, seedStore } from "./helpers/seed-resolver-kb.js";
 
 const temporary: string[] = [];
 afterEach(() => {
@@ -21,6 +21,28 @@ afterEach(() => {
 describe("exportProductReportSite", () => {
   it("writes one navigable project/module site and renders explicit branch conditions", () => {
     const store = seedStore();
+    insertBehaviorFact(store, {
+      factId: "role-values",
+      kind: "value-set",
+      relPath: "handlers/leave/service.go",
+      startLine: 1,
+      payload: {
+        name: "RoleC",
+        members: [
+          { name: "EmployeeC", value: 1 },
+          { name: "EmployeeF", value: "normal" },
+          { name: "AdminC", value: 2 },
+          { name: "AdminF", value: "admin" },
+        ],
+      },
+    });
+    insertBehaviorFact(store, {
+      factId: "role-admin-check",
+      kind: "auth-annotation",
+      relPath: "handlers/leave/service.go",
+      startLine: 20,
+      payload: { check: "authorization", mechanism: "role-membership", requirement: "AdminC" },
+    });
     const kb = openKnowledgeBase(store);
     const readers = createSliceReaders(store, kb.snapshot.id, membershipOf("leave", ["handlers/leave/service.go"]));
     const snapshot: AnalysisSnapshotIdentity = { sourceIdentity: "s", codeGraphIdentity: "s", providerIdentity: "s", schemaVersion: "1", configIdentity: "s" };
@@ -166,12 +188,16 @@ describe("exportProductReportSite", () => {
     const overview = readFileSync(join(outDir, "index.html"), "utf8");
     const detail = readFileSync(join(outDir, "modules/leave.html"), "utf8");
     expect(overview).toContain("全部功能模块");
+    expect(overview).toContain("角色与参与方式");
+    expect(overview).toContain("管理员");
     expect(overview).toContain("Leave 请假");
     expect(detail).toContain("提交与审批");
     expect(detail).toContain("额度不足");
     expect(detail).toContain("拒绝提交");
     expect(detail).toContain("申请进入审批");
     expect(detail).toContain("共用辅助能力");
+    expect(detail).toContain("普通员工");
+    expect(detail).toContain("参与角色与流程关系");
     expect(detail.match(/class="mermaid"/g)).toHaveLength(2);
     expect(detail).toContain("请假生命周期");
     expect(detail).toContain("时长规则");
