@@ -73,8 +73,12 @@ describe("behaviorInputFrom — the bridge from extracted evidence to the behavi
     // notification calls are all wired (empty here only because there are no roots).
     const { input, notes } = behaviorInputFrom([]);
 
-    // No index passed and no roots — reachability adds nothing and says so.
-    expect(notes).toEqual(["notification-reachability: no code index available — no reverse-reachability attributed"]);
+    // No index passed and no roots — both reachability passes add nothing and say so.
+    expect(notes).toEqual([
+      "notification-reachability: no code index available — no reverse-reachability attributed",
+      "outbound-integration: no code index available — no reverse-reachability attributed",
+      "outbound-integration: 0 direct sink(s), 0 reached record(s)",
+    ]);
     expect(input.decisions.conditions).toEqual([]);
     expect(input.decisions.decisions).toEqual([]);
     expect(input.decisions.guards).toEqual([]);
@@ -82,7 +86,8 @@ describe("behaviorInputFrom — the bridge from extracted evidence to the behavi
     expect(input.boundary.auth).toEqual([]);
     expect(input.sideEffects.notifications).toEqual([]); // wired to g.notifications
 
-    // external calls (no provider) stay empty — disclosed, not a whitelist
+    // external library outbound sinks come from the generic observer (empty here
+    // only because there are no roots to scan) — disclosed, not a whitelist
     expect(input.sideEffects.external).toEqual([]);
     // state changes are now observed generically (empty here only because there are no roots)
     expect(input.states.changes).toEqual([]);
