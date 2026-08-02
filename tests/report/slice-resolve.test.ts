@@ -125,6 +125,26 @@ describe("coverageInputForKind — honest per-kind coverage for the applicabilit
     expect(classifyCoverage(coverageInputForKind(resolveKindCoverage(resolved, moduleScope("leave"), "outbound-call"))).state).toBe("not-found");
   });
 
+  it("a resolved module bound to no file (endpoint-only) is unknown, never a false 'found none'", () => {
+    const store = seedNotificationKb();
+    // The module model surfaced this module, but bound it to no analyzed file — an
+    // endpoint-only module whose handlers never resolved to a file. As with an
+    // unresolved id, there is no code to have found none in.
+    const emptyMembership = {
+      moduleId: "maps",
+      kbModuleId: "mod_maps",
+      kbModuleName: "maps",
+      files: new Set<string>(),
+      fileCount: 0,
+    };
+    const readers = createSliceReaders(store, SNAPSHOT_ID, emptyMembership);
+    for (const kind of ["notification-call", "outbound-call", "route", "entity"]) {
+      const result = resolveKindCoverage(readers, moduleScope("maps"), kind);
+      expect(result.scopeResolved).toBe(false);
+      expect(classifyCoverage(coverageInputForKind(result)).state).toBe("unknown");
+    }
+  });
+
   it("a kind this resolver cannot read is unknown, never a confirmed absence", () => {
     const store = seedStore();
     const readers = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", IN_MODULE));

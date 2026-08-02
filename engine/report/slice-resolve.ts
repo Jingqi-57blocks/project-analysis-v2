@@ -366,14 +366,17 @@ export interface KindCoverageResult {
 }
 
 /**
- * Whether a scope resolved to a defined denominator. A module scope whose id the
- * module model did not surface (kbModuleId is null) has no module to scan, so a
- * "found none" over it would be a false empty — it is reported unresolved instead.
+ * Whether a scope resolved to a defined denominator. A module scope is undefined
+ * when the module model never surfaced its id (kbModuleId is null), and equally
+ * when it surfaced the module but bound it to no analyzed file (fileCount is 0) —
+ * an endpoint-only module whose handlers never resolved to a file. Either way
+ * there is no code to scan, so a "found none" over it would be a false empty; its
+ * kinds must read `unknown` rather than `not-found`.
  */
 function scopeIsResolved(readers: SliceReaders, scope: Scope): boolean {
   if (scope.kind !== "module") return true;
   if (scope.moduleId !== readers.membership.moduleId) return true;
-  return readers.membership.kbModuleId !== null;
+  return readers.membership.kbModuleId !== null && readers.membership.fileCount > 0;
 }
 
 /** Resolve one declared kind's coverage in a scope — its reader, count and fact ids. */
