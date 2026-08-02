@@ -69,7 +69,7 @@ describe("prepareBatchAuthor", () => {
           const first = ids[0]!;
           return {
             taskId: task.taskId,
-            claims: [{ text: "该部分由当前事实支持。", factIds: [first] }],
+            claims: [{ text: "该部分先检查条件! 然后继续处理!；最终由当前事实支持。", factIds: [first] }],
             flowGroups: task.structuredFlowRequired ? [{
               title: "主要流程",
               summary: "按已知条件处理",
@@ -361,6 +361,14 @@ describe("bounded issue evidence", () => {
       10,
       25,
     );
+    const reactStateExcerpt = fact(
+      "excerpt-worklog-react-state",
+      "source-excerpt",
+      { label: "LogTimeModal (part 1)", text: "const [typeState, setTypeState] = useState(type); setTypeState(type);" },
+      "pages/worklog/LogTimeModal.tsx",
+      40,
+      60,
+    );
     const tokenLabel = fact(
       "label-token-management",
       "ui-label",
@@ -376,13 +384,14 @@ describe("bounded issue evidence", () => {
       audience: "product",
       prompt: "",
       digest: "",
-      facts: [displayMode, btoType, viewExcerpt, tokenLabel],
+      facts: [displayMode, btoType, viewExcerpt, reactStateExcerpt, tokenLabel],
     };
 
     const selected = boundedFactsFor(request).map((entry) => entry.factId);
     expect(selected).toContain("condition-bto-type");
     expect(selected).not.toContain("condition-display-mode");
     expect(selected).not.toContain("excerpt-worklog-view");
+    expect(selected).not.toContain("excerpt-worklog-react-state");
     expect(selected).not.toContain("label-token-management");
   });
 

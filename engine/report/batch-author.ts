@@ -28,8 +28,8 @@ const BATCH_SCHEMA_VERSION = "authored-task.v10";
 const MAX_TASK_PROMPT_BYTES = 160_000;
 
 function promptPolicyVersion(blockId: string): string {
-  if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v6";
-  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v5";
+  if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v7";
+  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v7";
   if (blockId === "known-issues.impact") return "issue-policy.v4";
   return "base-policy.v1";
 }
@@ -671,7 +671,9 @@ function lifecycleApprovalStageEvidence(fact: CitedFact): boolean {
 function lifecycleTransitionEvidence(fact: CitedFact): boolean {
   if (fact.kind !== "source-excerpt") return false;
   const text = `${sourceLabel(fact)} ${sourceText(fact)}`;
-  return /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)|(?:\.|\b)(?:status|state)\s*=|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
+  const explicitWrite = /(?:\.|\b)(?:status|state)\s*=|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
+  if (frontendComponentSource(fact)) return explicitWrite;
+  return explicitWrite || /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)/i.test(text);
 }
 
 function frontendComponentSource(fact: CitedFact): boolean {
@@ -1208,6 +1210,29 @@ function lifecycleTask(request: AuthoringRequest): boolean {
   return request.blockId === "module-flows-branches.lifecycle";
 }
 
+const LIFECYCLE_REQUIRED_KINDS = new Set([
+  "scheduled-task",
+  "state",
+  "state-transition",
+  "value-set",
+  "condition",
+  "decision",
+  "guard",
+  "business-rule",
+  "validation-rule",
+  "notification-call",
+]);
+
+function requiredLifecycleFactIds(request: AuthoringRequest): readonly string[] {
+  return boundedFactsFor(request)
+    .filter((fact) => LIFECYCLE_REQUIRED_KINDS.has(fact.kind) || lifecycleChannelEvidence(fact) || lifecycleTransitionEvidence(fact))
+    .map((fact) => fact.factId);
+}
+
+function requiredFlowBranchFactIds(request: AuthoringRequest): readonly string[] {
+  return boundedFactsFor(request).filter(materialFlowBranchEvidence).map((fact) => fact.factId);
+}
+
 function authorFactLine(fact: CitedFact, blockId?: string): string {
   if (fact.kind === "source-excerpt") {
     return citedFactLine(fact, blockId === "module-flows-branches.lifecycle" ? 5_200 : 7_200);
@@ -1269,6 +1294,8 @@ function promptForDocument(
       structuredLifecycleRequired: lifecycleTask(request),
       structuredIssueReview: request.blockId === "known-issues.impact",
       factIds: facts.map((fact) => fact.factId),
+      ...(flowTask(request) ? { mustPlaceInFlowBranches: requiredFlowBranchFactIds(request) } : {}),
+      ...(lifecycleTask(request) ? { mustPlaceInLifecycleOrVariant: requiredLifecycleFactIds(request) } : {}),
     };
   });
   return [
@@ -1313,17 +1340,14 @@ function claimMarkdown(claim: StructuredClaim, facts: readonly CitedFact[]): str
   const markers = claim.factIds.map((id) => `[${factNumbers.get(id) ?? 0}]`).join("");
   const text = claim.text.trim();
   // A factIds array supports the whole claim. Inject its markers before every
-  // sentence terminator, so sentence-local grounding remains deterministic
-  // even if the model returned two short sentences in one claim.
-  const sentences = text
-    .split(/(?<=[。！？])|(?<=[.!?])\s+|\n+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  return sentences.map((sentence) => {
-    const punctuation = sentence.match(/[。！？.!?]$/)?.[0] ?? "";
-    const body = punctuation === "" ? sentence : sentence.slice(0, -punctuation.length).trimEnd();
-    return `${body} ${markers}${punctuation}`.trim();
-  }).join(" ");
+  // sentence terminator, including an English error message immediately
+  // followed by Chinese punctuation. Decimal points are not terminators.
+  let injected = false;
+  const cited = text.replace(/([。！？!?]|\.(?!\d))(?=\s|$|[；;，,]|[\p{Script=Han}])/gu, (terminator) => {
+    injected = true;
+    return ` ${markers}${terminator}`;
+  });
+  return injected ? cited : `${text} ${markers}`.trim();
 }
 
 function taskMarkdown(task: AgentTaskArtifact, facts: readonly CitedFact[]): string {
@@ -1456,10 +1480,7 @@ function validateBatch(requests: readonly AuthoringRequest[], response: BatchRes
     }
     if (lifecycleTask(request)) {
       if (task.lifecycles.length === 0) problems.push(`task ${task.taskId} returned no lifecycle`);
-      const lifecycleKinds = new Set(["scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call"]);
-      const required = bounded
-        .filter((fact) => lifecycleKinds.has(fact.kind) || lifecycleChannelEvidence(fact) || lifecycleTransitionEvidence(fact))
-        .map((fact) => fact.factId);
+      const required = requiredLifecycleFactIds(request);
       const placed = new Set([
         ...task.lifecycles.flatMap(idsInLifecycle),
         ...idsInVariants(task.variantGroups),
@@ -1493,9 +1514,7 @@ function validateBatch(requests: readonly AuthoringRequest[], response: BatchRes
         const missing = required.filter((id) => !placed.has(id));
         if (missing.length > 0) problems.push(`task ${task.taskId} omitted ${missing.length} feature-flow fact(s): ${missing.slice(0, 8).join(", ")}`);
       }
-      const requiredBranches = boundedFactsFor(request)
-        .filter(materialFlowBranchEvidence)
-        .map((fact) => fact.factId);
+      const requiredBranches = requiredFlowBranchFactIds(request);
       const placedBranches = new Set(task.flowGroups.flatMap((group) => group.branches.flatMap((branch) => branch.factIds)));
       const missingBranches = requiredBranches.filter((id) => !placedBranches.has(id));
       if (missingBranches.length > 0) {
