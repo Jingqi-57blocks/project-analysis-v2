@@ -1625,8 +1625,35 @@ function flowBranchRepairPrompt(
     "Current flow groups (zero-based group indexes):",
     JSON.stringify(groups),
     "Missing branch facts:",
-    JSON.stringify(missingFactIds.map((factId) => authorFactLine(byId.get(factId)!, request.blockId))),
+    JSON.stringify(missingFactIds.map((factId) => ({
+      factId,
+      evidence: authorFactLine(byId.get(factId)!, request.blockId),
+    }))),
   ].join("\n\n");
+}
+
+function normalizeFlowBranchRepair(
+  repair: FlowBranchRepairResponse,
+  missingFactIds: readonly string[],
+): { readonly repair: FlowBranchRepairResponse; readonly changes: readonly string[] } {
+  const missing = new Set(missingFactIds);
+  const changes: string[] = [];
+  const normalize = (raw: string): string => {
+    if (missing.has(raw)) return raw;
+    const matches = missingFactIds.filter((factId) => raw.includes(`[${factId}]`));
+    if (matches.length !== 1) return raw;
+    changes.push(`normalized repair fact ${raw} -> ${matches[0]}`);
+    return matches[0]!;
+  };
+  return {
+    repair: {
+      branches: repair.branches.map((branch) => ({
+        ...branch,
+        factIds: [...new Set(branch.factIds.map(normalize))],
+      })),
+    },
+    changes: changes.slice(0, 40),
+  };
 }
 
 function validateFlowBranchRepair(
@@ -2156,13 +2183,14 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
             });
             const repairOutputBytes = Buffer.byteLength(stableStringify(repair), "utf8");
             agentOutputBytes += repairOutputBytes;
-            let repairProblems = [...validateFlowBranchRepair(normalizedTask, missingBranchFacts, repair)];
+            const normalizedRepair = normalizeFlowBranchRepair(repair, missingBranchFacts);
+            let repairProblems = [...validateFlowBranchRepair(normalizedTask, missingBranchFacts, normalizedRepair.repair)];
             let repairedResponse: BatchResponse | null = null;
-            let repairNormalizations: readonly string[] = [];
+            let repairNormalizations: readonly string[] = normalizedRepair.changes;
             if (repairProblems.length === 0) {
-              const repaired = normalizeBatch(documentRequests, { tasks: [applyFlowBranchRepair(normalizedTask, repair)] });
+              const repaired = normalizeBatch(documentRequests, { tasks: [applyFlowBranchRepair(normalizedTask, normalizedRepair.repair)] });
               repairedResponse = repaired.response;
-              repairNormalizations = repaired.changes;
+              repairNormalizations = [...normalizedRepair.changes, ...repaired.changes].slice(0, 40);
               repairProblems = [...validateBatch(documentRequests, repaired.response)];
             }
             attempts.push({

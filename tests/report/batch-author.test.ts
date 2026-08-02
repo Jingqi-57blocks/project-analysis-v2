@@ -118,6 +118,7 @@ describe("prepareBatchAuthor", () => {
     const repairRunner = async (agentRequest: { prompt: string }) => {
       repairCalls += 1;
       expect(agentRequest.prompt).toContain(secondaryDecisionId);
+      expect(agentRequest.prompt).toContain(`\"factId\":\"${secondaryDecisionId}\"`);
       return {
         branches: [{
           flowGroupIndex: 0,
@@ -125,7 +126,7 @@ describe("prepareBatchAuthor", () => {
           condition: "次级决策条件",
           outcome: "进入对应处理分支",
           kind: "conditional" as const,
-          factIds: [secondaryDecisionId],
+          factIds: [`[${secondaryDecisionId}] «evidence copied from the prompt»`],
         }],
       };
     };
@@ -151,6 +152,9 @@ describe("prepareBatchAuthor", () => {
     expect(first.taskMetrics.every((task) => !task.cacheHit)).toBe(true);
     expect(first.taskMetrics.every((task) => task.mode === "deterministic" || task.attempts.at(-1)?.outcome === "validated")).toBe(true);
     expect(first.taskMetrics.some((task) => task.attempts.some((attempt) => attempt.kind === "flow-branch-repair"))).toBe(true);
+    expect(first.taskMetrics.some((task) => task.attempts.some((attempt) =>
+      attempt.kind === "flow-branch-repair" && attempt.normalizations.some((change) => change.startsWith("normalized repair fact ")),
+    ))).toBe(true);
     expect(first.taskMetrics.some((task) => (task.attempts[0]?.normalizations.length ?? 0) > 0)).toBe(true);
     expect(second.agentCalls).toBe(0);
     expect(second.cacheHits).toBe(agentTaskCount);
