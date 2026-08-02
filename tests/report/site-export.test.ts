@@ -37,6 +37,9 @@ describe("exportProductReportSite", () => {
           { name: "SaleF", value: "sale" },
           { name: "GeneralC", value: 4 },
           { name: "GeneralF", value: "normal" },
+          { name: "ProjectManagerC", value: 5 },
+          { name: "ProjectManagerF", value: "var(--bs-indigo)" },
+          { name: "ProjectManagerCode", value: "project_management" },
         ],
       },
     });
@@ -70,6 +73,13 @@ describe("exportProductReportSite", () => {
       relPath: "handlers/leave/service.go",
       startLine: 22,
       payload: { check: "authorization", mechanism: "header", requirement: "Authorization" },
+    });
+    insertBehaviorFact(store, {
+      factId: "role-project-manager-check",
+      kind: "auth-annotation",
+      relPath: "handlers/leave/service.go",
+      startLine: 23,
+      payload: { check: "authorization", mechanism: "role-membership", requirement: "ProjectManagerC" },
     });
     insertBehaviorFact(store, {
       factId: "role-sale-supporting-check",
@@ -231,6 +241,8 @@ describe("exportProductReportSite", () => {
     expect(overview).toContain("管理员");
     expect(overview).toContain("销售");
     expect(overview).not.toContain("<h3>Authorization</h3>");
+    expect(overview).toContain("<h3>项目经理</h3>");
+    expect(overview).not.toContain("var(--bs-indigo)");
     expect(overview.match(/<h3>普通员工<\/h3>/g)).toHaveLength(1);
     expect(overview).toContain("Leave 请假");
     expect(detail).toContain("提交与审批");
@@ -242,6 +254,8 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("管理员");
     expect(detail).not.toContain("<h3>销售</h3>");
     expect(detail).not.toContain("<h3>Authorization</h3>");
+    expect(detail).toContain("<h3>项目经理</h3>");
+    expect(detail).not.toContain("var(--bs-indigo)");
     expect(detail.match(/<h3>普通员工<\/h3>/g)).toHaveLength(1);
     expect(detail).toContain("参与角色与流程关系");
     expect(detail.match(/class="mermaid"/g)).toHaveLength(2);

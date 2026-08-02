@@ -153,6 +153,8 @@ function readableRole(value: string): string {
     hr: "HR 专员",
     reviewadmin: "评审管理员",
     reviewmanager: "评审经理",
+    reviewpeer: "同级评审人",
+    promotionadmin: "晋升管理员",
     client: "客户",
     systemadmin: "系统管理员",
     sale: "销售",
@@ -171,6 +173,13 @@ interface RoleDefinition {
   readonly evidence: readonly CitedFact[];
 }
 
+function readableRoleToken(value: string): boolean {
+  const token = value.trim();
+  return token.length > 0 && token.length <= 64 &&
+    !/^(?:var\(|#|rgb|hsl|url\(|https?:|\/)/i.test(token) &&
+    !/(?:\b\d+(?:px|rem|em)\b|--[a-z-]+)/i.test(token);
+}
+
 function roleDefinitions(options: ExportProductReportSiteOptions): readonly RoleDefinition[] {
   const scope = projectTarget("product").scope;
   const auth = resolveSliceFacts(options.readers, scope, ["auth-annotation"]);
@@ -179,7 +188,7 @@ function roleDefinitions(options: ExportProductReportSiteOptions): readonly Role
     .filter((value): value is string => value !== null)
     .map(roleIdentity));
   const sets = resolveSliceFacts(options.readers, scope, ["value-set"])
-    .filter((fact) => /(?:role|permission|access|authority|privilege)/i.test(stringField(fact.value, "name", "valueSetName") ?? ""))
+    .filter((fact) => /(?:role|persona|actor|user.?type|group)/i.test(stringField(fact.value, "name", "valueSetName") ?? ""))
     .filter((fact) => arrayField(fact.value, "members").some((member) => {
       const name = stringField(member, "name");
       return name !== null && requirementIdentities.has(roleIdentity(name));
@@ -196,11 +205,11 @@ function roleDefinitions(options: ExportProductReportSiteOptions): readonly Role
     });
     const readableValue = same
       .map((candidate) => asRecord(candidate.member).value)
-      .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+      .find((value): value is string => typeof value === "string" && readableRoleToken(value));
     const raw = unique(same.flatMap((candidate) => {
       const candidateName = stringField(candidate.member, "name");
       const value = asRecord(candidate.member).value;
-      return [candidateName ?? "", typeof value === "string" ? value : ""];
+      return [candidateName ?? "", typeof value === "string" && readableRoleToken(value) ? value : ""];
     }), 6);
     const current = byIdentity.get(identity);
     byIdentity.set(identity, {
@@ -268,7 +277,7 @@ function roleMap(
     .slice(0, moduleId === undefined ? 14 : 8)
     .map((group) => {
       const checks = uniqueFacts(group.identities.flatMap((identity) => byIdentity.get(identity) ?? []));
-      const operations = unique(flowGroups.map((group) => group.title), 5);
+      const operations = unique(flowGroups.map((group) => group.title), 8);
       const detail = checks.length > 0
         ? `在当前范围的 ${checks.length} 处权限检查中被明确引用。`
         : operations.length > 0
