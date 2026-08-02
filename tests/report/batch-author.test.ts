@@ -46,7 +46,8 @@ describe("prepareBatchAuthor", () => {
         payload: kind === "condition" ? { subject: "hours", text: "hours > 8", guarded: "rejects" } : { target: "service", operation: "read" },
       });
     }
-    for (const [name, line] of [["primaryDecision", 12], ["secondaryDecision", 24]] as const) {
+    const secondaryDecisionId = `behavioral|decision|r1|${relPath}:100|secondaryDecision`;
+    for (const [name, line] of [["primaryDecision", 12], ["secondaryDecision", 100]] as const) {
       insertBehaviorFact(store, {
         factId: `behavioral|decision|r1|${relPath}:${line}|${name}`,
         kind: "decision",
@@ -92,7 +93,7 @@ describe("prepareBatchAuthor", () => {
               title: "业务生命周期",
               summary: "从进入到处理完成",
               nodes: [
-                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [first, nearbyDecision, foreign] },
+                { id: "start", label: "进入", detail: "开始处理", kind: "start" as const, factIds: [...ids, foreign] },
                 { id: "done", label: "完成", detail: "处理结束", kind: "terminal" as const, factIds: [first] },
               ],
               edges: [{ from: "start", to: "done", label: "通过校验", kind: "normal" as const, factIds: [first] }],
@@ -113,6 +114,21 @@ describe("prepareBatchAuthor", () => {
         }),
       };
     };
+    let repairCalls = 0;
+    const repairRunner = async (agentRequest: { prompt: string }) => {
+      repairCalls += 1;
+      expect(agentRequest.prompt).toContain(secondaryDecisionId);
+      return {
+        branches: [{
+          flowGroupIndex: 0,
+          afterStep: 1,
+          condition: "次级决策条件",
+          outcome: "进入对应处理分支",
+          kind: "conditional" as const,
+          factIds: [secondaryDecisionId],
+        }],
+      };
+    };
     const common = {
       plan: executable.plan,
       readers,
@@ -122,22 +138,25 @@ describe("prepareBatchAuthor", () => {
       agent: { executor: "test", model: "fake", reasoningEffort: "low" as const },
       cacheDir,
       run: runner,
+      repairRun: repairRunner,
     };
     const first = await prepareBatchAuthor(common);
     const second = await prepareBatchAuthor(common);
 
     expect(first.structuredByTask.size).toBeGreaterThan(0);
     expect([...first.structuredByTask.values()].some((artifact) => artifact.issues.length > 0)).toBe(true);
-    expect(first.agentCalls).toBe(first.structuredByTask.size);
+    expect(first.agentCalls).toBe(first.structuredByTask.size + 1);
     expect(first.taskMetrics).toHaveLength(first.structuredByTask.size);
     expect(first.taskMetrics.every((task) => !task.cacheHit)).toBe(true);
-    expect(first.taskMetrics.every((task) => task.attempts.length === 1 && task.attempts[0]?.outcome === "validated")).toBe(true);
+    expect(first.taskMetrics.every((task) => task.attempts.at(-1)?.outcome === "validated")).toBe(true);
+    expect(first.taskMetrics.some((task) => task.attempts.some((attempt) => attempt.kind === "flow-branch-repair"))).toBe(true);
     expect(first.taskMetrics.some((task) => (task.attempts[0]?.normalizations.length ?? 0) > 0)).toBe(true);
     expect(second.agentCalls).toBe(0);
     expect(second.cacheHits).toBe(first.structuredByTask.size);
     expect(second.taskMetrics).toHaveLength(first.structuredByTask.size);
     expect(second.taskMetrics.every((task) => task.cacheHit && task.attempts.length === 0)).toBe(true);
     expect(calls).toBe(first.structuredByTask.size);
+    expect(repairCalls).toBe(1);
     store.close();
   });
 });

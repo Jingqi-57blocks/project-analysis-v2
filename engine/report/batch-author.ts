@@ -24,7 +24,7 @@ import type { DecisionIndex } from "./deterministic-content.js";
 import { validateGrounding } from "./grounding.js";
 import type { CitedFact, SliceReaders } from "./slice-resolve.js";
 
-const BATCH_SCHEMA_VERSION = "authored-task.v10";
+const BATCH_SCHEMA_VERSION = "authored-task.v11";
 const MAX_TASK_PROMPT_BYTES = 160_000;
 
 function promptPolicyVersion(blockId: string): string {
@@ -289,6 +289,45 @@ const BATCH_SCHEMA: Readonly<Record<string, unknown>> = {
               },
             },
           },
+        },
+      },
+    },
+  },
+};
+
+interface FlowBranchRepair {
+  readonly flowGroupIndex: number;
+  readonly afterStep: number;
+  readonly condition: string;
+  readonly outcome: string;
+  readonly kind: StructuredFlowBranch["kind"];
+  readonly factIds: readonly string[];
+}
+
+interface FlowBranchRepairResponse {
+  readonly branches: readonly FlowBranchRepair[];
+}
+
+const FLOW_BRANCH_REPAIR_SCHEMA: Readonly<Record<string, unknown>> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["branches"],
+  properties: {
+    branches: {
+      type: "array",
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["flowGroupIndex", "afterStep", "condition", "outcome", "kind", "factIds"],
+        properties: {
+          flowGroupIndex: { type: "integer", minimum: 0 },
+          afterStep: { type: "integer", minimum: 1 },
+          condition: { type: "string" },
+          outcome: { type: "string" },
+          kind: { type: "string", enum: ["success", "rejection", "conditional", "exception", "unknown"] },
+          factIds: { type: "array", minItems: 1, items: { type: "string" } },
         },
       },
     },
@@ -1541,6 +1580,99 @@ function normalizeBatch(
   return { response: { tasks }, changes: changes.slice(0, 40) };
 }
 
+function missingFlowBranchFactIds(request: AuthoringRequest, task: AgentTaskArtifact): readonly string[] {
+  const placed = new Set(task.flowGroups.flatMap((group) => group.branches.flatMap((branch) => branch.factIds)));
+  return requiredFlowBranchFactIds(request).filter((factId) => !placed.has(factId));
+}
+
+function onlyMissingFlowBranches(problems: readonly string[], taskId: string): boolean {
+  const prefix = `task ${taskId} omitted `;
+  return problems.length > 0 && problems.every((problem) => problem.startsWith(prefix) && problem.includes(" evidenced branch fact(s):"));
+}
+
+function flowBranchRepairPrompt(
+  request: AuthoringRequest,
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  language: string,
+): string {
+  const byId = new Map(boundedFactsFor(request).map((fact) => [fact.factId, fact] as const));
+  const groups = task.flowGroups.map((group, flowGroupIndex) => ({
+    flowGroupIndex,
+    title: group.title,
+    summary: group.summary,
+    steps: group.steps.map((step, index) => ({ step: index + 1, label: step.label, detail: step.detail })),
+    branches: group.branches.map((branch) => ({
+      afterStep: branch.afterStep,
+      condition: branch.condition,
+      outcome: branch.outcome,
+      kind: branch.kind,
+    })),
+  }));
+  return [
+    `Repair omitted branches for task ${request.taskId}. Do not rewrite the report or inspect files.`,
+    `Write concise ${language.toLowerCase().startsWith("zh") ? "Simplified Chinese" : language} for a non-technical reader.`,
+    "Return only new reader-visible branches needed to place the missing facts. Use each supplied missing factId exactly once and no other factIds. Group facts in one branch when they express one decision. Choose the semantically matching flowGroupIndex. afterStep is one-based and must point to an existing step. Keep the group at no more than 10 total branches. Preserve concrete types, states, thresholds and outcomes; do not invent an outcome absent from evidence—use kind=unknown when necessary.",
+    "Current flow groups (zero-based group indexes):",
+    JSON.stringify(groups),
+    "Missing branch facts:",
+    JSON.stringify(missingFactIds.map((factId) => authorFactLine(byId.get(factId)!, request.blockId))),
+  ].join("\n\n");
+}
+
+function validateFlowBranchRepair(
+  task: AgentTaskArtifact,
+  missingFactIds: readonly string[],
+  repair: FlowBranchRepairResponse,
+): readonly string[] {
+  const problems: string[] = [];
+  const missing = new Set(missingFactIds);
+  const seen = new Set<string>();
+  for (const [index, branch] of repair.branches.entries()) {
+    const group = task.flowGroups[branch.flowGroupIndex];
+    if (group === undefined) {
+      problems.push(`repair branch ${index} names unknown flow group ${branch.flowGroupIndex}`);
+      continue;
+    }
+    if (branch.afterStep < 1 || branch.afterStep > group.steps.length) {
+      problems.push(`repair branch ${index} points to step ${branch.afterStep}, but group has ${group.steps.length} step(s)`);
+    }
+    if (branch.condition.trim() === "" || branch.outcome.trim() === "") {
+      problems.push(`repair branch ${index} has an empty condition or outcome`);
+    }
+    for (const factId of branch.factIds) {
+      if (!missing.has(factId)) problems.push(`repair branch ${index} cites non-missing fact ${factId}`);
+      if (seen.has(factId)) problems.push(`repair repeats fact ${factId}`);
+      seen.add(factId);
+    }
+  }
+  for (const factId of missingFactIds) {
+    if (!seen.has(factId)) problems.push(`repair omits fact ${factId}`);
+  }
+  for (let groupIndex = 0; groupIndex < task.flowGroups.length; groupIndex += 1) {
+    const added = repair.branches.filter((branch) => branch.flowGroupIndex === groupIndex).length;
+    if (task.flowGroups[groupIndex]!.branches.length + added > 10) {
+      problems.push(`repair takes flow group ${groupIndex} above 10 branches`);
+    }
+  }
+  return problems;
+}
+
+function applyFlowBranchRepair(task: AgentTaskArtifact, repair: FlowBranchRepairResponse): AgentTaskArtifact {
+  return {
+    ...task,
+    flowGroups: task.flowGroups.map((group, groupIndex) => ({
+      ...group,
+      branches: [
+        ...group.branches,
+        ...repair.branches
+          .filter((branch) => branch.flowGroupIndex === groupIndex)
+          .map(({ flowGroupIndex: _flowGroupIndex, ...branch }) => branch),
+      ],
+    })),
+  };
+}
+
 function claimMarkdown(claim: StructuredClaim, facts: readonly CitedFact[]): string {
   const factNumbers = new Map(facts.map((fact, index) => [fact.factId, index + 1] as const));
   const markers = claim.factIds.map((id) => `[${factNumbers.get(id) ?? 0}]`).join("");
@@ -1766,6 +1898,7 @@ export interface PrepareBatchAuthorOptions {
   readonly cacheDir: string;
   readonly concurrency?: number;
   readonly run?: JsonAgentRunner<BatchResponse>;
+  readonly repairRun?: JsonAgentRunner<FlowBranchRepairResponse>;
 }
 
 export interface BatchAuthorPreparation {
@@ -1780,6 +1913,7 @@ export interface BatchAuthorPreparation {
 
 export interface AuthoringAttemptMetric {
   readonly attempt: number;
+  readonly kind: "author" | "flow-branch-repair";
   readonly elapsedMs: number;
   readonly inputBytes: number;
   readonly outputBytes: number;
@@ -1893,7 +2027,8 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
         });
       } catch (error) {
         attempts.push({
-          attempt: attempt + 1,
+          attempt: attempts.length + 1,
+          kind: "author",
           elapsedMs: roundedMs(attemptStarted),
           inputBytes: promptBytes,
           outputBytes: 0,
@@ -1917,7 +2052,8 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
       const normalized = normalizeBatch(documentRequests, response);
       const problems = validateBatch(documentRequests, normalized.response);
       attempts.push({
-        attempt: attempt + 1,
+        attempt: attempts.length + 1,
+        kind: "author",
         elapsedMs: roundedMs(attemptStarted),
         inputBytes: promptBytes,
         outputBytes: responseBytes,
@@ -1938,7 +2074,73 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
         });
         return normalized.response;
       }
-      correction = problems.slice(0, 20).join("\n");
+      let retryProblems = problems;
+      const normalizedTask = normalized.response.tasks[0];
+      const missingBranchFacts = normalizedTask === undefined ? [] : missingFlowBranchFactIds(request, normalizedTask);
+      if (normalizedTask !== undefined && missingBranchFacts.length > 0 && onlyMissingFlowBranches(problems, request.taskId)) {
+        const repairPrompt = flowBranchRepairPrompt(request, normalizedTask, missingBranchFacts, options.language);
+        const repairInputBytes = Buffer.byteLength(repairPrompt, "utf8");
+        if (repairInputBytes <= MAX_TASK_PROMPT_BYTES) {
+          agentCalls += 1;
+          agentInputBytes += repairInputBytes;
+          const repairStarted = performance.now();
+          try {
+            const repair = await runJsonAgent<FlowBranchRepairResponse>({
+              prompt: repairPrompt,
+              schema: FLOW_BRANCH_REPAIR_SCHEMA,
+              identity: options.agent,
+              ...(options.repairRun === undefined ? {} : { run: options.repairRun }),
+            });
+            const repairOutputBytes = Buffer.byteLength(stableStringify(repair), "utf8");
+            agentOutputBytes += repairOutputBytes;
+            let repairProblems = [...validateFlowBranchRepair(normalizedTask, missingBranchFacts, repair)];
+            let repairedResponse: BatchResponse | null = null;
+            let repairNormalizations: readonly string[] = [];
+            if (repairProblems.length === 0) {
+              const repaired = normalizeBatch(documentRequests, { tasks: [applyFlowBranchRepair(normalizedTask, repair)] });
+              repairedResponse = repaired.response;
+              repairNormalizations = repaired.changes;
+              repairProblems = [...validateBatch(documentRequests, repaired.response)];
+            }
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "flow-branch-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: repairOutputBytes,
+              outcome: repairProblems.length === 0 ? "validated" : "validation-failed",
+              problems: repairProblems.slice(0, 20),
+              normalizations: repairNormalizations,
+            });
+            if (repairProblems.length === 0 && repairedResponse !== null) {
+              writeCache(path, key, repairedResponse);
+              taskMetrics.push({
+                taskId: request.taskId,
+                documentId: request.documentId,
+                sectionId: request.sectionId,
+                blockId: request.blockId,
+                cacheHit: false,
+                totalMs: roundedMs(taskStarted),
+                attempts,
+              });
+              return repairedResponse;
+            }
+            retryProblems = repairProblems;
+          } catch (error) {
+            attempts.push({
+              attempt: attempts.length + 1,
+              kind: "flow-branch-repair",
+              elapsedMs: roundedMs(repairStarted),
+              inputBytes: repairInputBytes,
+              outputBytes: 0,
+              outcome: "agent-error",
+              problems: [error instanceof Error ? error.message : String(error)],
+              normalizations: [],
+            });
+          }
+        }
+      }
+      correction = retryProblems.slice(0, 20).join("\n");
     }
     throw new Error(`authored task ${request.taskId} failed validation after 3 attempts: ${correction ?? "unknown validation error"}`);
   });
