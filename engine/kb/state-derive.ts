@@ -45,6 +45,8 @@ export interface StateChangeObservation {
   readonly trigger: string;
   readonly guard: string | null;
   readonly source: SourceRef;
+  /** Exact declaration identity when the source observer resolved a member. */
+  readonly valueSet?: Pick<ValueSet, "rootName" | "relPath" | "startLine" | "name">;
 }
 
 export interface BehaviorStateInput {
@@ -103,6 +105,36 @@ function stateFact(set: ValueSet, member: ValueSetMember): BehaviorFact {
 }
 
 /**
+ * An observer-produced field is the value-set name itself. Resolve that exact
+ * identity before applying the fuzzy subject matcher used for ordinary fields
+ * such as `leave.Status`. If the exact set exists but cannot explain the value,
+ * the change is unresolved; a numerically equal member of another enum must not
+ * silently replace it.
+ */
+function resolveStateValue(
+  subject: string,
+  value: number | string,
+  sets: readonly ValueSet[],
+  rootName: string,
+  identity?: Pick<ValueSet, "rootName" | "relPath" | "startLine" | "name">,
+): { set: ValueSet; member: ValueSetMember } | null {
+  const exact = identity === undefined
+    ? sets.find((set) => set.rootName === rootName && set.name === subject)
+    : sets.find((set) =>
+        set.rootName === identity.rootName &&
+        set.relPath === identity.relPath &&
+        set.startLine === identity.startLine &&
+        set.name === identity.name,
+      );
+  if (exact !== undefined) {
+    const member = exact.members.find((candidate) => candidate.value === value);
+    return member === undefined ? null : { set: exact, member };
+  }
+  if (identity !== undefined) return null;
+  return resolveValue(subject, value, sets, rootName);
+}
+
+/**
  * Derive states and transitions. States come from value-set members the code
  * compares against; transitions come from observed changes, with the ones that
  * cannot be fully resolved returned as diagnostics.
@@ -131,8 +163,8 @@ export function deriveStateBehavior(input: BehaviorStateInput): BehaviorStateRes
   }
 
   for (const change of input.changes ?? []) {
-    const to = resolveValue(change.field, change.toValue, input.valueSets, change.rootName);
-    const from = change.fromValue === null ? null : resolveValue(change.field, change.fromValue, input.valueSets, change.rootName);
+    const to = resolveStateValue(change.field, change.toValue, input.valueSets, change.rootName, change.valueSet);
+    const from = change.fromValue === null ? null : resolveStateValue(change.field, change.fromValue, input.valueSets, change.rootName, change.valueSet);
 
     if (to === null) {
       diagnostics.push({

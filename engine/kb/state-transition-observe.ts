@@ -295,10 +295,15 @@ export function observeChangesInFile(
   const parsed = parseSource(language, content);
   if (parsed.root === null) return [];
 
+  // A source root can only reference its own extracted vocabularies. Without
+  // this boundary, two repositories that reuse a member name (for example
+  // `Approved`) produce competing observations for the same source write.
+  const localEligible = eligible.filter((set) => set.rootName === rootName);
+
   // member name → the (set, member) pairs that declare it, in a stable order, so
   // a name shared by two eligible sets resolves the same way every run.
   const byName = new Map<string, { set: ValueSet; member: ValueSetMember }[]>();
-  for (const set of eligible) {
+  for (const set of localEligible) {
     for (const member of set.members) {
       const list = byName.get(member.name) ?? [];
       list.push({ set, member });
@@ -325,7 +330,21 @@ export function observeChangesInFile(
             const key = [relPath, source.startLine, source.startColumn, set.name, String(member.value)].join("\0");
             if (seen.has(key)) continue;
             seen.add(key);
-            out.push({ rootName, field: set.name, fromValue: null, toValue: member.value, trigger, guard: null, source });
+            out.push({
+              rootName,
+              field: set.name,
+              fromValue: null,
+              toValue: member.value,
+              trigger,
+              guard: null,
+              source,
+              valueSet: {
+                rootName: set.rootName,
+                relPath: set.relPath,
+                startLine: set.startLine,
+                name: set.name,
+              },
+            });
           }
         }
       }
