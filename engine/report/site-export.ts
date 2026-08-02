@@ -220,7 +220,13 @@ function roleMap(
   lifecycleArtifact: ProseArtifact | null = null,
 ): string {
   const scope = moduleId === undefined ? projectTarget("product").scope : moduleScope(moduleId);
-  const auth = resolveSliceFacts(options.readers, scope, ["auth-annotation"]);
+  // A report module may contain supporting files reached through a real call
+  // path. Those files are useful for explaining an end-to-end flow, but their
+  // own authorization checks belong to the capability that owns them. Project
+  // scope keeps every observed role; module scope names only roles checked in
+  // the module's canonical source boundary.
+  const auth = resolveSliceFacts(options.readers, scope, ["auth-annotation"])
+    .filter((fact) => moduleId === undefined || fact.scopeRole === "core");
   const byIdentity = new Map<string, CitedFact[]>();
   for (const fact of auth) {
     const requirement = stringField(fact.value, "requirement");
@@ -254,7 +260,13 @@ function roleMap(
     });
   if (moduleId !== undefined && lifecycleArtifact !== null) {
     const participants = lifecycles.flatMap((lifecycle) => lifecycle.nodes)
-      .filter((node) => node.kind !== "terminal" && /approve|approval|approver|审批|负责人|经理|\bHR\b/i.test(`${node.label} ${node.detail}`));
+      .filter((node) => {
+        if (node.kind === "terminal") return false;
+        const text = `${node.label} ${node.detail}`;
+        const namesAParticipant = /approver|审批人|负责人|经理|\bHR\b|人力资源/i.test(text);
+        const isApprovalState = node.kind === "state" && /await(?:ing)? approval|pending approval|等待[^。；]*审批|待[^。；]*审批/i.test(text);
+        return namesAParticipant || isApprovalState;
+      });
     if (participants.length > 0) {
       const byId = new Map(lifecycleArtifact.facts.map((fact) => [fact.factId, fact] as const));
       const facts = unique(participants.flatMap((node) => node.factIds))

@@ -33,6 +33,8 @@ describe("exportProductReportSite", () => {
           { name: "EmployeeF", value: "normal" },
           { name: "AdminC", value: 2 },
           { name: "AdminF", value: "admin" },
+          { name: "SaleC", value: 3 },
+          { name: "SaleF", value: "sale" },
         ],
       },
     });
@@ -43,8 +45,19 @@ describe("exportProductReportSite", () => {
       startLine: 20,
       payload: { check: "authorization", mechanism: "role-membership", requirement: "AdminC" },
     });
+    insertBehaviorFact(store, {
+      factId: "role-sale-supporting-check",
+      kind: "auth-annotation",
+      relPath: "handlers/sales/service.go",
+      startLine: 30,
+      payload: { check: "authorization", mechanism: "role-membership", requirement: "SaleC" },
+    });
     const kb = openKnowledgeBase(store);
-    const readers = createSliceReaders(store, kb.snapshot.id, membershipOf("leave", ["handlers/leave/service.go"]));
+    const membership = membershipOf("leave", ["handlers/leave/service.go", "handlers/sales/service.go"]);
+    const readers = createSliceReaders(store, kb.snapshot.id, {
+      ...membership,
+      coreFiles: new Set(["r1/handlers/leave/service.go"]),
+    });
     const snapshot: AnalysisSnapshotIdentity = { sourceIdentity: "s", codeGraphIdentity: "s", providerIdentity: "s", schemaVersion: "1", configIdentity: "s" };
     const params: GenerationParams = { executorKind: "test", modelId: "fake", language: "zh-CN" };
     const executable = compileExecutablePlan({ request: [projectTarget("product"), moduleTarget("leave", "product")], snapshot, params, analysisRunId: "run" });
@@ -190,6 +203,7 @@ describe("exportProductReportSite", () => {
     expect(overview).toContain("全部功能模块");
     expect(overview).toContain("角色与参与方式");
     expect(overview).toContain("管理员");
+    expect(overview).toContain("销售");
     expect(overview).toContain("Leave 请假");
     expect(detail).toContain("提交与审批");
     expect(detail).toContain("额度不足");
@@ -197,6 +211,8 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("申请进入审批");
     expect(detail).toContain("共用辅助能力");
     expect(detail).toContain("普通员工");
+    expect(detail).toContain("管理员");
+    expect(detail).not.toContain("<h3>销售</h3>");
     expect(detail).toContain("参与角色与流程关系");
     expect(detail.match(/class="mermaid"/g)).toHaveLength(2);
     expect(detail).toContain("请假生命周期");
