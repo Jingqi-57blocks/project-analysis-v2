@@ -89,7 +89,7 @@ describe("generateModuleCandidates", () => {
     const candidates = generateModuleCandidates(input);
     const digest = candidateSetDigest(candidates);
     const stored = {
-      schemaVersion: "module-classification.v1",
+      schemaVersion: "module-classification.v2",
       sourceSnapshotId: "snap",
       candidateSetDigest: digest,
       classifier,

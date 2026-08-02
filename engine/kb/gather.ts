@@ -20,7 +20,7 @@ import type {
   OutboundCallRecord,
   RouteRecord,
 } from "../structural/boundaries.js";
-import type { CallEdgeRecord, SymbolRecord } from "../structural/code.js";
+import type { CallEdgeRecord, ReferenceRecord, SymbolRecord, TypeRelationRecord } from "../structural/code.js";
 import type {
   ModuleContainmentRecord,
   PackageDependencyRecord,
@@ -50,6 +50,8 @@ export interface GatheredRecords {
   readonly calls: readonly OutboundCallRecord[];
   readonly symbols: readonly SymbolRecord[];
   readonly callEdges: readonly CallEdgeRecord[];
+  readonly references: readonly ReferenceRecord[];
+  readonly typeRelations: readonly TypeRelationRecord[];
   readonly dataAccess: readonly DataAccessRecord[];
   readonly validations: readonly ValidationRuleRecord[];
   readonly transactions: readonly TransactionBoundaryRecord[];
@@ -85,6 +87,8 @@ interface Buckets {
   calls: OutboundCallRecord[];
   symbols: SymbolRecord[];
   callEdges: CallEdgeRecord[];
+  references: ReferenceRecord[];
+  typeRelations: TypeRelationRecord[];
   dataAccess: DataAccessRecord[];
   validations: ValidationRuleRecord[];
   transactions: TransactionBoundaryRecord[];
@@ -110,6 +114,8 @@ function emptyBuckets(): Buckets {
     calls: [],
     symbols: [],
     callEdges: [],
+    references: [],
+    typeRelations: [],
     dataAccess: [],
     validations: [],
     transactions: [],
@@ -148,6 +154,12 @@ function sortInto(buckets: Buckets, model: AssembledModel, generated: ReadonlySe
         break;
       case "call-edge":
         buckets.callEdges.push(assembled.record as CallEdgeRecord);
+        break;
+      case "reference":
+        buckets.references.push(assembled.record as ReferenceRecord);
+        break;
+      case "type-relation":
+        buckets.typeRelations.push(assembled.record as TypeRelationRecord);
         break;
       case "data-access":
         buckets.dataAccess.push(assembled.record as DataAccessRecord);

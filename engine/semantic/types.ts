@@ -29,6 +29,7 @@ export const CONVENTIONAL_EVIDENCE_KINDS = [
   "route-description",
   "type-name",
   "config-key",
+  "source-excerpt",
   "unknown",
 ] as const;
 

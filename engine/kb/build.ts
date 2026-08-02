@@ -51,11 +51,9 @@ export interface ReaderOptions {
 /**
  * Every reader, for a workspace with these roots.
  *
- * CodeGraph runs without call-edge extraction: that loop is one subprocess per
- * callable symbol and dominates the cost of a run, while entry points and
- * structure — what everything downstream actually needs — come from two cheap
- * queries. The omission is declared as a capability limit, so nothing reads it
- * as a codebase without calls.
+ * CodeGraph imports nodes and edges from one version-gated batch read. This
+ * preserves the call graph needed by generic entry tracing without the former
+ * one-subprocess-per-symbol cost.
  */
 export function defaultReaders(
   rootPaths: readonly string[],
@@ -65,7 +63,7 @@ export function defaultReaders(
     ? []
     : [
         createCodeGraphProvider({
-          callEdges: false,
+          callEdges: true,
           roots: [...rootPaths],
           // The declaration reader has these already; it and CodeGraph
           // describe one function differently, and both surviving makes the

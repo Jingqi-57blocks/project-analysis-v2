@@ -41,8 +41,8 @@ export function recordEvidence(
         store.run(
           `INSERT INTO evidence_items
              (snapshot_id, source_root_id, kind, item_key, text, label, symbol_id,
-              rel_path, start_line, start_column, resolution_class, confidence)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              rel_path, start_line, end_line, start_column, resolution_class, confidence)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             snapshotId,
             sourceRootId,
@@ -53,6 +53,7 @@ export function recordEvidence(
             item.symbolId,
             item.source.relPath,
             item.source.startLine,
+            item.source.endLine,
             item.source.startColumn,
             item.provenance.resolutionClass,
             confidenceOf(item.provenance),
@@ -103,6 +104,7 @@ export interface StoredEvidence {
   readonly symbolId: SymbolId | null;
   readonly relPath: string;
   readonly startLine: number | null;
+  readonly endLine: number | null;
   readonly attributions: readonly string[];
 }
 
@@ -114,17 +116,17 @@ export function readEvidence(
   const rows = kind
     ? store.all<{
         id: number; kind: string; text: string; label: string | null;
-        symbol_id: string | null; rel_path: string; start_line: number | null;
+        symbol_id: string | null; rel_path: string; start_line: number | null; end_line: number | null;
       }>(
-        `SELECT id, kind, text, label, symbol_id, rel_path, start_line FROM evidence_items
+        `SELECT id, kind, text, label, symbol_id, rel_path, start_line, end_line FROM evidence_items
          WHERE snapshot_id = ? AND kind = ? ORDER BY id`,
         [snapshotId, kind],
       )
     : store.all<{
         id: number; kind: string; text: string; label: string | null;
-        symbol_id: string | null; rel_path: string; start_line: number | null;
+        symbol_id: string | null; rel_path: string; start_line: number | null; end_line: number | null;
       }>(
-        "SELECT id, kind, text, label, symbol_id, rel_path, start_line FROM evidence_items WHERE snapshot_id = ? ORDER BY id",
+        "SELECT id, kind, text, label, symbol_id, rel_path, start_line, end_line FROM evidence_items WHERE snapshot_id = ? ORDER BY id",
         [snapshotId],
       );
 
@@ -135,6 +137,7 @@ export function readEvidence(
     symbolId: row.symbol_id as SymbolId | null,
     relPath: row.rel_path,
     startLine: row.start_line,
+    endLine: row.end_line,
     attributions: store
       .all<{ collector_id: string }>(
         "SELECT collector_id FROM evidence_attributions WHERE item_id = ? ORDER BY collector_id",

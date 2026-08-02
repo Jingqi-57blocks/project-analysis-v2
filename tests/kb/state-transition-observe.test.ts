@@ -83,6 +83,12 @@ func Approve(tx *gorm.DB, lv *Leave) {
     expect(c.fromValue).toBeNull();
     expect(c.trigger).toBe("Approve");
     expect(c.source.relPath).toBe("service.go");
+    expect(c.valueSet).toEqual({
+      rootName: "svc",
+      relPath: "internal/constant/leave.go",
+      startLine: 96,
+      name: "LvStatusC",
+    });
   });
 
   it("keeps a short-var declaration right-hand side (nextStatus := M)", () => {
@@ -100,6 +106,27 @@ func Approve(tx *gorm.DB, lv *Leave) {
   it("emits every genuine write as a to-only observation of its set, and nothing else", () => {
     expect(changes.map((o) => o.toValue).sort((a, b) => Number(a) - Number(b))).toEqual([1, 2, 3, 4]);
     expect(changes.every((o) => o.field === "LvStatusC" && o.fromValue === null && o.guard === null)).toBe(true);
+  });
+
+  it("does not import a same-named state member from another source root", () => {
+    const foreign: ValueSet = {
+      name: "BillingStatus",
+      rootName: "billing-service",
+      relPath: "constants.go",
+      startLine: 1,
+      members: [
+        { name: "LvApprovedC", value: 40 },
+        { name: "Other", value: 50 },
+      ],
+    };
+    const source = `package leave
+func Approve(lv *Leave) {
+	lv.Status = constant.LvApprovedC.Uint8()
+}
+`;
+    const observed = observeChangesInFile("svc", "service.go", source, [foreign, lvStatus]);
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({ field: "LvStatusC", toValue: 4 });
   });
 });
 

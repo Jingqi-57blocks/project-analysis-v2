@@ -10,10 +10,11 @@
  * classification with no evidence never lands as a module: it lands as
  * `unresolved` with a diagnostic.
  *
- * The four labels are deliberately coarse. Only `product-module` and
+ * The labels are deliberately coarse. Only `product-module` and
  * `technical-component` may become a canonical module scope (PI-76);
- * `external-system` stays a boundary entity with no module report; `unresolved`
- * is never silently promoted to a module.
+ * aggregate surfaces, external systems and infrastructure remain visible in
+ * classification accounting but do not become product-module reports;
+ * `unresolved` is never silently promoted to a module.
  *
  * Nothing here names a vendor, a domain or an acceptance target — a classifier
  * decides from a candidate's structural and boundary evidence, never from a
@@ -24,18 +25,22 @@ import { createHash } from "node:crypto";
 
 import { stableStringify } from "../shared-fact/merge.js";
 
-export const MODULE_CLASSIFICATION_SCHEMA_VERSION = "module-classification.v1";
+export const MODULE_CLASSIFICATION_SCHEMA_VERSION = "module-classification.v2";
 
 export type ModuleClassification =
   | "product-module"
+  | "aggregate-surface"
   | "technical-component"
   | "external-system"
+  | "infrastructure"
   | "unresolved";
 
 export const MODULE_CLASSIFICATIONS: readonly ModuleClassification[] = [
   "product-module",
+  "aggregate-surface",
   "technical-component",
   "external-system",
+  "infrastructure",
   "unresolved",
 ];
 
@@ -87,6 +92,17 @@ export interface ClassifiedCandidate {
   readonly reason: string;
   readonly evidenceRefs: readonly string[];
   readonly status: ClassificationStatus;
+  /** Reader-facing name and one-sentence description; neither changes identity. */
+  readonly displayName?: string;
+  readonly summary?: string;
+  /** A broad product grouping used only to organise the overview. */
+  readonly group?: string;
+  /**
+   * Other formed candidates whose files belong to this product module's report
+   * boundary. This is how a generic classifier can fold a supporting route
+   * surface into a module without a project-specific keyword rule.
+   */
+  readonly includedCandidateIds?: readonly string[];
   readonly override?: ClassificationOverride;
 }
 
@@ -239,6 +255,22 @@ export function validateClassificationResult(
     if (foreign.length > 0) problems.push(`evidence refs not on the candidate: ${foreign.join(", ")}`);
     if (result.classification !== "unresolved" && refs.length === 0) {
       problems.push("classification carries no evidence refs");
+    }
+    for (const field of ["displayName", "summary", "group"] as const) {
+      const value = result[field];
+      if (value !== undefined && (typeof value !== "string" || value.trim().length === 0)) {
+        problems.push(`${field} must be a non-empty string when present`);
+      }
+    }
+    const included = result.includedCandidateIds ?? [];
+    if (!Array.isArray(included)) {
+      problems.push("includedCandidateIds must be an array when present");
+    } else {
+      const duplicates = included.filter((id, index) => included.indexOf(id) !== index);
+      if (duplicates.length > 0) problems.push(`includedCandidateIds contains duplicates: ${[...new Set(duplicates)].join(", ")}`);
+      if (included.includes(result.candidateId)) problems.push("includedCandidateIds cannot contain the candidate itself");
+      const foreignIncluded = included.filter((id) => !byCandidateId.has(id));
+      if (foreignIncluded.length > 0) problems.push(`included candidate ids are not in the candidate set: ${foreignIncluded.join(", ")}`);
     }
 
     if (problems.length > 0) {

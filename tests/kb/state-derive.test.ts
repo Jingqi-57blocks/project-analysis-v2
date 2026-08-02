@@ -123,6 +123,84 @@ describe("deriveStateBehavior — transitions", () => {
     expect(diagnostics[0]!.kind).toBe("unresolved-target");
   });
 
+  it("never resolves an exact set name through a numerically equal member of another enum", () => {
+    const leave: ValueSet = {
+      name: "LeaveRequestStatus",
+      rootName: "svc",
+      relPath: "leave.ts",
+      startLine: 1,
+      members: [{ name: "Pending", value: 1 }, { name: "Approved", value: 4 }],
+    };
+    const billing: ValueSet = {
+      name: "BillingStatus",
+      rootName: "svc",
+      relPath: "billing.ts",
+      startLine: 1,
+      members: [{ name: "Open", value: 1 }, { name: "Invalidated", value: 4 }],
+    };
+    const { model } = deriveStateBehavior({
+      valueSets: [billing, leave],
+      conditions: [],
+      changes: [change({ field: "LeaveRequestStatus", fromValue: null, toValue: 4 })],
+    });
+    const state = model.facts.find((fact) => fact.kind === "state")!;
+    expect(state.payload).toMatchObject({ valueSet: "LeaveRequestStatus", label: "Approved", value: 4 });
+  });
+
+  it("marks an unknown exact-set value unresolved instead of borrowing another enum", () => {
+    const leave: ValueSet = {
+      name: "LeaveRequestStatus",
+      rootName: "svc",
+      relPath: "leave.ts",
+      startLine: 1,
+      members: [{ name: "Pending", value: 1 }, { name: "Approved", value: 4 }],
+    };
+    const billing: ValueSet = {
+      name: "BillingStatus",
+      rootName: "svc",
+      relPath: "billing.ts",
+      startLine: 1,
+      members: [{ name: "Open", value: 1 }, { name: "Invalidated", value: 7 }],
+    };
+    const { model, diagnostics } = deriveStateBehavior({
+      valueSets: [leave, billing],
+      conditions: [],
+      changes: [change({ field: "LeaveRequestStatus", fromValue: null, toValue: 7 })],
+    });
+    expect(model.facts.some((fact) => fact.kind === "transition")).toBe(false);
+    expect(diagnostics).toMatchObject([{ kind: "unresolved-target", field: "LeaveRequestStatus" }]);
+  });
+
+  it("uses the observer's declaration identity when two sets in one root have the same name", () => {
+    const generic: ValueSet = {
+      name: "StatusC",
+      rootName: "svc",
+      relPath: "status.go",
+      startLine: 5,
+      members: [{ name: "Active", value: 1 }, { name: "Deleted", value: 3 }],
+    };
+    const application: ValueSet = {
+      name: "StatusC",
+      rootName: "svc",
+      relPath: "application.go",
+      startLine: 60,
+      members: [{ name: "Approved", value: 1 }, { name: "Completed", value: 2 }],
+    };
+    const { model } = deriveStateBehavior({
+      valueSets: [application, generic],
+      conditions: [],
+      changes: [change({
+        field: "StatusC",
+        fromValue: null,
+        toValue: 1,
+        valueSet: { rootName: "svc", relPath: "status.go", startLine: 5, name: "StatusC" },
+      })],
+    });
+    const state = model.facts.find((fact) => fact.kind === "state")!;
+    expect(state.payload).toMatchObject({ valueSet: "StatusC", label: "Active", value: 1 });
+    expect(state.evidence[0]!.provenance.source.relPath).toBe("status.go");
+  });
+
   it("keeps two transitions between the same states that differ only by guard", () => {
     const { model } = deriveStateBehavior({
       valueSets: [set()],

@@ -108,11 +108,22 @@ interface Marker {
   readonly inner: string;
 }
 
-function extractMarkers(sentence: string): Marker[] {
+function extractMarkers(sentence: string, knownFactIds: ReadonlySet<string>): Marker[] {
   const out: Marker[] = [];
   const re = /\[([^[\]]+)\]/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(sentence)) !== null) out.push({ token: m[0], inner: m[1]! });
+  while ((m = re.exec(sentence)) !== null) {
+    const inner = m[1]!.trim();
+    // Brackets are also ordinary source syntax (`rows[id]`, `[req.ID]`) and
+    // Markdown link text. Only accept the citation grammar here: a known raw
+    // id, numeric indexes/composites, or a raw-id-shaped token. Canonical fact
+    // ids carry `|`; the hyphenated form keeps a hallucinated legacy id
+    // detectable without treating a source indexing expression as a citation.
+    const isKnown = knownFactIds.has(inner);
+    const isNumeric = /^\d+(?:\s*[,;\s]\s*\d+)*$/.test(inner);
+    const isRawId = inner.includes("|") || /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/i.test(inner);
+    if (isKnown || isNumeric || isRawId) out.push({ token: m[0], inner });
+  }
   return out;
 }
 
@@ -203,6 +214,7 @@ export function validateGrounding(
   options: GroundingOptions = {},
 ): GroundingResult {
   const byFactId = new Map(facts.map((f) => [f.factId, f] as const));
+  const knownFactIds = new Set(byFactId.keys());
   const haystackByFactId = new Map(facts.map((f) => [f.factId, factHaystack(f)] as const));
 
   const groundedFactIds = new Set<string>();
@@ -212,7 +224,7 @@ export function validateGrounding(
   let anyResolvableMarker = false;
 
   for (const sentence of splitSentences(prose)) {
-    const markers = extractMarkers(sentence);
+    const markers = extractMarkers(sentence, knownFactIds);
     const sentenceFacts: CitedFact[] = [];
     const markerTokens: string[] = [];
 

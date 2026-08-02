@@ -407,6 +407,19 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX behavior_diagnostics_snapshot ON behavior_diagnostics(snapshot_id);
     `,
   },
+  {
+    version: 8,
+    name: "semantic-evidence-ranges",
+    up: `
+      -- Semantic evidence can cover a complete function rather than one source
+      -- line.  Keeping only start_line made later report slicing discard guards,
+      -- decisions and error handling that appeared inside an otherwise selected
+      -- function.  The column is additive so old snapshots remain readable; a
+      -- reader can derive the range of a verbatim source excerpt when this value
+      -- is null on a pre-migration row.
+      ALTER TABLE evidence_items ADD COLUMN end_line INTEGER;
+    `,
+  },
 ];
 
 export const SUPPORTED_SCHEMA_VERSION: number =

@@ -54,29 +54,34 @@ const SHARED_SECTIONS: readonly SectionDefinition[] = [
     deterministicBlock("fact-ledger.table", ["*"], "fact-ledger.v1", true),
   ], "every cited fact resolves to an id, citation, provenance and resolution"),
   section("coverage", "Coverage and gaps", "required", "shared", "shared", [
-    deterministicBlock("coverage.table", ["coverage", "gap"], "coverage.v1"),
+    deterministicBlock("coverage.table", ["coverage", "gap", "coverage-note"], "coverage.v1"),
   ], "coverage, gap and truncation are accounted with the three-state disclosure"),
   section("known-issues", "Known issues and impact", "required", "shared", "shared", [
-    deterministicBlock("known-issues.ledger", ["diagnostic"], "problem-ledger.v1", true),
-    authoredBlock("known-issues.impact", ["diagnostic"], "problem-impact.v1", true),
+    deterministicBlock("known-issues.ledger", ["diagnostic", "feature-finding", "structural-finding", "health-signal"], "problem-ledger.v1", true),
+    authoredBlock("known-issues.impact", [
+      "diagnostic", "feature-finding", "structural-finding", "health-signal",
+      "feature-flow", "condition", "decision", "guard", "business-rule",
+      "auth-annotation", "validation-rule", "state-transition", "transaction-boundary",
+      "error-handling", "discarded-error", "source-excerpt",
+    ], "problem-impact.v2", true),
   ], "each problem has an id, category, evidence and an impact boundary"),
 ];
 
 const PROJECT_PRODUCT_SECTIONS: readonly SectionDefinition[] = [
   section("project-boundary", "Project boundary and capabilities", "required", "project", "product", [
-    deterministicBlock("project-boundary.map", ["module", "module-containment"], "module-map.v1"),
-    authoredBlock("project-boundary.capabilities", ["module", "route"], "capabilities.v1"),
+    deterministicBlock("project-boundary.map", ["module", "feature", "map-edge", "module-containment"], "module-map.v1"),
+    authoredBlock("project-boundary.capabilities", ["module", "feature", "route", "ui-label", "readme-section"], "capabilities.v1"),
   ], "the module map and product capabilities are present"),
   section("project-roles-flows", "Roles, entry points and main paths", "required", "project", "product", [
-    deterministicBlock("project-roles-flows.entries", ["route", "auth-annotation"], "entry-list.v1"),
-    authoredBlock("project-roles-flows.paths", ["route", "condition"], "business-paths.v1"),
+    deterministicBlock("project-roles-flows.entries", ["route", "feature-flow", "auth-annotation"], "entry-list.v1"),
+    authoredBlock("project-roles-flows.paths", ["feature-flow", "route", "condition", "ui-label"], "business-paths.v1"),
   ], "roles, entry points and the main cross-module paths are present"),
   section("project-objects-lifecycle", "Core objects, lifecycle and cross-module rules", "required", "project", "product", [
-    deterministicBlock("project-objects-lifecycle.states", ["entity", "state-transition"], "lifecycle.v1"),
-    authoredBlock("project-objects-lifecycle.rules", ["condition", "state-transition"], "cross-module-rules.v1"),
+    deterministicBlock("project-objects-lifecycle.states", ["entity", "state", "state-transition", "value-set"], "lifecycle.v1"),
+    authoredBlock("project-objects-lifecycle.rules", ["business-rule", "condition", "state", "state-transition", "value-set", "ui-label"], "cross-module-rules.v1"),
   ], "core objects, their lifecycle and cross-module rules/states/exceptions are present"),
   section("project-notifications-data", "Notifications, integrations and data impact", "required", "project", "product", [
-    deterministicBlock("project-notifications-data.effects", ["outbound-call", "notification-call", "data-access"], "effects.v1"),
+    deterministicBlock("project-notifications-data.effects", ["map-edge", "outbound-call", "notification-call", "data-access"], "effects.v1"),
   ], "notifications, external integrations and data impact are present"),
 ];
 
@@ -107,22 +112,23 @@ const PROJECT_DEVELOPER_SECTIONS: readonly SectionDefinition[] = [
 const MODULE_PRODUCT_SECTIONS: readonly SectionDefinition[] = [
   section("module-responsibility", "Module responsibility and boundary", "required", "module", "product", [
     deterministicBlock("module-responsibility.neighbours", ["module-containment", "call-edge"], "module-neighbours.v1"),
-    authoredBlock("module-responsibility.summary", ["module"], "module-responsibility.v1"),
+    authoredBlock("module-responsibility.summary", ["module", "feature", "feature-flow", "ui-label", "doc-comment"], "module-responsibility.v1"),
   ], "module responsibility, boundary and up/downstream are present"),
   section("module-flows-branches", "Roles, flows and evidenced branches", "required", "module", "product", [
-    deterministicBlock("module-flows-branches.branches", ["condition", "decision", "route"], "module-branches.v1"),
-    authoredBlock("module-flows-branches.flows", ["condition", "decision"], "module-flows.v1"),
+    deterministicBlock("module-flows-branches.branches", ["feature-flow", "condition", "decision", "guard", "route", "ui-label"], "module-branches.v1"),
+    authoredBlock("module-flows-branches.flows", ["feature-flow", "condition", "decision", "guard", "route", "ui-label"], "module-flows.v1"),
+    authoredBlock("module-flows-branches.lifecycle", ["feature-flow", "scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call", "outbound-call", "source-excerpt", "ui-label"], "module-lifecycle.v1"),
   ], "module roles, entry points, flows and all evidenced visible branches are present"),
   section("module-objects-rules-states", "Objects, rules, states, validation and exceptions", "required", "module", "product", [
-    deterministicBlock("module-objects-rules-states.facts", ["entity", "state-transition", "validation-rule", "auth-annotation", "discarded-error"], "module-rules.v1"),
-    authoredBlock("module-objects-rules-states.notes", ["state-transition"], "module-rules-notes.v1"),
+    deterministicBlock("module-objects-rules-states.facts", ["entity", "state", "state-transition", "value-set", "business-rule", "validation-rule", "auth-annotation", "discarded-error", "ui-label"], "module-rules.v1"),
+    authoredBlock("module-objects-rules-states.notes", ["state", "state-transition", "value-set", "business-rule", "validation-rule", "ui-label"], "module-rules-notes.v1"),
   ], "core objects, lifecycle, rules, states, validation, permissions and exceptions are present"),
   section("module-recovery", "Withdraw, cancel, retry, compensate or recover", "optional", "module", "product", [
-    authoredBlock("module-recovery.notes", ["state-transition", "condition"], "module-recovery.v1"),
+    authoredBlock("module-recovery.notes", ["state-transition", "condition", "guard", "ui-label"], "module-recovery.v1"),
   ], "recovery behaviours are present where applicable"),
   section("module-notifications-data", "Notifications, integrations and data impact", "required", "module", "product", [
     deterministicBlock("module-notifications-data.effects", ["outbound-call", "notification-call", "data-access"], "module-effects.v1"),
-    authoredBlock("module-notifications-data.notes", ["outbound-call"], "module-effects-notes.v1"),
+    authoredBlock("module-notifications-data.notes", ["outbound-call", "notification-call", "data-access", "doc-comment", "ui-label"], "module-effects-notes.v1"),
   ], "module notifications, integrations and data impact are present"),
 ];
 

@@ -5,8 +5,9 @@ import { featureOverviewMermaid, flowToMermaid } from "../../engine/flows/mermai
 import { detectFeatures } from "../../engine/modules/features.js";
 import { symbolId } from "../../engine/structural/identity.js";
 import { declared, inferred, lineRef, resolved } from "../../engine/structural/provenance.js";
-import type { DataAccessRecord, RouteRecord } from "../../engine/structural/boundaries.js";
-import type { SymbolRecord } from "../../engine/structural/code.js";
+import type { DataAccessRecord, OutboundCallRecord, RouteRecord } from "../../engine/structural/boundaries.js";
+import type { ReferenceRecord, SymbolRecord, TypeRelationRecord } from "../../engine/structural/code.js";
+import type { Trace } from "../../engine/modules/trace.js";
 import type { CrossRootLink } from "../../engine/linking/types.js";
 import type { FlowInput } from "../../engine/flows/assemble.js";
 
@@ -187,6 +188,121 @@ describe("assembleFlows", () => {
     // flow is still complete.
     expect(data[3]!.truncated).toBe(true);
     expect(flows[0]!.partial).toBe(false);
+  });
+
+  it("uses entry-local instantiation evidence to correct interface dispatch", () => {
+    const entry = symbol("NewTravel");
+    const service = symbol("Apply", "internal/application/service.go");
+    const iface = {
+      ...symbol("Applier", "internal/application/contracts.go"),
+      kind: "interface",
+    } satisfies SymbolRecord;
+    const travelType = {
+      ...symbol("TravelApplier", "internal/application/travel.go"),
+      kind: "struct",
+    } satisfies SymbolRecord;
+    const overtimeType = {
+      ...symbol("OvertimeApplier", "internal/application/overtime.go"),
+      kind: "struct",
+    } satisfies SymbolRecord;
+    const travelProcess = {
+      ...symbol("Process", "internal/application/travel.go"),
+      qualifiedName: "TravelApplier::Process",
+      kind: "method",
+      containerId: travelType.id,
+    } satisfies SymbolRecord;
+    const overtimeProcess = {
+      ...symbol("Process", "internal/application/overtime.go"),
+      qualifiedName: "OvertimeApplier::Process",
+      kind: "method",
+      containerId: overtimeType.id,
+    } satisfies SymbolRecord;
+    const trace: Trace = {
+      entryKey: "svc:POST /v2/leaves",
+      entryRoot: "svc",
+      entryMethod: "POST",
+      entryPath: "/v2/leaves",
+      steps: [entry, service, overtimeProcess].map((item, depth) => ({
+        symbolId: item.id,
+        name: item.name,
+        depth,
+        rootName: "svc",
+        resolution: item.provenance.resolutionClass,
+      })),
+      truncation: "completed",
+      truncationDetail: null,
+      partial: false,
+    };
+    const instantiate: ReferenceRecord = {
+      fromSymbolId: entry.id,
+      symbolId: travelType.id,
+      kind: "instantiate",
+      source: lineRef("svc", HANDLER_FILE, 35),
+      provenance: declared(lineRef("svc", HANDLER_FILE, 35)),
+    };
+    const relations: TypeRelationRecord[] = [travelType, overtimeType].map((item) => ({
+      subtypeId: item.id,
+      supertypeId: iface.id,
+      supertypeName: "Applier",
+      relation: "implements",
+      provenance: declared(lineRef("svc", item.provenance.source.relPath, 4)),
+    }));
+
+    const { flows } = assembleFlows(input({
+      routes: [route({ handlerSymbolId: entry.id, handlerName: entry.name })],
+      symbols: [entry, service, iface, travelType, overtimeType, travelProcess, overtimeProcess],
+      traces: [trace],
+      references: [instantiate],
+      typeRelations: relations,
+    }));
+    const services = flows[0]!.steps.filter((step) => step.kind === "service");
+
+    expect(services.map((step) => step.label)).toEqual(["Apply", "TravelApplier::Process"]);
+    expect(services[1]!.conditions).toContain("根据入口实例化类型解析接口分派");
+    expect(services[1]!.provenance?.resolutionClass).toBe("inferred");
+  });
+
+  it("does not attribute an unrelated outbound constant from a reached shared file", () => {
+    const entry = symbol("EntryRecords");
+    const reached = symbol("IsWeekend", "internal/handlers/support/utils.go");
+    const unrelated = symbol("currencyFeedURL", "internal/handlers/support/utils.go");
+    const trace: Trace = {
+      entryKey: "svc:POST /v2/leaves",
+      entryRoot: "svc",
+      entryMethod: "POST",
+      entryPath: "/v2/leaves",
+      steps: [entry, reached].map((item, depth) => ({
+        symbolId: item.id,
+        name: item.name,
+        depth,
+        rootName: "svc",
+        resolution: item.provenance.resolutionClass,
+      })),
+      truncation: "completed",
+      truncationDetail: null,
+      partial: false,
+    };
+    const outbound = (caller: SymbolRecord, target: string): OutboundCallRecord => ({
+      rootName: "svc",
+      target,
+      kind: "http",
+      method: "GET",
+      callerSymbolId: caller.id,
+      baseIdentifier: null,
+      provenance: inferred(lineRef("svc", caller.provenance.source.relPath, 40), "medium"),
+    });
+    const { flows } = assembleFlows(input({
+      routes: [route({ handlerSymbolId: entry.id, handlerName: entry.name })],
+      symbols: [entry, reached, unrelated],
+      traces: [trace],
+      calls: [
+        outbound(reached, "https://itms.example/records"),
+        outbound(unrelated, "https://currency.example/rates"),
+      ],
+    }));
+
+    expect(flows[0]!.steps.filter((step) => step.kind === "outbound").map((step) => step.label))
+      .toEqual(["https://itms.example/records"]);
   });
 });
 

@@ -20,6 +20,13 @@ const FACTS: readonly CitedFact[] = [
 ];
 
 describe("validateGrounding — grounded prose passes, its grounded set is sorted and in-slice", () => {
+  it("does not mistake source indexing syntax for a foreign citation", () => {
+    const prose = `The lookup uses [req.ID] [${FACTS[0]!.factId}].`;
+    const result = validateGrounding(prose, FACTS);
+    expect(result.ok).toBe(true);
+    expect(result.foreignCitations).toEqual([]);
+  });
+
   it("accepts prose that cites each fact by its [n] index", () => {
     const prose = "The leave table is read [1]. A balance branch guards the request [2].";
     const result = validateGrounding(prose, FACTS);

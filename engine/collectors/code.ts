@@ -13,8 +13,10 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
+import type { SgNode } from "@ast-grep/napi";
 
 import { declared, inferred, offsetRef } from "../structural/provenance.js";
+import { languageOf, parseSource } from "../text/ast.js";
 import type {
   CollectionFailure,
   CollectorCapabilities,
@@ -26,9 +28,12 @@ import type {
 } from "../semantic/types.js";
 
 export const COLLECTOR_ID = "code-text";
-export const COLLECTOR_VERSION = "1.0.0";
+export const COLLECTOR_VERSION = "2.0.0";
 
 const MAX_FILE_BYTES = 1_000_000;
+const SOURCE_EXCERPT_LINES = 90;
+const SOURCE_EXCERPT_CHARS = 7_000;
+const MAX_SOURCE_EXCERPTS_PER_FILE = 120;
 
 /** Languages whose comment syntax this collector understands. */
 const SLASH_COMMENT_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -85,6 +90,134 @@ function lineAt(content: string, index: number): number {
   let line = 1;
   for (let i = 0; i < index && i < content.length; i++) if (content[i] === "\n") line += 1;
   return line;
+}
+
+export interface SourceExcerpt {
+  readonly text: string;
+  readonly label: string;
+  readonly index: number;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
+function nodeKind(node: SgNode): string {
+  return node.kind() as string;
+}
+
+function positionOffset(content: string, line: number, column: number): number {
+  let offset = 0;
+  let current = 0;
+  while (current < line && offset < content.length) {
+    const next = content.indexOf("\n", offset);
+    if (next === -1) return content.length;
+    offset = next + 1;
+    current += 1;
+  }
+  return Math.min(content.length, offset + column);
+}
+
+function functionLabel(node: SgNode): string {
+  const direct = node.field("name")?.text().trim() ?? "";
+  if (direct !== "") return direct;
+  const parent = node.parent();
+  if (parent !== null && nodeKind(parent) === "variable_declarator") {
+    return parent.field("name")?.text().trim() || "anonymous function";
+  }
+  return "anonymous function";
+}
+
+function functionNodes(root: SgNode): readonly SgNode[] {
+  const nodes: SgNode[] = [];
+  const declarationKinds = [
+    "function_declaration",
+    "generator_function_declaration",
+    "method_declaration",
+    "method_definition",
+  ];
+  for (const kind of declarationKinds) {
+    try {
+      nodes.push(...root.findAll({ rule: { kind: kind as never } }));
+    } catch {
+      // Grammar-specific kind: unsupported kinds are absent, not a parse failure.
+    }
+  }
+  try {
+    for (const node of root.findAll({ rule: { kind: "variable_declarator" as never } })) {
+      const value = node.field("value");
+      const kind = value === undefined || value === null ? "" : nodeKind(value);
+      if (kind === "arrow_function" || kind === "function_expression" || kind === "generator_function") {
+        nodes.push(node);
+      }
+    }
+  } catch {
+    // The grammar has no variable declarator kind.
+  }
+  return nodes;
+}
+
+/**
+ * Verbatim, bounded function chunks kept for later semantic review.
+ *
+ * Source is still read only during analysis. Report generation receives these
+ * excerpts from the frozen knowledge base, which lets several report sections
+ * share one read and makes a cached rerun independent of the working tree.
+ */
+export function sourceExcerpts(content: string, relPath: string): readonly SourceExcerpt[] {
+  const language = languageOf(relPath);
+  if (language === null) return [];
+  const parsed = parseSource(language, content);
+  if (parsed.root === null) return [];
+
+  const excerpts: SourceExcerpt[] = [];
+  const seen = new Set<string>();
+  const ordered = [...functionNodes(parsed.root)].sort((a, b) => {
+    const ar = a.range();
+    const br = b.range();
+    return ar.start.line - br.start.line || ar.start.column - br.start.column;
+  });
+  for (const node of ordered) {
+    if (excerpts.length >= MAX_SOURCE_EXCERPTS_PER_FILE) break;
+    const range = node.range();
+    const label = functionLabel(node);
+    const key = `${range.start.line}:${range.start.column}:${range.end.line}:${label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const lines = node.text().split("\n");
+    let start = 0;
+    let part = 1;
+    while (start < lines.length && excerpts.length < MAX_SOURCE_EXCERPTS_PER_FILE) {
+      let end = start;
+      let chars = 0;
+      while (end < lines.length && end - start < SOURCE_EXCERPT_LINES) {
+        const added = lines[end]!.length + (end === start ? 0 : 1);
+        if (end > start && chars + added > SOURCE_EXCERPT_CHARS) break;
+        chars += added;
+        end += 1;
+      }
+      if (end === start) end += 1;
+      const text = lines.slice(start, end).join("\n").trimEnd();
+      if (text.trim().length >= 20) {
+        const startLine = range.start.line + start + 1;
+        const endLine = range.start.line + end;
+        const index = positionOffset(
+          content,
+          startLine - 1,
+          start === 0 ? range.start.column : 0,
+        );
+        excerpts.push({
+          text,
+          label: lines.length > end || start > 0 ? `${label} (part ${part})` : label,
+          index,
+          startLine,
+          endLine,
+        });
+      }
+      start = end;
+      part += 1;
+    }
+  }
+  return excerpts;
 }
 
 /**
@@ -186,6 +319,16 @@ function capabilities(): CollectorCapabilities {
           "recorded as inferred rather than as a definitive list of visible text",
         ],
       },
+      {
+        kind: "source-excerpt",
+        language: "*",
+        support: "partial",
+        limits: [
+          "verbatim function and method chunks for Go, TypeScript, JavaScript and TSX only",
+          `each chunk is bounded to ${SOURCE_EXCERPT_LINES} lines and ${SOURCE_EXCERPT_CHARS} characters`,
+          "the excerpts support code review but do not prove runtime configuration or production behaviour",
+        ],
+      },
     ],
   };
 }
@@ -222,6 +365,20 @@ export function createCodeTextCollector(): SemanticCollector {
             continue;
           }
           const content = readFileSync(full, "utf8");
+
+          for (const excerpt of sourceExcerpts(content, relPath)) {
+            const located = offsetRef(root.name, relPath, content, excerpt.index);
+            const source = { ...located, endLine: excerpt.endLine };
+            items.push({
+              rootName: root.name,
+              kind: "source-excerpt",
+              text: excerpt.text,
+              label: excerpt.label,
+              symbolId: null,
+              source,
+              provenance: declared(source),
+            });
+          }
 
           for (const comment of docComments(content, extension)) {
             const source = offsetRef(root.name, relPath, content, comment.index);

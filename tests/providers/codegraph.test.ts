@@ -10,10 +10,16 @@ import {
   toRoute,
   toSymbol,
 } from "../../engine/providers/codegraph/normalize.js";
-import { calleeKey, codegraphCapabilities, PROVIDER_ID } from "../../engine/providers/codegraph/provider.js";
+import {
+  batchRelations,
+  calleeKey,
+  codegraphCapabilities,
+  PROVIDER_ID,
+} from "../../engine/providers/codegraph/provider.js";
 import { capabilityFor, ANY_LANGUAGE, declaredKinds } from "../../engine/structural/provider.js";
 import { createSourceFileProvider } from "../../engine/providers/sourcefiles/provider.js";
 import type { CodeGraphNode } from "../../engine/providers/codegraph/cli.js";
+import type { CodeGraphSnapshot } from "../../engine/providers/codegraph/batch.js";
 
 function node(overrides: Partial<CodeGraphNode> = {}): CodeGraphNode {
   return {
@@ -165,9 +171,11 @@ describe("declared capabilities", () => {
   it("declares what it cannot supply instead of staying silent", () => {
     // Silence would be indistinguishable from an oversight; a declared "none"
     // lets the coverage matrix tell a refusal from a gap nobody considered.
-    for (const kind of ["export", "reference", "type-relation", "data-access"] as const) {
+    for (const kind of ["export", "data-access"] as const) {
       expect(capabilityFor(capabilities, kind, "go")?.support, kind).toBe("none");
     }
+    expect(capabilityFor(capabilities, "reference", "go")?.support).toBe("partial");
+    expect(capabilityFor(capabilities, "type-relation", "go")?.support).toBe("partial");
   });
 
   it("does not claim kinds another provider is responsible for", () => {
@@ -179,15 +187,106 @@ describe("declared capabilities", () => {
   it("claims the kinds it actually normalizes", () => {
     // No source-file: the inventory visited every file already, and two
     // readers of one fact can only disagree.
-    expect(declaredKinds(capabilities)).toEqual(["call-edge", "import", "route", "symbol"]);
+    expect(declaredKinds(capabilities)).toEqual([
+      "call-edge",
+      "import",
+      "reference",
+      "route",
+      "symbol",
+      "type-relation",
+    ]);
   });
 
-  it("bounds the node query and says so", () => {
-    expect(capabilityFor(capabilities, "symbol", ANY_LANGUAGE)?.limits[0]).toContain("at most");
+  it("reads the batch index in one pass and declares the CLI fallback limit", () => {
+    expect(capabilityFor(capabilities, "symbol", ANY_LANGUAGE)?.limits.join(" ")).toContain("batch index");
+    expect(capabilityFor(capabilities, "symbol", ANY_LANGUAGE)?.limits.join(" ")).toContain("fallback");
   });
 
   it("identifies itself with a stable provider id", () => {
     expect(PROVIDER_ID).toBe("codegraph");
+  });
+});
+
+describe("batch relations", () => {
+  const snapshot: CodeGraphSnapshot = {
+    nodes: [
+      {
+        nativeId: "fn:a",
+        kind: "function",
+        name: "Entry",
+        filePath: "svc-a/main.go",
+        startLine: 10,
+        endLine: 20,
+        metadata: { qualifiedName: "Entry", language: "go", signature: "()" },
+      },
+      {
+        nativeId: "method:a",
+        kind: "method",
+        name: "Run",
+        filePath: "svc-a/service.go",
+        startLine: 30,
+        endLine: 40,
+        metadata: { qualifiedName: "Worker::Run", language: "go", signature: "(ctx)" },
+      },
+      {
+        nativeId: "type:a",
+        kind: "struct",
+        name: "Worker",
+        filePath: "svc-a/service.go",
+        startLine: 3,
+        endLine: 8,
+        metadata: { qualifiedName: "Worker", language: "go" },
+      },
+      {
+        nativeId: "iface:a",
+        kind: "interface",
+        name: "Runner",
+        filePath: "svc-a/contracts.go",
+        startLine: 1,
+        endLine: 5,
+        metadata: { qualifiedName: "Runner", language: "go" },
+      },
+    ],
+    edges: [
+      { nativeId: "1", kind: "calls", fromNativeId: "fn:a", toNativeId: "method:a", filePath: "svc-a/main.go", startLine: 15 },
+      { nativeId: "2", kind: "instantiates", fromNativeId: "fn:a", toNativeId: "type:a", filePath: "svc-a/main.go", startLine: 12 },
+      { nativeId: "3", kind: "implements", fromNativeId: "type:a", toNativeId: "iface:a", filePath: "svc-a/service.go", startLine: 3 },
+    ],
+    unresolvedReferences: [],
+    metadata: {
+      codegraphVersion: "1.5.0",
+      schemaVersion: "8",
+      indexRoot: "/idx",
+      rootPrefixes: ["svc-a"],
+      nodeCount: 4,
+      edgeCount: 3,
+    },
+    truncation: { truncated: false, limit: null, reason: null },
+  };
+
+  it("imports calls, instantiations and type relations with canonical in-process ids", () => {
+    const result = batchRelations(
+      snapshot,
+      "/idx",
+      ["/idx/svc-a"],
+      { name: "svc-a", path: "/idx/svc-a", analyzedFiles: ["main.go", "service.go", "contracts.go"] },
+      { roots: ["/idx/svc-a"], skipSymbolsIn: () => true },
+    );
+
+    expect(result.callEdges).toHaveLength(1);
+    expect(result.callEdges[0]!.callerId).toBe(nodeSymbolId("svc-a", node({
+      kind: "function",
+      name: "Entry",
+      qualifiedName: "Entry",
+      filePath: "main.go",
+      signature: null,
+    })));
+    expect(result.references).toMatchObject([
+      { kind: "instantiate", fromSymbolId: result.callEdges[0]!.callerId },
+    ]);
+    expect(result.typeRelations).toMatchObject([
+      { relation: "implements", subtypeId: result.references[0]!.symbolId, supertypeName: "Runner" },
+    ]);
   });
 });
 

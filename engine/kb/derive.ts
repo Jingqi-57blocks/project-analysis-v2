@@ -172,14 +172,14 @@ export function derive(input: DeriveInput): Derived {
   // over a project with no route reader can state the coverage rather than imply
   // completeness. This does not replace the route traces above; it accounts for
   // the entries those cannot see.
-  // No current provider emits type-relation records (the CodeGraph provider
-  // declares that capability absent), so the walk here is call-based today; the
-  // traversal accepts type relations and will follow them the moment a provider
-  // supplies them, without a change to this call.
+  // CodeGraph contributes resolved type relations alongside calls. They are
+  // walked as structure evidence; a missing relation remains an explicit
+  // provider limit rather than being inferred from matching names.
   const entryTraced = buildEntryTraces({
     routes,
     symbols: gathered.symbols,
     callEdges: gathered.callEdges,
+    typeRelations: gathered.typeRelations,
   });
   if (entryTraced.traceability.total > 0) {
     const t = entryTraced.traceability;
@@ -234,6 +234,11 @@ export function derive(input: DeriveInput): Derived {
     calls: gathered.calls,
     dataAccess: gathered.dataAccess,
     validations: gathered.validations,
+    conditions: gathered.conditions,
+    guards: gathered.guards,
+    traces: traced.traces,
+    references: gathered.references,
+    typeRelations: gathered.typeRelations,
     handlerGaps: new Map(handlers.unresolved.map((gap) => [gap.entryKey, gap.reason])),
   });
 

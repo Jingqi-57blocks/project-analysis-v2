@@ -436,8 +436,24 @@ export const MODULE_FLOWS_BLOCK: AuthoredBlockContract = {
   promptId: "module-flows.v1",
   citationRule: "required",
   validatorId: "module-flows.v1",
-  inputFactKinds: ["condition", "decision"],
-  prompt: `Describe the module's business flows from the branches you are given — the happy path, the rejections and the conditional behaviour.\n\n${AUDIENCE_RULES}`,
+  inputFactKinds: ["feature-flow", "condition", "decision", "guard", "route", "ui-label"],
+  prompt: `Describe the module's business flows from the branches you are given — the happy path, the rejections and the conditional behaviour. Distinguish observed caller paths from endpoints whose flow explicitly says no caller was observed; the latter exist but their current use is unresolved and must not be merged into the active path.\n\n${AUDIENCE_RULES}`,
+};
+
+/**
+ * A separate authored task keeps the lifecycle and business-variant contract
+ * independently cacheable. It consumes the same frozen fact base as the flow
+ * summary, but retains threshold, attachment, type and state evidence that a
+ * compact list of major flows would otherwise flatten away.
+ */
+export const MODULE_LIFECYCLE_BLOCK: AuthoredBlockContract = {
+  blockId: "module-flows-branches.lifecycle",
+  outputSchemaId: "module-lifecycle.v1",
+  promptId: "module-lifecycle.v1",
+  citationRule: "required",
+  validatorId: "module-lifecycle.v1",
+  inputFactKinds: ["feature-flow", "scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call", "outbound-call", "source-excerpt", "ui-label"],
+  prompt: `Build the module's evidenced end-to-end business lifecycle and its materially different business variants. Show creation or entry, validation, submission, each approval or processing stage, success/rejection, cancellation/withdrawal/deletion, scheduled transitions and recovery when evidenced. Preserve distinct type-specific rules, numeric or time thresholds, balance/attachment requirements, role-dependent approval levels and status changes; do not reduce them to a generic validation step. A route whose flow explicitly says no caller was observed exists, but is not evidence of the active lifecycle: separate it as caller-unresolved rather than merging it with observed caller paths. If a state origin or outcome is not established, label it unknown instead of inferring it.\n\n${AUDIENCE_RULES}`,
 };
 
 export const MODULE_RULES_NOTES_BLOCK: AuthoredBlockContract = {
@@ -446,7 +462,7 @@ export const MODULE_RULES_NOTES_BLOCK: AuthoredBlockContract = {
   promptId: "module-rules-notes.v1",
   citationRule: "required",
   validatorId: "module-rules-notes.v1",
-  inputFactKinds: ["state-transition"],
+  inputFactKinds: ["state", "state-transition", "value-set", "business-rule", "validation-rule", "ui-label"],
   prompt: `Explain the object lifecycles, rules, states and exceptions you are given, keeping state names and messages verbatim.\n\n${AUDIENCE_RULES}`,
 };
 
@@ -456,12 +472,13 @@ export const MODULE_RECOVERY_BLOCK: AuthoredBlockContract = {
   promptId: "module-recovery.v1",
   citationRule: "required",
   validatorId: "module-recovery.v1",
-  inputFactKinds: ["state-transition", "condition"],
+  inputFactKinds: ["state-transition", "condition", "guard", "ui-label"],
   prompt: `Describe the withdraw, cancel, retry, compensate and recover behaviours you are given. If none is evidenced, say the recovery behaviour is unknown.\n\n${AUDIENCE_RULES}`,
 };
 
 export const PM_FLOWS_AUTHORED_BLOCKS: readonly AuthoredBlockContract[] = [
   MODULE_FLOWS_BLOCK,
+  MODULE_LIFECYCLE_BLOCK,
   MODULE_RULES_NOTES_BLOCK,
   MODULE_RECOVERY_BLOCK,
 ];

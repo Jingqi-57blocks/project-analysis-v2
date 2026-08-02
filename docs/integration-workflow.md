@@ -40,7 +40,7 @@ parent only aggregates acceptance.
 - After merge to feat: run the affected milestone's integration/regression tests at
   `feat` HEAD. A red feat HEAD is not a stable base for the next issue — open a fix issue
   first.
-- Milestone exit and the M4/M5/M6 fresh-run, golden-slice, sentinel, performance,
+- Milestone exit and the M4/M5/M6/M7 fresh-run, golden-slice, sentinel, performance,
   reproducibility, packaging and distribution audits all run on `feat` HEAD, recording
   branch, commit SHA, Linear issue, command, result and artifact digest.
 

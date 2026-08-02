@@ -111,6 +111,49 @@ export function handlerNamesOf(node: SgNode): string[] {
   return [];
 }
 
+/**
+ * Resolve a Go import alias to the package directory it denotes.
+ *
+ * Real registrations commonly use an alias (`aplyGeneral.Pagination`) while
+ * declarations live in a directory/package named `general`. Keeping only the
+ * alias makes the later symbol join miss the inner handler and fall through to
+ * a generic wrapper such as `CatchError`, which stops every business trace at
+ * infrastructure. This is structural import evidence, not a project keyword.
+ */
+function importPackages(root: SgNode): ReadonlyMap<string, string> {
+  const packages = new Map<string, string>();
+  for (const spec of root.findAll({ rule: { kind: "import_spec" as never } })) {
+    const rawPath = (spec.field("path")?.text() ?? spec.children().at(-1)?.text() ?? "")
+      .replace(/^["'`]|["'`]$/g, "");
+    if (rawPath === "") continue;
+    const packageName = rawPath.split("/").filter(Boolean).at(-1);
+    if (packageName === undefined) continue;
+    const explicit = spec.field("name")?.text() ?? "";
+    const alias = explicit === "" ? packageName : explicit;
+    if (alias === "." || alias === "_") continue;
+    packages.set(alias, packageName);
+  }
+  return packages;
+}
+
+function normalizeHandlerNames(
+  names: readonly string[],
+  packages: ReadonlyMap<string, string>,
+): string[] {
+  const normalized = names.flatMap((name) => {
+    const dot = name.indexOf(".");
+    if (dot < 1) return [name];
+    const replacement = packages.get(name.slice(0, dot));
+    if (replacement === undefined || replacement === name.slice(0, dot)) return [name];
+    // Keep the developer-written alias for faithful route evidence and add the
+    // directory/package form as a second join candidate. The latter lets the
+    // graph find declarations whose package name differs from its local alias;
+    // replacing the alias outright would make reports misquote the source.
+    return [name, `${replacement}${name.slice(dot)}`];
+  });
+  return [...new Set(normalized)];
+}
+
 /** Group variables a scope roots, from its parameters. */
 function rootsIn(scope: SgNode): Map<string, GroupInfo> {
   const groups = new Map<string, GroupInfo>();
@@ -146,6 +189,7 @@ function scanFile(
     failures.push({ scope: relPath, reason: parsed.reason ?? "the file could not be parsed" });
     return;
   }
+  const packages = importPackages(parsed.root);
 
   // A scope is a function body, or the file itself for package-level
   // registration. Group variables never escape the function that declares
@@ -228,7 +272,9 @@ function scanFile(
       const rest = call.method === "Handle" ? call.args.slice(2) : call.args.slice(1);
 
       const last = rest[rest.length - 1];
-      const handlerCandidates = last === undefined ? [] : handlerNamesOf(last);
+      const handlerCandidates = last === undefined
+        ? []
+        : normalizeHandlerNames(handlerNamesOf(last), packages);
       const handlerName = handlerCandidates[0] ?? null;
       const middleware = [...base.middleware, ...middlewareNames(rest.slice(0, -1))];
       const source = lineRef(root.name, relPath, call.line);

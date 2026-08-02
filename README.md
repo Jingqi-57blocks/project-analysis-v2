@@ -15,7 +15,7 @@ designed so a template nobody has written yet still works against it.
 
 Under active development on the `feat/project-intelligence-v1` branch. See the
 [Linear project](https://linear.app/57blocks-prd/project/项目智能-v1-图优先分析与报告流水线-0fe80a5b5868)
-for the plan (milestones M0–M6). The versioned product, fact and acceptance
+for the plan (milestones M0–M7). The versioned product, fact and acceptance
 contracts live in `engine/contracts/`; verify them with `pnpm verify:contracts`
 (see `docs/m0-contracts.md`).
 
@@ -38,9 +38,11 @@ pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowl
                      [--no-code-index]           #   or skip it entirely
 pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
 pnpm run export  -- --as json                    # the knowledge base as one JSON document
-pnpm run export  -- --as overview [--format html]
-pnpm run export  -- --as overview --only <section>   # rebuild one section
-pnpm run export  -- --as capability --param capability=<id>
+pnpm run report  -- --project --module leave     # one project report + one module detail
+pnpm run report  -- --module leave               # module-only report
+pnpm run report  -- --project \
+  --module worklog --module leave --module application --module reimbursement \
+  --out /path/outside/the/target
 ```
 
 `analyze` is the only command that touches the project, and it reads
@@ -51,22 +53,24 @@ say so too. `--index-root` moves it, at the cost of indexing only what is
 under the directory you name; `--no-code-index` skips it and declares the
 missing symbols as a gap.
 
-Everything after that reads the knowledge base. `export` produces the same
-bytes for the same run and needs no access to the source at all.
+Everything after that reads the knowledge base and needs no access to the
+source. `report` reuses module classification and authored-document caches only
+when their fact, model, prompt and snapshot identities still match.
 
 ### Reports
 
-A report is a template, not a feature of the tool. `prepare` renders the
-sections code can answer and writes one task per section that needs judgement
-— a prompt, and exactly the slice of the knowledge base that prompt may use.
-An agent answers those tasks; `assemble` splices them in and refuses to
-publish a section that was never written.
+A report request is a flexible set of `scope × audience` targets. The current
+delivery command supports the Chinese non-technical audience at project scope,
+module scope, or both. It classifies one bounded module-candidate list, resolves
+each section from the frozen KB, batches authored sections once per document,
+validates every claim and flow reference, then exports one static HTML site.
 
-The engine never calls a model, which is what lets the same templates run
-under Claude Code, Codex CLI or anything else with an agent in it. See
-[templates/HOST.md](templates/HOST.md) for the contract. To write your own,
-copy a directory under `templates/` and pass its path where a template id
-goes: `export --as ./my-template`.
+The analysis and report engine stay model-agnostic. The CLI uses the generic
+JSON-agent port (`engine/host/json-agent.ts`) with Codex CLI by default; it sends
+only bounded facts, never a source checkout. Deterministic facts, citations,
+coverage accounting, module membership and the final HTML structure are code-
+generated. The model may summarize or group those facts but cannot introduce a
+foreign fact id, omit an evidenced module flow, or write outside its slice.
 
 ## Development
 
