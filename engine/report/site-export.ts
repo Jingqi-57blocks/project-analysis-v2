@@ -666,7 +666,8 @@ function integrations(options: ExportProductReportSiteOptions): string {
 
 function problemFacts(options: ExportProductReportSiteOptions, moduleId?: string): readonly CitedFact[] {
   const scope = moduleId === undefined ? projectTarget("product").scope : moduleScope(moduleId);
-  const facts = resolveSliceFacts(options.readers, scope, ["feature-finding", "structural-finding", "health-signal", "diagnostic"]);
+  const facts = resolveSliceFacts(options.readers, scope, ["feature-finding", "structural-finding", "health-signal", "diagnostic"])
+    .filter((fact) => moduleId === undefined || fact.scopeRole !== "supporting");
   const priority = (fact: CitedFact): number => {
     const value = asRecord(fact.value);
     const severity = stringField(value, "severity") ?? "";
@@ -761,7 +762,10 @@ function coverage(options: ExportProductReportSiteOptions, moduleId?: string): s
     };
     const scope = moduleScope(moduleId);
     const rows = kinds.map((kind) => {
-      const count = resolveSliceFacts(options.readers, scope, [kind]).length;
+      const resolved = resolveSliceFacts(options.readers, scope, [kind]);
+      const count = (kind === "module" || kind === "feature-flow")
+        ? resolved.length
+        : resolved.filter((fact) => fact.scopeRole !== "supporting").length;
       return `<tr><td>${html(labels[kind] ?? readableIdentifier(kind))}</td><td class="${count > 0 ? "coverage-ok" : "coverage-limit"}">${count > 0 ? "有证据" : "未建立"}</td><td>${count} 条可归属事实；0 表示本次未建立，不解释为业务上不存在。</td></tr>`;
     }).join("");
     return `<table class="coverage-table"><thead><tr><th>核对层</th><th>状态</th><th>覆盖说明</th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -916,11 +920,12 @@ function moduleEntries(
 }
 
 function moduleRules(options: ExportProductReportSiteOptions, module: ReportModule): string {
-  const facts = resolveSliceFacts(options.readers, moduleScope(module.id), ["state", "state-transition", "value-set", "business-rule", "guard", "validation-rule", "auth-annotation", "discarded-error"]);
+  const facts = resolveSliceFacts(options.readers, moduleScope(module.id), ["state", "state-transition", "value-set", "business-rule", "guard", "validation-rule", "auth-annotation", "discarded-error"])
+    .filter((fact) => fact.scopeRole !== "supporting");
   const count = (kinds: readonly string[]) => facts.filter((fact) => kinds.includes(fact.kind)).length;
   const stats = `<div class="stat-grid"><div><strong>${count(["state", "value-set"])}</strong><span>状态与值集合</span></div><div><strong>${count(["state-transition"])}</strong><span>状态变化</span></div><div><strong>${count(["business-rule", "guard", "validation-rule"])}</strong><span>规则与校验</span></div><div><strong>${count(["auth-annotation"])}</strong><span>访问控制事实</span></div></div>`;
   const meaningful = facts
-    .filter((fact) => fact.scopeRole !== "supporting" && fact.kind !== "auth-annotation" && fact.kind !== "discarded-error")
+    .filter((fact) => fact.kind !== "auth-annotation" && fact.kind !== "discarded-error")
     .slice(0, 18);
   const details = meaningful.length === 0
     ? ""
@@ -929,7 +934,16 @@ function moduleRules(options: ExportProductReportSiteOptions, module: ReportModu
 }
 
 function moduleEffects(options: ExportProductReportSiteOptions, module: ReportModule): string {
-  const facts = resolveSliceFacts(options.readers, moduleScope(module.id), ["outbound-call", "notification-call", "data-access"]);
+  const scope = moduleScope(module.id);
+  const facts = resolveSliceFacts(options.readers, scope, ["outbound-call", "notification-call", "data-access"])
+    .filter((fact) => fact.scopeRole !== "supporting");
+  const channelFacts = resolveSliceFacts(options.readers, scope, ["source-excerpt"])
+    .filter((fact) => {
+      if (fact.scopeRole === "supporting") return false;
+      const text = stringField(fact.value, "text") ?? "";
+      return /Notify(?:Email|Mail)Cpst|Notify(?:Mobile|Push)Cpst|mobile\s+push\s+notification/i.test(text);
+    })
+    .slice(0, 8);
   const counts = new Map<string, number>();
   for (const fact of facts) counts.set(fact.kind, (counts.get(fact.kind) ?? 0) + 1);
   const stats = `<div class="stat-grid"><div><strong>${counts.get("data-access") ?? 0}</strong><span>数据访问事实</span></div><div><strong>${counts.get("outbound-call") ?? 0}</strong><span>外部调用事实</span></div><div><strong>${counts.get("notification-call") ?? 0}</strong><span>通知事实</span></div><div><strong>${unique(facts.map((fact) => fact.citation.rootName)).length}</strong><span>涉及源码根</span></div></div>`;
@@ -945,13 +959,20 @@ function moduleEffects(options: ExportProductReportSiteOptions, module: ReportMo
       .slice(0, cap)
       .map(([name]) => readableIdentifier(name).replace(/^wcp\s+/i, ""));
   };
+  const explicitChannels = unique(channelFacts.flatMap((fact) => {
+    const text = stringField(fact.value, "text") ?? "";
+    return [
+      /Notify(?:Email|Mail)Cpst/i.test(text) ? "邮件" : "",
+      /Notify(?:Mobile|Push)Cpst|mobile\s+push\s+notification/i.test(text) ? "移动推送" : "",
+    ];
+  }));
   const groups = [
     ["主要数据对象", ranked("data-access", ["entity"], 10)],
     ["调用与集成触点", ranked("outbound-call", ["target", "baseIdentifier"], 10)],
-    ["通知方式", ranked("notification-call", ["channel", "mechanism", "call"], 8)],
+    ["通知方式", unique([...ranked("notification-call", ["channel", "mechanism", "call"], 8), ...explicitChannels], 8)],
   ] as const;
   const cards = `<div class="object-map compact-map">${groups.map(([title, names]) => `<article><h3>${html(title)}</h3><p>${html(names.length === 0 ? "当前分析未形成可命名的对象或触点。" : names.join("、"))}</p><small>${names.length} 项代表性结果</small></article>`).join("")}</div>`;
-  return `${stats}${cards}${evidence(facts, "查看数据、调用与通知证据", 24)}`;
+  return `${stats}${cards}${evidence([...facts, ...channelFacts], "查看数据、调用与通知证据", 24)}`;
 }
 
 function renderModulePage(

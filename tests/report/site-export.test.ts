@@ -88,6 +88,20 @@ describe("exportProductReportSite", () => {
       startLine: 30,
       payload: { check: "authorization", mechanism: "role-membership", requirement: "SaleC" },
     });
+    insertBehaviorFact(store, {
+      factId: "leave-data",
+      kind: "data-access",
+      relPath: "handlers/leave/service.go",
+      startLine: 40,
+      payload: { entity: "leave", operation: "write" },
+    });
+    insertBehaviorFact(store, {
+      factId: "worklog-supporting-data",
+      kind: "data-access",
+      relPath: "handlers/sales/service.go",
+      startLine: 41,
+      payload: { entity: "worklog", operation: "read" },
+    });
     const kb = openKnowledgeBase(store);
     const membership = membershipOf("leave", ["handlers/leave/service.go", "handlers/sales/service.go"]);
     const readers = createSliceReaders(store, kb.snapshot.id, {
@@ -253,6 +267,9 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("普通员工");
     expect(detail).toContain("管理员");
     expect(detail).not.toContain("<h3>销售</h3>");
+    expect(detail).toContain("主要数据对象");
+    expect(detail).toContain("主要数据对象</h3><p>leave</p>");
+    expect(detail).not.toContain("主要数据对象</h3><p>worklog</p>");
     expect(detail).not.toContain("<h3>Authorization</h3>");
     expect(detail).toContain("<h3>项目经理</h3>");
     expect(detail).not.toContain("var(--bs-indigo)");

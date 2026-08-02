@@ -196,6 +196,24 @@ describe("bounded issue evidence", () => {
     expect(selected).not.toContain("excerpt-unrelated");
   });
 
+  it("keeps supporting closure out of module summary, rules, recovery and effects prose", () => {
+    const core = { ...fact("core-data", "data-access", { entity: "leave" }, "features/leave/service.go", 10), scopeRole: "core" as const };
+    const supporting = { ...fact("supporting-data", "data-access", { entity: "worklog" }, "features/support/service.go", 20), scopeRole: "supporting" as const };
+    for (const blockId of ["module-responsibility.summary", "module-objects-rules-states.notes", "module-recovery.notes", "module-notifications-data.notes"]) {
+      const request: AuthoringRequest = {
+        taskId: blockId,
+        documentId: "module|leave|product",
+        sectionId: "module",
+        blockId,
+        audience: "product",
+        prompt: "",
+        digest: "",
+        facts: [core, supporting],
+      };
+      expect(boundedFactsFor(request).map((entry) => entry.factId)).toEqual(["core-data"]);
+    }
+  });
+
   it("preserves material duration and attachment variants beyond the generic condition cap", () => {
     const ordinary = Array.from({ length: 60 }, (_, index) => fact(
       `condition-${index.toString().padStart(2, "0")}`,

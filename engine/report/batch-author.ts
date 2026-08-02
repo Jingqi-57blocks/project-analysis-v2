@@ -1120,6 +1120,15 @@ function boundedFacts(facts: readonly CitedFact[], keepEveryFlow = false, totalC
 export function boundedFactsFor(request: AuthoringRequest): readonly CitedFact[] {
   if (request.blockId === "known-issues.impact") return boundedIssueFacts(request);
   if (request.blockId === "module-flows-branches.lifecycle") return boundedLifecycleFacts(request);
+  const coreOnlyModuleBlocks = new Set([
+    "module-responsibility.summary",
+    "module-objects-rules-states.notes",
+    "module-recovery.notes",
+    "module-notifications-data.notes",
+  ]);
+  const facts = coreOnlyModuleBlocks.has(request.blockId)
+    ? request.facts.filter((fact) => fact.scopeRole !== "supporting")
+    : request.facts;
   const keepEveryFlow = request.blockId === "module-flows-branches.flows";
   const totalCap = request.blockId === "module-flows-branches.flows" || request.blockId === "project-roles-flows.paths"
     ? 180
@@ -1130,7 +1139,7 @@ export function boundedFactsFor(request: AuthoringRequest): readonly CitedFact[]
         : request.blockId === "module-recovery.notes"
           ? 80
           : 100;
-  return boundedFacts(request.facts, keepEveryFlow, totalCap);
+  return boundedFacts(facts, keepEveryFlow, totalCap);
 }
 
 function flowTask(request: AuthoringRequest): boolean {
