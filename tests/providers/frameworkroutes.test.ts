@@ -282,6 +282,82 @@ app.use('/logs', logRouter);
     expect(reading.failures).toEqual([]);
   });
 
+  it("reads routes registered on the application object with their full path", () => {
+    // Verbatim shape from the real target's index.js: const app = express();
+    // app.get('/api/products', getProducts) — no express.Router() anywhere.
+    write("package.json", PACKAGE_JSON);
+    write(
+      "index.js",
+      `const app = express();
+app.use(cors());
+app.get('/api/products', getProducts);
+app.post('/api/login', loginLimiter, login);
+app.get('/', (req, res) => { res.send('ok'); });
+`,
+    );
+
+    const reading = createExpressReader().read(root(["package.json", "index.js"]));
+
+    expect(reading.routes.map((r) => `${r.method} ${r.path}`).sort()).toEqual([
+      "GET /",
+      "GET /api/products",
+      "POST /api/login",
+    ]);
+    const products = reading.routes.find((r) => r.path === "/api/products")!;
+    expect(products.handlerName).toBe("getProducts");
+    expect(products.provenance.resolutionClass).toBe("resolved");
+    const login = reading.routes.find((r) => r.path === "/api/login")!;
+    expect(login.handlerName).toBe("login");
+    expect(login.middleware).toEqual(["loginLimiter"]);
+    expect(reading.failures).toEqual([]);
+  });
+
+  it("records an app-object registration with a non-literal path as a failure, not a guess", () => {
+    write("package.json", PACKAGE_JSON);
+    write("index.js", "const app = express();\napp.get('/api/' + resource, handler);\n");
+
+    const reading = createExpressReader().read(root(["package.json", "index.js"]));
+    expect(reading.routes).toEqual([]);
+    expect(reading.failures[0]!.reason).toContain("string literal");
+  });
+
+  it("reads app-object routes and router mounts together, without duplication", () => {
+    write("package.json", PACKAGE_JSON);
+    write(
+      "index.js",
+      `const app = express();
+app.get('/api/ping', ping);
+app.use('/leaves', require('./routes/leave')(passport));
+`,
+    );
+    write("routes/leave.js", "const router = express.Router();\nrouter.get('/types', h);\n");
+
+    const reading = createExpressReader().read(
+      root(["package.json", "index.js", "routes/leave.js"]),
+    );
+    expect(reading.routes.map((r) => `${r.method} ${r.path}`).sort()).toEqual([
+      "GET /api/ping",
+      "GET /leaves/types",
+    ]);
+    expect(reading.failures).toEqual([]);
+  });
+
+  it("invents no route from app-wide middleware or a listen call", () => {
+    write("package.json", PACKAGE_JSON);
+    write(
+      "index.js",
+      `const app = express();
+app.use(cors());
+app.use(express.json());
+app.listen(3000);
+`,
+    );
+
+    const reading = createExpressReader().read(root(["package.json", "index.js"]));
+    expect(reading.routes).toEqual([]);
+    expect(reading.failures).toEqual([]);
+  });
+
   it("does not detect a node project without express", () => {
     write("package.json", JSON.stringify({ dependencies: { vue: "^3.0.0" } }));
     expect(createExpressReader().detect(root(["package.json"]))).toBe(false);

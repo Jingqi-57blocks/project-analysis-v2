@@ -149,6 +149,98 @@ function middlewareName(node: SgNode): string | null {
   return /^[\w$.]+$/.test(node.text()) ? node.text() : null;
 }
 
+/**
+ * The variables an Express application instance is bound to in a file.
+ *
+ * An app is created by calling the framework's default export — `const app =
+ * express()`. `express.json()` and `express.static()` are member calls, not the
+ * factory, so keying on the bare `express` callee excludes them. Resolved
+ * against the declaration node the same way router vars are, so the name is the
+ * one the call was assigned to, not a text match.
+ */
+export function appObjectVars(root: SgNode): Set<string> {
+  const vars = new Set<string>();
+  for (const call of findCalls(root)) {
+    if (call.callee !== "express") continue;
+    let node: SgNode | null = call.node.parent();
+    for (let depth = 0; node !== null && depth < 3; depth++) {
+      const name = node.field("name")?.text() ?? node.field("left")?.text();
+      if (name !== undefined && /^[A-Za-z_$][\w$]*$/.test(name)) {
+        vars.add(name);
+        break;
+      }
+      node = node.parent();
+    }
+  }
+  return vars;
+}
+
+/**
+ * Routes registered directly on the application object — `app.get('/api/x', h)`.
+ *
+ * The path on the app object is already the full served path (there is no
+ * router group to join), so it is recorded as written. A route-module mounted
+ * with `app.use('/p', require('./routes/x'))` is handled by the mount map like
+ * any other mount; app-wide `app.use(mw)` middleware is global and not
+ * attributed to individual routes.
+ */
+function scanAppObjectRoutes(
+  root: StructuralRootInput,
+  relPath: string,
+  routes: RouteRecord[],
+  failures: ExtractionFailure[],
+): void {
+  const content = readFileSync(join(root.path, relPath), "utf8");
+  if (!content.includes("express(")) return;
+
+  const language = languageOf(relPath);
+  if (language === null) return;
+  const parsed = parseSource(language, content);
+  if (parsed.root === null) {
+    failures.push({ scope: relPath, reason: parsed.reason ?? "the file could not be parsed" });
+    return;
+  }
+
+  const appVars = appObjectVars(parsed.root);
+  if (appVars.size === 0) return;
+
+  for (const call of findCalls(parsed.root)) {
+    if (!appVars.has(call.receiver) || !METHODS.has(call.method)) continue;
+
+    const path = literalText(call.args[0]);
+    if (path === null) {
+      failures.push({
+        scope: `${relPath}:${call.line}`,
+        reason: "registration path is not a string literal",
+      });
+      continue;
+    }
+
+    const rest = call.args.slice(1);
+    const handlerArg = rest[rest.length - 1];
+    const handler =
+      handlerArg === undefined ? { name: null, fromClosure: false } : handlerOf(handlerArg);
+    const middleware = rest
+      .slice(0, -1)
+      .map(middlewareName)
+      .filter((name): name is string => name !== null);
+    const method = call.method === "all" ? null : call.method.toUpperCase();
+    const source = lineRef(root.name, relPath, call.line);
+
+    routes.push({
+      rootName: root.name,
+      surface: "server",
+      method,
+      path: joinRoutePath("", path),
+      handlerSymbolId: null,
+      handlerName: handler.name,
+      handlerCandidates: handler.name === null ? [] : [handler.name],
+      middleware,
+      provenance: resolved(source, handler.fromClosure ? "medium" : "high"),
+    });
+  }
+}
+
 function scanRouteFile(
   root: StructuralRootInput,
   relPath: string,
@@ -264,7 +356,8 @@ export function createExpressReader(): FrameworkRouteReader {
       "mounts are read from app.use with a string prefix; nested router mounts are not followed",
       "a closure handler's identity is the first service call inside it, or null",
       "route files not reachable from an observed mount keep their subpath at low confidence",
-      "registrations on the application object rather than a router are not read",
+      "application-object registrations (app.get/post/...) are read where the app is assigned express() in the same file; an app built through indirection, or passed in from another file, is not recognized",
+      "middleware registered app-wide through app.use is global and is not attributed to individual app-object routes; only middleware named in a route's own registration is recorded",
     ],
 
     detect(root: StructuralRootInput): boolean {
@@ -289,6 +382,7 @@ export function createExpressReader(): FrameworkRouteReader {
       for (const relPath of sourceFiles) {
         try {
           scanRouteFile(root, relPath, mounts.get(relPath), routes, failures);
+          scanAppObjectRoutes(root, relPath, routes, failures);
         } catch (error) {
           failures.push({
             scope: relPath,
