@@ -214,6 +214,36 @@ describe("bounded issue evidence", () => {
     }
   });
 
+  it("requires reader-visible flow branches but omits enum and notification plumbing decisions", () => {
+    const path = "features/application/business-travel.go";
+    const flow = fact("flow-application", "feature-flow", { featureName: "Business travel", steps: [] }, path, 1);
+    const tripType = fact("decision-trip-type", "decision", { subject: "trip.Type" }, path, 20);
+    const enumFormatting = fact("decision-enum-string", "decision", { subject: "u" }, "internal/constant/application.go", 30);
+    const notifier = fact("decision-next-procedure", "decision", { subject: "r.NextProcedure" }, "features/application/notifier.go", 40);
+    const empty = fact("decision-empty", "decision", { subject: "" }, path, 50);
+    const guard = fact("guard-budget", "guard", { test: "amount > budget", message: "budget exceeded" }, path, 60);
+    const loading = fact("guard-loading", "guard", { test: "!loaded || loading", message: "px-4 py-3" }, "features/application/Form.tsx", 70);
+    const request: AuthoringRequest = {
+      taskId: "flow",
+      documentId: "module|application|product",
+      sectionId: "module-flows-branches",
+      blockId: "module-flows-branches.flows",
+      audience: "product",
+      prompt: "",
+      digest: "",
+      facts: [flow, tripType, enumFormatting, notifier, empty, guard, loading],
+    };
+
+    const selected = boundedFactsFor(request).map((entry) => entry.factId);
+    expect(selected).toContain("flow-application");
+    expect(selected).toContain("decision-trip-type");
+    expect(selected).toContain("guard-budget");
+    expect(selected).not.toContain("decision-enum-string");
+    expect(selected).not.toContain("decision-next-procedure");
+    expect(selected).not.toContain("decision-empty");
+    expect(selected).not.toContain("guard-loading");
+  });
+
   it("preserves material duration and attachment variants beyond the generic condition cap", () => {
     const ordinary = Array.from({ length: 60 }, (_, index) => fact(
       `condition-${index.toString().padStart(2, "0")}`,
