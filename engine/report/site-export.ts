@@ -308,6 +308,11 @@ function flowMermaid(group: StructuredFlowGroup, groupIndex: number): string {
   return lines.join("\n");
 }
 
+function flowNeedsDiagram(group: StructuredFlowGroup): boolean {
+  const branchPoints = new Set(group.branches.map((branch) => branch.afterStep));
+  return group.steps.length >= 4 || group.branches.length >= 2 || branchPoints.size >= 2;
+}
+
 function flowLanes(groups: readonly StructuredFlowGroup[], facts: readonly CitedFact[]): string {
   if (groups.length === 0) return `<p class="callout unknown"><strong>流程证据不足</strong>当前事实切片没有形成可核对的主要流程，报告不以猜测补齐。</p>`;
   const byId = new Map(facts.map((fact) => [fact.factId, fact] as const));
@@ -320,7 +325,10 @@ function flowLanes(groups: readonly StructuredFlowGroup[], facts: readonly Cited
       ...group.branches.flatMap((branch) => branch.factIds),
     ]).map((id) => byId.get(id)).filter((fact): fact is CitedFact => fact !== undefined);
     const fallback = `<div class="flow-steps">${steps}</div>${branches === "" ? "" : `<div class="flow-branches">${branches}</div>`}`;
-    return `<article class="flow-lane"><header><span>F${String(groupIndex + 1).padStart(2, "0")}</span><div><h3>${html(group.title)}</h3><p>${html(group.summary)}</p></div></header><div class="diagram-frame"><pre class="mermaid">${html(flowMermaid(group, groupIndex))}</pre></div><details class="flow-text"><summary>查看文字版流程与条件</summary>${fallback}</details>${evidence(groupFacts, "查看此流程证据", 8)}</article>`;
+    const presentation = flowNeedsDiagram(group)
+      ? `<div class="diagram-frame"><pre class="mermaid">${html(flowMermaid(group, groupIndex))}</pre></div><details class="flow-text"><summary>查看文字版流程与条件</summary>${fallback}</details>`
+      : `<div class="simple-flow" aria-label="简要流程">${fallback}</div>`;
+    return `<article class="flow-lane"><header><span>F${String(groupIndex + 1).padStart(2, "0")}</span><div><h3>${html(group.title)}</h3><p>${html(group.summary)}</p></div></header>${presentation}${evidence(groupFacts, "查看此流程证据", 8)}</article>`;
   }).join("")}</div>`;
 }
 
@@ -797,7 +805,7 @@ function renderModulePage(
     ["分析文件", `${membership?.fileCount ?? 0} 个`],
     ["事实总数", `${allFacts.length} 条`],
     ["源码快照", generatedDate],
-  ])}<div class="summary-strip"><p>${html(module.summary)}</p><a href="#flows">查看主要流程 ↓</a></div></header>${section("responsibility", 1, "模块职责与边界", "说明该模块负责什么，以及它在项目功能地图中的位置。", proseHtml(responsibility))}${section("entries", 2, "角色、入口与可见操作", "用业务操作汇总入口和访问边界；具体源码位置按需展开。", moduleEntries(options, module, flows?.flowGroups ?? []))}${section("flows", 3, "主要流程与分支条件", "每条 Mermaid flowchart 展示顺序步骤，并把成功、拒绝、条件和异常分支分别列出。", `${proseHtml(flowProse)}${flowLanes(flows?.flowGroups ?? [], flowFacts)}`)}${section("lifecycle", 4, "完整业务生命周期与变体", "从进入或创建开始，贯穿校验、提交、审批或处理、终止结果以及撤回和恢复；类型与阈值规则单独列明。", `${proseHtml(lifecycleProse)}${lifecycleAndVariants(lifecycle?.lifecycles ?? [], lifecycle?.variantGroups ?? [], lifecycleProse)}`)}${section("rules", 5, "对象、状态与业务规则", "保留源码中的状态名、校验、权限和异常边界；原始事实默认折叠。", `${proseHtml(rulesProse)}${moduleRules(options, module)}`)}${recovery}${section("effects", effectsNumber, "通知、外部调用与数据影响", "先说明业务影响，再提供可展开的源码证据；静态源码不证明生产环境实际启用。", `${proseHtml(effectsProse)}${moduleEffects(options, module)}`)}${section("problems", problemsNumber, "已知问题与待确认事项", "区分源码可直接确认的问题与需要更多上下文才能确认的关注点。", combinedProblemRows(issues?.issues ?? [], issuesProse, problemFacts(options, module.id)))}${section("coverage", coverageNumber, "覆盖范围与事实边界", "按事实类别核算；0 条表示当前分析未建立，不表示业务上确认不存在。", coverage(options, module.id))}${nextNav}`;
+  ])}<div class="summary-strip"><p>${html(module.summary)}</p><a href="#flows">查看主要流程 ↓</a></div></header>${section("responsibility", 1, "模块职责与边界", "说明该模块负责什么，以及它在项目功能地图中的位置。", proseHtml(responsibility))}${section("entries", 2, "角色、入口与可见操作", "用业务操作汇总入口和访问边界；具体源码位置按需展开。", moduleEntries(options, module, flows?.flowGroups ?? []))}${section("flows", 3, "主要流程与分支条件", "复杂流程使用 Mermaid 展示分支；简单流程直接列出步骤，避免为少量节点增加阅读负担。", `${proseHtml(flowProse)}${flowLanes(flows?.flowGroups ?? [], flowFacts)}`)}${section("lifecycle", 4, "完整业务生命周期与变体", "从进入或创建开始，贯穿校验、提交、审批或处理、终止结果以及撤回和恢复；类型与阈值规则单独列明。", `${proseHtml(lifecycleProse)}${lifecycleAndVariants(lifecycle?.lifecycles ?? [], lifecycle?.variantGroups ?? [], lifecycleProse)}`)}${section("rules", 5, "对象、状态与业务规则", "保留源码中的状态名、校验、权限和异常边界；原始事实默认折叠。", `${proseHtml(rulesProse)}${moduleRules(options, module)}`)}${recovery}${section("effects", effectsNumber, "通知、外部调用与数据影响", "先说明业务影响，再提供可展开的源码证据；静态源码不证明生产环境实际启用。", `${proseHtml(effectsProse)}${moduleEffects(options, module)}`)}${section("problems", problemsNumber, "已知问题与待确认事项", "区分源码可直接确认的问题与需要更多上下文才能确认的关注点。", combinedProblemRows(issues?.issues ?? [], issuesProse, problemFacts(options, module.id)))}${section("coverage", coverageNumber, "覆盖范围与事实边界", "按事实类别核算；0 条表示当前分析未建立，不表示业务上确认不存在。", coverage(options, module.id))}${nextNav}`;
   return documentShell({ options, projectName, generatedDate, current: module.id, depth: 1, title: `${module.displayName} · ${projectName}`, sectionLinks }, body);
 }
 

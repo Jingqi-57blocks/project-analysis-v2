@@ -77,7 +77,20 @@ describe("exportProductReportSite", () => {
               { label: "提交申请", detail: "填写时间与原因", factIds: [] },
               { label: "审批处理", detail: "记录处理结果", factIds: [] },
             ],
-            branches: [{ afterStep: 1, condition: "额度不足", outcome: "拒绝提交", kind: "rejection", factIds: [] }],
+            branches: [
+              { afterStep: 1, condition: "额度不足", outcome: "拒绝提交", kind: "rejection", factIds: [] },
+              { afterStep: 2, condition: "校验通过", outcome: "申请进入审批", kind: "success", factIds: [] },
+            ],
+          }, {
+            title: "共用辅助能力",
+            summary: "提供三步辅助处理",
+            factIds: [],
+            steps: [
+              { label: "接收请求", detail: "读取输入", factIds: [] },
+              { label: "执行辅助处理", detail: "完成计算", factIds: [] },
+              { label: "返回结果", detail: "交还调用方", factIds: [] },
+            ],
+            branches: [],
           }],
           lifecycles: [],
           variantGroups: [],
@@ -157,6 +170,9 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("提交与审批");
     expect(detail).toContain("额度不足");
     expect(detail).toContain("拒绝提交");
+    expect(detail).toContain("申请进入审批");
+    expect(detail).toContain("共用辅助能力");
+    expect(detail.match(/class="mermaid"/g)).toHaveLength(2);
     expect(detail).toContain("请假生命周期");
     expect(detail).toContain("时长规则");
     expect(detail).toContain("class=\"mermaid\"");
