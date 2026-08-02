@@ -200,6 +200,60 @@ describe("resolveSliceFacts — behaviour kinds via the behaviour query, scoped 
 });
 
 describe("resolveModuleMembershipForModules — bounded cross-root surface closure", () => {
+  it("omits caller-unresolved legacy entries when an observed replacement exists", () => {
+    const source = (rootName: string, relPath: string, line: number) => ({
+      resolutionClass: "declared" as const,
+      source: { rootName, relPath, startLine: line, endLine: line, startColumn: null, endColumn: null },
+    });
+    const currentFlow = {
+      entryKey: "api-v2:POST /v2/leaves",
+      steps: [
+        { provenance: source("ui", "src/pages/leave/ApplyLeave.tsx", 20) },
+        { provenance: source("api-v2", "handlers/leave/service.go", 40) },
+      ],
+    };
+    const legacyFlow = {
+      entryKey: "api-v1:POST /leaves",
+      steps: [
+        { provenance: null },
+        { provenance: source("api-v1", "routes/leave.js", 60) },
+      ],
+    };
+    const feature = {
+      id: "feat_leave",
+      filePaths: [
+        "ui/src/pages/leave/ApplyLeave.tsx",
+        "api-v2/handlers/leave/service.go",
+        "api-v1/routes/leave.js",
+      ],
+    };
+    const fake = {
+      modules: () => [{
+        id: "mod_leave",
+        name: "leave",
+        entryKeys: [currentFlow.entryKey, legacyFlow.entryKey],
+      }],
+      moduleDetail: () => ({ features: [feature] }),
+      flowsForFeature: () => [currentFlow, legacyFlow],
+      features: () => [feature],
+      crossRootLinks: () => [],
+      callEdges: () => [],
+      symbols: () => [],
+      endpoints: () => [],
+      scheduledTasks: () => [],
+      dataAccess: () => [],
+    } as unknown as KnowledgeBase;
+
+    const membership = resolveModuleMembershipForModules(fake, "leave", ["mod_leave"], {
+      preferObservedEntries: true,
+    });
+
+    expect([...membership.entryKeys]).toEqual([currentFlow.entryKey]);
+    expect(membership.files).toContain("ui/src/pages/leave/ApplyLeave.tsx");
+    expect(membership.files).toContain("api-v2/handlers/leave/service.go");
+    expect(membership.files).not.toContain("api-v1/routes/leave.js");
+  });
+
   it("adds only the concrete backend entry reached through an owned UI helper", () => {
     const source = (rootName: string, relPath: string, line: number) => ({
       resolutionClass: "declared" as const,

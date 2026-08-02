@@ -343,6 +343,7 @@ export function membershipForReportModule(kb: KnowledgeBase, module: ReportModul
     module.sourceCandidateIds,
     {
       expandObservedSurface: true,
+      preferObservedEntries: true,
       excludedEntryKeys: new Set(module.excludedEntryKeys ?? []),
     },
   );

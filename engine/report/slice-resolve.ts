@@ -227,6 +227,12 @@ export function resolveModuleMembershipForModules(
   options: {
     readonly expandObservedSurface?: boolean;
     readonly excludedEntryKeys?: ReadonlySet<string>;
+    /**
+     * When a module contains both caller-observed and caller-unresolved entry
+     * families, keep only the observed family in the reader-facing scope. The
+     * unresolved implementation remains in the KB for later audit/report modes.
+     */
+    readonly preferObservedEntries?: boolean;
   } = {},
 ): ModuleMembership {
   const selected = kb.modules().filter((module) => kbModuleIds.includes(module.id));
@@ -241,18 +247,34 @@ export function resolveModuleMembershipForModules(
   const excludedEntryKeys = options.excludedEntryKeys ?? new Set<string>();
   for (const module of selected) {
     const detail = kb.moduleDetail(module.id);
+    const featureFlows = new Map((detail?.features ?? []).map((feature) => [
+      feature.id,
+      kb.flowsForFeature(feature.id),
+    ] as const));
+    const observedFlows = [...featureFlows.values()].flat().filter((flow) =>
+      flow.steps[0]?.provenance !== null && flow.steps[0]?.provenance !== undefined,
+    );
+    const observedEntryKeys = new Set(observedFlows.map((flow) => flow.entryKey));
+    const observedRoots = new Set(observedFlows.flatMap((flow) =>
+      flow.steps
+        .map((step) => step.provenance?.source.rootName)
+        .filter((rootName): rootName is string => rootName !== undefined),
+    ));
+    const preferObserved = options.preferObservedEntries === true && observedEntryKeys.size > 0;
     // An entry independently owned by another classified report boundary wins
     // over an ambiguous raw module name. This is especially important for
     // generic identities such as `application`, `report`, or `service` that can
     // occur inside several unrelated capabilities.
-    const moduleEntryKeys = new Set(module.entryKeys.filter((entryKey) => !excludedEntryKeys.has(entryKey)));
+    const moduleEntryKeys = new Set(module.entryKeys.filter((entryKey) =>
+      !excludedEntryKeys.has(entryKey) && (!preferObserved || observedEntryKeys.has(entryKey)),
+    ));
     for (const entryKey of moduleEntryKeys) {
       entryKeys.add(entryKey);
       coreEntryKeys.add(entryKey);
     }
     for (const feature of detail?.features ?? []) {
       featureIds.add(feature.id);
-      for (const flow of kb.flowsForFeature(feature.id)) {
+      for (const flow of featureFlows.get(feature.id) ?? []) {
         if (!moduleEntryKeys.has(flow.entryKey)) continue;
         for (const step of flow.steps) {
           const source = step.provenance?.source;
@@ -264,7 +286,8 @@ export function resolveModuleMembershipForModules(
         }
       }
       for (const path of feature.filePaths) {
-        if (directoryMentionsModule(path, module.name)) {
+        const rootName = path.includes("/") ? path.slice(0, path.indexOf("/")) : path;
+        if (directoryMentionsModule(path, module.name) && (!preferObserved || observedRoots.has(rootName))) {
           files.add(path);
           coreFiles.add(path);
         }
