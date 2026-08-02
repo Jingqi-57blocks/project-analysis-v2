@@ -261,6 +261,17 @@ describe("bounded issue evidence", () => {
       servicePath,
       557,
     );
+    const levelThreeWrite = fact(
+      "excerpt-approval-level-three",
+      "source-excerpt",
+      {
+        label: "Approve (part 3)",
+        text: "if lv.Hours > 40 && lastAprv.ApproveFlow == L2 { updateLvStatus(ctx, tx, lv.Id, LvWaitingL3ApproveC) }",
+      },
+      servicePath,
+      540,
+      570,
+    );
     const legacyNoise = Array.from({ length: 100 }, (_, index) => fact(
       `legacy-${index.toString().padStart(3, "0")}`,
       "condition",
@@ -276,12 +287,13 @@ describe("bounded issue evidence", () => {
       audience: "product",
       prompt: "",
       digest: "",
-      facts: [flow, ...legacyNoise, levelTwo, levelThree],
+      facts: [flow, ...legacyNoise, levelTwo, levelThree, levelThreeWrite],
     };
 
     const selected = boundedFactsFor(request).map((entry) => entry.factId);
     expect(selected).toContain("condition-hours-over-16");
     expect(selected).toContain("condition-hours-over-40");
+    expect(selected).toContain("excerpt-approval-level-three");
   });
 
   it("keeps lifecycle notification channels and representative outcome builders", () => {
@@ -293,10 +305,18 @@ describe("bounded issue evidence", () => {
       path,
       100,
     );
+    const waitingSubject = fact(
+      "excerpt-waiting-subject",
+      "source-excerpt",
+      { label: "waitingApprovedByLevelBuilder.subject", text: "return waiting approval subject" },
+      path,
+      110,
+      118,
+    );
     const waiting = fact(
       "excerpt-waiting-notification",
       "source-excerpt",
-      { label: "waitingApprovedByLevelBuilder.Build", text: "NotifyEmailCpst and mobile push notification" },
+      { label: "waitingApprovedByLevelBuilder.BuildCpst", text: "NotifyEmailCpst and NotifyMobileCpst // mobile push notification" },
       path,
       120,
       170,
@@ -304,7 +324,7 @@ describe("bounded issue evidence", () => {
     const rejected = fact(
       "excerpt-rejected-notification",
       "source-excerpt",
-      { label: "rejectedBuilder.Build", text: "NotifyEmailCpst and mobile push notification" },
+      { label: "rejectedBuilder.BuildCpst", text: "NotifyEmailCpst and NotifyMobileCpst // mobile push notification" },
       path,
       700,
       760,
@@ -317,12 +337,13 @@ describe("bounded issue evidence", () => {
       audience: "product",
       prompt: "",
       digest: "",
-      facts: [notification, waiting, rejected],
+      facts: [notification, waitingSubject, waiting, rejected],
     };
 
     const selected = boundedFactsFor(request).map((entry) => entry.factId);
     expect(selected).toContain("notification-email");
     expect(selected).toContain("excerpt-waiting-notification");
     expect(selected).toContain("excerpt-rejected-notification");
+    expect(selected.indexOf("excerpt-waiting-notification")).toBeLessThan(selected.indexOf("excerpt-waiting-subject"));
   });
 });

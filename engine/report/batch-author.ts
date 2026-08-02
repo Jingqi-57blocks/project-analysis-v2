@@ -28,7 +28,7 @@ const MAX_TASK_PROMPT_BYTES = 160_000;
 
 function promptPolicyVersion(blockId: string): string {
   if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v5";
-  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v2";
+  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v3";
   if (blockId === "known-issues.impact") return "issue-policy.v4";
   return "base-policy.v1";
 }
@@ -616,6 +616,26 @@ function lifecycleNotificationEvidence(fact: CitedFact): boolean {
   return /\b(notification|notify|email|mail|mobile\s+push|push\s+notification|slack|postmessage|recipient)\b/i.test(text);
 }
 
+/** A concrete delivery channel, rather than a subject/template helper in a notification file. */
+function lifecycleChannelEvidence(fact: CitedFact): boolean {
+  const value = factObject(fact);
+  const text = [
+    sourceLabel(fact),
+    sourceText(fact),
+    value.channel,
+    value.mechanism,
+    value.call,
+  ].map((entry) => typeof entry === "string" ? entry : "").join(" ");
+  return /Notify(?:Email|Mail|Mobile|Push)|mobile\s+push\s+notification|push\s+notification|email\.InputParam|genMobileComposite|\b(?:email|mail|mobile\s+push)\b/i.test(text);
+}
+
+/** Source-level state writes used when a provider cannot yet form the transition. */
+function lifecycleTransitionEvidence(fact: CitedFact): boolean {
+  if (fact.kind !== "source-excerpt") return false;
+  const text = `${sourceLabel(fact)} ${sourceText(fact)}`;
+  return /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)|(?:status|state)\s*(?:=|:)|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
+}
+
 /**
  * Keep the lifecycle author's input complete in the dimensions a reader cares
  * about without handing one model thousands of raw AST conditions. Selection is
@@ -888,7 +908,9 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
       let score = contained * 140;
       if (candidateScopeCore(fact)) score += 80;
       if (relatedPaths.has(path)) score += 250;
-      if (lifecycleNotificationEvidence(fact)) score += 220;
+      if (lifecycleNotificationEvidence(fact)) score += 120;
+      if (lifecycleChannelEvidence(fact)) score += 500;
+      if (lifecycleTransitionEvidence(fact)) score += 400;
       if (/\b(status|state|approve|reject|cancel|withdraw|submit|create|update|delete|transition)\b/i.test(text)) score += 55;
       if (/\b(if|switch|case|transaction|rollback|commit)\b/i.test(text)) score += 30;
       return { fact, score, bytes: Buffer.byteLength(text, "utf8"), contained };
@@ -905,8 +927,15 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     excerptBytes += entry.bytes;
     return true;
   };
+  let relatedExcerptCount = 0;
   for (const entry of excerptCandidates.filter((candidate) => relatedPaths.has(`${candidate.fact.citation.rootName}/${candidate.fact.citation.relPath}`))) {
-    addExcerpt(entry);
+    if (addExcerpt(entry)) relatedExcerptCount += 1;
+    if (relatedExcerptCount >= 4) break;
+  }
+  let transitionExcerptCount = 0;
+  for (const entry of excerptCandidates.filter((candidate) => candidate.contained > 0 && lifecycleTransitionEvidence(candidate.fact))) {
+    if (addExcerpt(entry)) transitionExcerptCount += 1;
+    if (transitionExcerptCount >= 4) break;
   }
   const notificationFacets = [
     /waiting|nextapprover|applied|submit/i,
@@ -916,7 +945,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
   ];
   for (const facet of notificationFacets) {
     const match = excerptCandidates.find((candidate) =>
-      lifecycleNotificationEvidence(candidate.fact) && facet.test(`${sourceLabel(candidate.fact)} ${sourceText(candidate.fact)}`),
+      lifecycleChannelEvidence(candidate.fact) && facet.test(`${sourceLabel(candidate.fact)} ${sourceText(candidate.fact)}`),
     );
     if (match !== undefined) addExcerpt(match);
   }
@@ -1117,7 +1146,7 @@ function promptForDocument(
     "Raw fact inventories belong to deterministic rendering. Do not add a claim merely to repeat identifiers, file paths or endpoint lists.",
     "Facts are listed once in a shared fact table. Each task may use only its factIds from that table; do not use another task's facts.",
     "For a structuredFlowRequired task, group all supplied feature-flow facts into 3-8 major business flows. Put every feature-flow factId in at least one flow group's factIds. Facts with reportScopeRole=core define the module's main business flows. Preserve materially different business variants as separate flows when their steps or rules differ; do not collapse all request types into one generic create flow. Do not promote generic lookups, thumbnails, calculations, shared AI helpers or other reportScopeRole=supporting facts into separate module responsibilities: combine those into at most one final supporting-capabilities group. A supporting surface with a coherent user-visible outcome, such as time-clock records, credential management or connector configuration, is a distinct major flow; do not merge unrelated coherent surfaces into a generic supporting group. Use 2-6 steps per group. Use branches for success, rejection, conditional, exception or unknown outcomes, but return no more than 10 branch rows per group: merge related field validations or equivalent status outcomes into one reader-facing branch and attach all supporting factIds to it. A flow that contains a rejection or exception branch must also contain an explicit success branch whenever the supplied flow reaches a normal result; never present a normal create/submit operation as if every outcome were rejection. Set afterStep to the one-based step after which the branch occurs. Translate raw user-facing errors into concise business language; preserve an English token only when it materially identifies a state or rule. Put every supplied guard and decision factId in at least one branch's factIds, so evidenced branch conditions are not dropped. Each step and branch must cite only factIds from that task. For other tasks, flowGroups must be empty.",
-    "For a structuredLifecycleRequired task, return 1-3 lifecycles and the complete material variantGroups supported by the supplied bounded facts. The first lifecycle must be the primary end-to-end user journey, not an endpoint list: combine the user's entry, type or option selection, type-specific validation, successful submission, approval or processing stages, successful and rejected terminal outcomes, evidenced notifications, and scheduled completion in one connected lifecycle. Put type-specific detail in variantGroups but keep the selection and validation decision visible in the primary lifecycle. Use a secondary lifecycle only for an evidenced cancel, withdraw, delete or recovery path; never create a lifecycle for a caller-unresolved entry. Give every node a short stable id, business label, detail and factIds; every edge must reference two node ids from that lifecycle, state the triggering condition or action, classify the edge, and cite factIds. Do not infer a missing origin, status, notification channel or outcome: use an unknown node or edge. Connect each evidenced email, mobile-push, chat or other notification to the lifecycle action that triggers it; do not name Slack or any channel absent from the supplied facts. Every numeric threshold that changes the approval or processing stage must be rendered as its own lifecycle edge with the exact threshold, even when the same fact also appears in a variant rule. In variantGroups, preserve distinct type-, role-, duration-, date-, balance-, attachment- and threshold-dependent rules. Combine equivalent duplicate facts into one reader-facing rule and attach all of their factIds, but never replace a concrete number or condition with generic 'validation'. Every supplied scheduled-task, state, state-transition, value-set, condition, decision, guard, business-rule, validation-rule, notification-call and notification-related source-excerpt factId must appear in at least one lifecycle node/edge or variant rule. For other tasks, lifecycles and variantGroups must both be empty.",
+    "For a structuredLifecycleRequired task, return 1-3 lifecycles and the complete material variantGroups supported by the supplied bounded facts. The first lifecycle must be the primary end-to-end user journey, not an endpoint list: combine the user's entry, type or option selection, type-specific validation, successful submission, approval or processing stages, successful and rejected terminal outcomes, evidenced notifications, and scheduled completion in one connected lifecycle. Put type-specific detail in variantGroups but keep the selection and validation decision visible in the primary lifecycle. Use a secondary lifecycle only for an evidenced cancel, withdraw, delete or recovery path; never create a lifecycle for a caller-unresolved entry. Give every node a short stable id, business label, detail and factIds; every edge must reference two node ids from that lifecycle, state the triggering condition or action, classify the edge, and cite factIds. Do not infer a missing origin, status, notification channel or outcome: use an unknown node or edge. Connect each evidenced email, mobile-push, chat or other notification to the lifecycle action that triggers it; when a source excerpt constructs both an email component and a mobile-push component, name both channels in the lifecycle. Do not name Slack or any channel absent from the supplied facts. Every numeric threshold that changes the approval or processing stage must be rendered as its own lifecycle edge with the exact threshold, even when the same fact also appears in a variant rule. If a source excerpt writes a named approval stage or state, use that evidenced stage instead of an unknown next stage. In variantGroups, preserve distinct type-, role-, duration-, date-, balance-, attachment- and threshold-dependent rules. Combine equivalent duplicate facts into one reader-facing rule and attach all of their factIds, but never replace a concrete number or condition with generic 'validation'. Every supplied scheduled-task, state, state-transition, value-set, condition, decision, guard, business-rule, validation-rule, notification-call, concrete-channel source-excerpt and state-write source-excerpt factId must appear in at least one lifecycle node/edge or variant rule. For other tasks, lifecycles and variantGroups must both be empty.",
     "For a structuredIssueReview task, return 0-8 concise issues in issues. Use status=confirmed only for an explicit contradiction, discarded failure, unreachable outcome, inconsistent handling, a complete function excerpt that performs an ID-addressed read/write without relating the record to the current actor before returning or mutating it, a write that replaces ownership from the request without first proving the actor may change that record, or a raw SQL statement that directly interpolates actor/request values. Use needs-confirmation when an excerpt is chunked, enforcement may be delegated to an omitted callee/middleware, a missing state transition is inferred from an incomplete write inventory, or the evidence only suggests a missing control. Compare related functions when the supplied evidence shows two paths implementing the same rule differently, especially role checks, boundary values, project/owner relationships, transactions and list/export filters. Each issue must state the observed code behaviour and a bounded user/business impact, cite only supplied factIds, and contain no fix or priority. Prefer module-owned excerpts over generic supporting helpers when both are supplied. For other tasks, issues must be empty.",
     correction === null ? "" : `The previous response was invalid. Correct these problems:\n${correction}`,
     "Tasks:",
@@ -1166,6 +1195,38 @@ function claimMarkdown(claim: StructuredClaim, facts: readonly CitedFact[]): str
 
 function taskMarkdown(task: AgentTaskArtifact, facts: readonly CitedFact[]): string {
   return task.claims.map((claim) => claimMarkdown(claim, facts)).join("\n\n");
+}
+
+function lifecycleReaderText(task: AgentTaskArtifact): string {
+  return [
+    ...task.lifecycles.flatMap((lifecycle) => [
+      lifecycle.title,
+      lifecycle.summary,
+      ...lifecycle.nodes.flatMap((node) => [node.label, node.detail]),
+      ...lifecycle.edges.map((edge) => edge.label),
+    ]),
+    ...task.variantGroups.flatMap((group) => [
+      group.title,
+      group.summary,
+      ...group.rules.flatMap((rule) => [rule.condition, rule.outcome]),
+    ]),
+  ].join(" ");
+}
+
+function approvalLevelsInEvidence(facts: readonly CitedFact[]): readonly number[] {
+  const levels = new Set<number>();
+  for (const fact of facts.filter(lifecycleTransitionEvidence)) {
+    const text = `${sourceLabel(fact)} ${sourceText(fact)}`;
+    for (const match of text.matchAll(/(?:waiting|pending)[A-Za-z0-9_]*?L([1-9])[A-Za-z0-9_]*?(?:approve|approval)/gi)) {
+      levels.add(Number(match[1]));
+    }
+  }
+  return [...levels].sort((a, b) => a - b);
+}
+
+function namesApprovalLevel(text: string, level: number): boolean {
+  const chinese = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"][level] ?? String(level);
+  return new RegExp(`(?:\\bL\\s*${level}\\b|\\blevel\\s*${level}\\b|\\b${level}(?:st|nd|rd|th)?[- ]level\\b|${chinese}级[^\u3002\uff1b]{0,12}审批|第${chinese}级[^\u3002\uff1b]{0,12}审批)`, "i").test(text);
 }
 
 function validateBatch(requests: readonly AuthoringRequest[], response: BatchResponse): readonly string[] {
@@ -1263,7 +1324,9 @@ function validateBatch(requests: readonly AuthoringRequest[], response: BatchRes
     if (lifecycleTask(request)) {
       if (task.lifecycles.length === 0) problems.push(`task ${task.taskId} returned no lifecycle`);
       const lifecycleKinds = new Set(["scheduled-task", "state", "state-transition", "value-set", "condition", "decision", "guard", "business-rule", "validation-rule", "notification-call"]);
-      const required = bounded.filter((fact) => lifecycleKinds.has(fact.kind) || lifecycleNotificationEvidence(fact)).map((fact) => fact.factId);
+      const required = bounded
+        .filter((fact) => lifecycleKinds.has(fact.kind) || lifecycleChannelEvidence(fact) || lifecycleTransitionEvidence(fact))
+        .map((fact) => fact.factId);
       const placed = new Set([
         ...task.lifecycles.flatMap(idsInLifecycle),
         ...idsInVariants(task.variantGroups),
@@ -1271,6 +1334,22 @@ function validateBatch(requests: readonly AuthoringRequest[], response: BatchRes
       const missing = required.filter((id) => !placed.has(id));
       if (missing.length > 0) {
         problems.push(`task ${task.taskId} omitted ${missing.length} lifecycle/rule fact(s): ${missing.slice(0, 8).join(", ")}`);
+      }
+      const readerText = lifecycleReaderText(task);
+      const channelText = bounded
+        .filter(lifecycleChannelEvidence)
+        .map((fact) => `${sourceLabel(fact)} ${sourceText(fact)} ${String(factObject(fact).channel ?? "")}`)
+        .join(" ");
+      if (/Notify(?:Email|Mail)|email\.InputParam|\b(?:email|mail)\b/i.test(channelText) && !/(?:邮件|电子邮件|\bemail\b|\bmail\b)/i.test(readerText)) {
+        problems.push(`task ${task.taskId} omits the evidenced email notification channel from its lifecycle`);
+      }
+      if (/Notify(?:Mobile|Push)|mobile\s+push|push\s+notification|genMobileComposite/i.test(channelText) && !/(?:移动(?:端)?推送|手机推送|mobile\s+push|push\s+notification)/i.test(readerText)) {
+        problems.push(`task ${task.taskId} omits the evidenced mobile-push notification channel from its lifecycle`);
+      }
+      for (const level of approvalLevelsInEvidence(bounded)) {
+        if (!namesApprovalLevel(readerText, level)) {
+          problems.push(`task ${task.taskId} omits evidenced approval level L${level} from its lifecycle`);
+        }
       }
     }
     if (flowTask(request)) {
