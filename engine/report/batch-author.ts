@@ -12,6 +12,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 
 import type { ReportPlan } from "../contracts/report/pipeline.js";
 import { stableStringify } from "../contracts/shared-fact/merge.js";
@@ -1549,6 +1550,30 @@ export interface BatchAuthorPreparation {
   readonly cacheHits: number;
   readonly agentInputBytes: number;
   readonly agentOutputBytes: number;
+  readonly taskMetrics: readonly AuthoringTaskMetric[];
+}
+
+export interface AuthoringAttemptMetric {
+  readonly attempt: number;
+  readonly elapsedMs: number;
+  readonly inputBytes: number;
+  readonly outputBytes: number;
+  readonly outcome: "validated" | "validation-failed" | "agent-error";
+  readonly problems: readonly string[];
+}
+
+export interface AuthoringTaskMetric {
+  readonly taskId: string;
+  readonly documentId: string;
+  readonly sectionId: string;
+  readonly blockId: string;
+  readonly cacheHit: boolean;
+  readonly totalMs: number;
+  readonly attempts: readonly AuthoringAttemptMetric[];
+}
+
+function roundedMs(started: number): number {
+  return Math.round((performance.now() - started) * 100) / 100;
 }
 
 async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<readonly R[]> {
@@ -1573,7 +1598,10 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
   let cacheHits = 0;
   let agentInputBytes = 0;
   let agentOutputBytes = 0;
+  const taskMetrics: AuthoringTaskMetric[] = [];
   const responses = await mapConcurrent(requests, options.concurrency ?? 6, async (request) => {
+    const taskStarted = performance.now();
+    const attempts: AuthoringAttemptMetric[] = [];
     const documentRequests = [request];
     const documentId = request.documentId;
     const key = digest({
@@ -1596,6 +1624,15 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     const cached = readCache(path, key);
     if (cached !== null && validateBatch(documentRequests, cached).length === 0) {
       cacheHits += 1;
+      taskMetrics.push({
+        taskId: request.taskId,
+        documentId: request.documentId,
+        sectionId: request.sectionId,
+        blockId: request.blockId,
+        cacheHit: true,
+        totalMs: roundedMs(taskStarted),
+        attempts,
+      });
       return cached;
     }
 
@@ -1608,16 +1645,57 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
         throw new Error(`authored task ${request.taskId} is ${promptBytes} bytes; bounded V1 limit is ${MAX_TASK_PROMPT_BYTES}`);
       }
       agentInputBytes += promptBytes;
-      const response = await runJsonAgent<BatchResponse>({
-        prompt,
-        schema: BATCH_SCHEMA,
-        identity: options.agent,
-        ...(options.run === undefined ? {} : { run: options.run }),
-      });
-      agentOutputBytes += Buffer.byteLength(stableStringify(response), "utf8");
+      const attemptStarted = performance.now();
+      let response: BatchResponse;
+      try {
+        response = await runJsonAgent<BatchResponse>({
+          prompt,
+          schema: BATCH_SCHEMA,
+          identity: options.agent,
+          ...(options.run === undefined ? {} : { run: options.run }),
+        });
+      } catch (error) {
+        attempts.push({
+          attempt: attempt + 1,
+          elapsedMs: roundedMs(attemptStarted),
+          inputBytes: promptBytes,
+          outputBytes: 0,
+          outcome: "agent-error",
+          problems: [error instanceof Error ? error.message : String(error)],
+        });
+        taskMetrics.push({
+          taskId: request.taskId,
+          documentId: request.documentId,
+          sectionId: request.sectionId,
+          blockId: request.blockId,
+          cacheHit: false,
+          totalMs: roundedMs(taskStarted),
+          attempts,
+        });
+        throw error;
+      }
+      const responseBytes = Buffer.byteLength(stableStringify(response), "utf8");
+      agentOutputBytes += responseBytes;
       const problems = validateBatch(documentRequests, response);
+      attempts.push({
+        attempt: attempt + 1,
+        elapsedMs: roundedMs(attemptStarted),
+        inputBytes: promptBytes,
+        outputBytes: responseBytes,
+        outcome: problems.length === 0 ? "validated" : "validation-failed",
+        problems: problems.slice(0, 20),
+      });
       if (problems.length === 0) {
         writeCache(path, key, response);
+        taskMetrics.push({
+          taskId: request.taskId,
+          documentId: request.documentId,
+          sectionId: request.sectionId,
+          blockId: request.blockId,
+          cacheHit: false,
+          totalMs: roundedMs(taskStarted),
+          attempts,
+        });
         return response;
       }
       correction = problems.slice(0, 20).join("\n");
@@ -1645,5 +1723,6 @@ export async function prepareBatchAuthor(options: PrepareBatchAuthorOptions): Pr
     const task = structuredByTask.get(request.taskId);
     return task === undefined ? null : { prose: task.markdown };
   };
-  return { author, structuredByTask, agentCalls, cacheHits, agentInputBytes, agentOutputBytes };
+  taskMetrics.sort((a, b) => a.taskId.localeCompare(b.taskId));
+  return { author, structuredByTask, agentCalls, cacheHits, agentInputBytes, agentOutputBytes, taskMetrics };
 }

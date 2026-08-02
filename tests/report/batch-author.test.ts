@@ -118,8 +118,13 @@ describe("prepareBatchAuthor", () => {
     expect(first.structuredByTask.size).toBeGreaterThan(0);
     expect([...first.structuredByTask.values()].some((artifact) => artifact.issues.length > 0)).toBe(true);
     expect(first.agentCalls).toBe(first.structuredByTask.size);
+    expect(first.taskMetrics).toHaveLength(first.structuredByTask.size);
+    expect(first.taskMetrics.every((task) => !task.cacheHit)).toBe(true);
+    expect(first.taskMetrics.every((task) => task.attempts.length === 1 && task.attempts[0]?.outcome === "validated")).toBe(true);
     expect(second.agentCalls).toBe(0);
     expect(second.cacheHits).toBe(first.structuredByTask.size);
+    expect(second.taskMetrics).toHaveLength(first.structuredByTask.size);
+    expect(second.taskMetrics.every((task) => task.cacheHit && task.attempts.length === 0)).toBe(true);
     expect(calls).toBe(first.structuredByTask.size);
     store.close();
   });

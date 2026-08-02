@@ -285,6 +285,12 @@ async function run(argv: readonly string[]): Promise<number> {
         cacheHits: prepared.cacheHits + (classified.reused ? 1 : 0),
         agentInputBytes: prepared.agentInputBytes + classified.classifierInputBytes,
         agentOutputBytes: prepared.agentOutputBytes + classified.classifierOutputBytes,
+        authoredTaskCount: prepared.taskMetrics.length,
+        agentValidationRetries: prepared.taskMetrics.reduce(
+          (total, task) => total + task.attempts.filter((attempt) => attempt.outcome === "validation-failed").length,
+          0,
+        ),
+        slowestAuthoringTaskMs: Math.max(0, ...prepared.taskMetrics.map((task) => task.totalMs)),
       },
     });
 
@@ -299,7 +305,12 @@ async function run(argv: readonly string[]): Promise<number> {
         unresolved: classified.artifact.candidates.filter((candidate) => candidate.status === "unresolved").map((candidate) => candidate.candidateId),
       },
       plan: { digest: executable.plan.planDigest, auditDigest: executable.auditDigest },
-      execution: { digest: execution.executionDigest, counters: execution.counters, complete: execution.assembly.complete },
+      execution: {
+        digest: execution.executionDigest,
+        counters: execution.counters,
+        complete: execution.assembly.complete,
+        authoringTasks: prepared.taskMetrics,
+      },
       report: { complete: dual.complete, audit: dual.audit, manifest: dual.rendered.manifest },
       site: site.manifest,
     };
