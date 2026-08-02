@@ -28,7 +28,7 @@ const MAX_TASK_PROMPT_BYTES = 160_000;
 
 function promptPolicyVersion(blockId: string): string {
   if (blockId === "module-flows-branches.flows" || blockId === "project-roles-flows.paths") return "flow-policy.v6";
-  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v4";
+  if (blockId === "module-flows-branches.lifecycle") return "lifecycle-policy.v5";
   if (blockId === "known-issues.impact") return "issue-policy.v4";
   return "base-policy.v1";
 }
@@ -673,6 +673,20 @@ function lifecycleTransitionEvidence(fact: CitedFact): boolean {
   return /(?:update|set|change|transition|move)[A-Za-z0-9_]*(?:status|state)|(?:\.|\b)(?:status|state)\s*=|(?:waiting|pending)[A-Za-z0-9_]*L\d+[A-Za-z0-9_]*(?:approve|approval)/i.test(text);
 }
 
+function frontendComponentSource(fact: CitedFact): boolean {
+  return /\.(?:tsx|jsx|vue|svelte)$/i.test(fact.citation.relPath);
+}
+
+/** UI view state changes presentation but does not create a business lifecycle branch. */
+function lifecyclePresentationSignal(fact: CitedFact): boolean {
+  if (!frontendComponentSource(fact)) return false;
+  const value = factObject(fact);
+  const subject = normalizedToken(String(value.subject ?? value.field ?? ""));
+  const test = String(value.fullTest ?? value.test ?? value.expression ?? "");
+  return /^(?:display)?mode$|^(?:view|tab|panel|modal|drawer|menu|calendar)(?:mode|type|key)?$|^(?:is)?(?:visible|expanded|collapsed|selected|active|open|loading|loaded)$/.test(subject) ||
+    /\bclassName\b|\b(?:m|p)[trblxy]?-[0-9]|\b(?:grid|flex|block|hidden)\b/i.test(test);
+}
+
 /**
  * Keep the lifecycle author's input complete in the dimensions a reader cares
  * about without handing one model thousands of raw AST conditions. Selection is
@@ -865,7 +879,7 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
   const dedupedSignals: CitedFact[] = [];
   const seenSignals = new Set<string>();
   for (const fact of eligible
-    .filter((entry) => signalKinds.has(entry.kind))
+    .filter((entry) => signalKinds.has(entry.kind) && !lifecyclePresentationSignal(entry))
     .sort((a, b) => lifecycleRank(b) - lifecycleRank(a) || a.factId.localeCompare(b.factId))) {
     const value = factObject(fact);
     const meanings = Array.isArray(value.meanings) ? value.meanings : [];
@@ -1002,7 +1016,14 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
       if (/\b(if|switch|case|transaction|rollback|commit)\b/i.test(text)) score += 30;
       return { fact, score, bytes: Buffer.byteLength(text, "utf8"), contained };
     })
-    .filter((entry) => entry.contained > 0 || entry.score >= 120)
+    .filter((entry) => entry.contained > 0 || (
+      entry.score >= 120 && (
+        !frontendComponentSource(entry.fact) ||
+        lifecycleNotificationEvidence(entry.fact) ||
+        lifecycleTransitionEvidence(entry.fact) ||
+        lifecycleApprovalStageEvidence(entry.fact)
+      )
+    ))
     .sort((a, b) => b.score - a.score || a.fact.factId.localeCompare(b.fact.factId));
   const excerpts: CitedFact[] = [];
   const excerptIds = new Set<string>();
@@ -1085,9 +1106,8 @@ function boundedLifecycleFacts(request: AuthoringRequest): readonly CitedFact[] 
     addExcerpt(entry);
   }
 
-  const labels = eligible.filter((fact) => fact.kind === "ui-label").slice(0, 6);
   return [...new Map(
-    [...coreFlows, ...states, ...signals, ...communications, ...excerpts, ...labels].map((fact) => [fact.factId, fact] as const),
+    [...coreFlows, ...states, ...signals, ...communications, ...excerpts].map((fact) => [fact.factId, fact] as const),
   ).values()];
 }
 

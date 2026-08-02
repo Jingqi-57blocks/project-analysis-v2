@@ -333,6 +333,54 @@ describe("bounded issue evidence", () => {
     expect(selected).not.toContain("transition-unrelated");
   });
 
+  it("omits presentation-only UI state without dropping business form variants", () => {
+    const displayMode = fact(
+      "condition-display-mode",
+      "condition",
+      { subject: "displayMode", test: "displayMode === 'month'", operator: "===", literal: "month" },
+      "pages/worklog/Worklog.tsx",
+      20,
+    );
+    const btoType = fact(
+      "condition-bto-type",
+      "condition",
+      { subject: "leaveType", test: "leaveType === 'BTO'", operator: "===", literal: "BTO" },
+      "pages/leave/LeaveForm.tsx",
+      30,
+    );
+    const viewExcerpt = fact(
+      "excerpt-worklog-view",
+      "source-excerpt",
+      { label: "Worklog", text: "function updateView() { return displayMode === 'month' ? 'Token Management' : 'Calendar' }" },
+      "pages/worklog/Worklog.tsx",
+      10,
+      25,
+    );
+    const tokenLabel = fact(
+      "label-token-management",
+      "ui-label",
+      { text: "Token Management" },
+      "pages/worklog/Worklog.tsx",
+      22,
+    );
+    const request: AuthoringRequest = {
+      taskId: "lifecycle-ui-presentation",
+      documentId: "module|worklog|product",
+      sectionId: "module-flows-branches",
+      blockId: "module-flows-branches.lifecycle",
+      audience: "product",
+      prompt: "",
+      digest: "",
+      facts: [displayMode, btoType, viewExcerpt, tokenLabel],
+    };
+
+    const selected = boundedFactsFor(request).map((entry) => entry.factId);
+    expect(selected).toContain("condition-bto-type");
+    expect(selected).not.toContain("condition-display-mode");
+    expect(selected).not.toContain("excerpt-worklog-view");
+    expect(selected).not.toContain("label-token-management");
+  });
+
   it("preserves every approval threshold for the same field on an observed lifecycle", () => {
     const servicePath = "features/leave/service.go";
     const flow = fact("flow-approve", "feature-flow", {
