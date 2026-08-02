@@ -77,5 +77,16 @@ export function insertStructuralRecord(store: Store, seed: StructuralSeed): void
 /** A membership over an explicit set of `root/relPath` files — no module model needed. */
 export function membershipOf(moduleId: string, relPaths: readonly string[]): ModuleMembership {
   const files = new Set(relPaths.map((p) => `${ROOT_NAME}/${p}`));
-  return { moduleId, kbModuleId: "m", kbModuleName: `${moduleId}s`, files, fileCount: files.size };
+  return {
+    moduleId,
+    kbModuleId: "m",
+    kbModuleName: `${moduleId}s`,
+    rawModuleIds: new Set(["m"]),
+    entryKeys: new Set(),
+    coreEntryKeys: new Set(),
+    coreFiles: files,
+    featureIds: new Set(),
+    files,
+    fileCount: files.size,
+  };
 }
