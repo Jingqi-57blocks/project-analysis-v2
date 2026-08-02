@@ -180,6 +180,25 @@ interface RoleDefinition {
   readonly evidence: readonly CitedFact[];
 }
 
+function lifecycleRoleLabels(value: string): readonly string[] {
+  const labels: string[] = [];
+  if (/项目负责人/i.test(value)) labels.push("项目负责人");
+  if (/项目经理/i.test(value)) labels.push("项目经理");
+  if (/管理员/i.test(value)) labels.push("管理员");
+  if (/\bHR\b|人力资源/i.test(value)) labels.push("HR 专员");
+
+  const residual = value
+    .replace(/项目负责人|项目经理|管理员|\bHR\b|人力资源/gi, " ");
+  const approvalParticipant = /approver|approval|审批人|等待[^。；]*审批|待[^。；]*审批/i.test(residual);
+  if (approvalParticipant) {
+    labels.push("审批人");
+  } else {
+    if (/负责人/i.test(residual)) labels.push("负责人");
+    if (/经理|manager/i.test(residual)) labels.push("经理");
+  }
+  return unique(labels);
+}
+
 function readableRoleToken(value: string): boolean {
   const token = value.trim();
   return token.length > 0 && token.length <= 64 &&
@@ -293,20 +312,21 @@ function roleMap(
       return `<article><h3>${html(group.label)}</h3><p>${html(detail)}</p><small>${html(group.raw.join(" / "))}</small>${evidence(uniqueFacts([...group.evidence, ...checks]), "查看角色定义与权限证据", 5)}</article>`;
     });
   if (moduleId !== undefined && lifecycleArtifact !== null) {
-    const participants = lifecycles.flatMap((lifecycle) => lifecycle.nodes)
-      .filter((node) => {
-        if (node.kind === "terminal") return false;
-        const text = `${node.label} ${node.detail}`;
-        const namesAParticipant = /approver|审批人|负责人|经理|\bHR\b|人力资源/i.test(text);
-        const isApprovalState = node.kind === "state" && /await(?:ing)? approval|pending approval|等待[^。；]*审批|待[^。；]*审批/i.test(text);
-        return namesAParticipant || isApprovalState;
-      });
-    if (participants.length > 0) {
-      const byId = new Map(lifecycleArtifact.facts.map((fact) => [fact.factId, fact] as const));
-      const facts = unique(participants.flatMap((node) => node.factIds))
+    const participants = new Map<string, typeof lifecycles[number]["nodes"]>();
+    for (const node of lifecycles.flatMap((lifecycle) => lifecycle.nodes)) {
+      if (node.kind === "terminal") continue;
+      for (const label of lifecycleRoleLabels(`${node.label} ${node.detail}`)) {
+        participants.set(label, [...(participants.get(label) ?? []), node]);
+      }
+    }
+    const selectedLabels = new Set(selected.map((group) => group.label));
+    const byId = new Map(lifecycleArtifact.facts.map((fact) => [fact.factId, fact] as const));
+    for (const [label, nodes] of participants) {
+      if (selectedLabels.has(label)) continue;
+      const facts = unique(nodes.flatMap((node) => node.factIds))
         .map((id) => byId.get(id))
         .filter((fact): fact is CitedFact => fact !== undefined);
-      cards.push(`<article><h3>流程审批参与者</h3><p>${html(unique(participants.map((node) => node.detail), 5).join("；"))}</p><small>由当前生命周期关系确定</small>${evidence(facts, "查看审批关系证据", 6)}</article>`);
+      cards.push(`<article><h3>${html(label)}</h3><p>${html(unique(nodes.map((node) => node.detail), 5).join("；"))}</p><small>由当前生命周期关系确定</small>${evidence(facts, "查看参与关系证据", 6)}</article>`);
     }
   }
   if (cards.length === 0) {

@@ -189,9 +189,13 @@ describe("exportProductReportSite", () => {
             summary: "从提交到审批结果",
             nodes: [
               { id: "submit", label: "提交申请", detail: "员工提交时间与原因", kind: "start", factIds: [issueFact.factId] },
+              { id: "awaiting", label: "等待项目负责人审批", detail: "管理员或项目负责人可以处理", kind: "state", factIds: [issueFact.factId] },
               { id: "approved", label: "审批通过", detail: "流程进入完成状态", kind: "terminal", factIds: [issueFact.factId] },
             ],
-            edges: [{ from: "submit", to: "approved", label: "审批人同意", kind: "normal", factIds: [issueFact.factId] }],
+            edges: [
+              { from: "submit", to: "awaiting", label: "提交完成", kind: "normal", factIds: [issueFact.factId] },
+              { from: "awaiting", to: "approved", label: "审批人同意", kind: "normal", factIds: [issueFact.factId] },
+            ],
           }],
           variantGroups: [{
             title: "时长规则",
@@ -273,6 +277,10 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("<td>模块身份</td><td class=\"coverage-ok\">有证据</td>");
     expect(detail).not.toContain("<h3>Authorization</h3>");
     expect(detail).toContain("<h3>项目经理</h3>");
+    expect(detail).toContain("<h3>项目负责人</h3>");
+    expect(detail).not.toContain("流程审批参与者");
+    expect(detail).not.toContain("<h3>负责人</h3>");
+    expect(detail.match(/<h3>管理员<\/h3>/g)).toHaveLength(1);
     expect(detail).not.toContain("var(--bs-indigo)");
     expect(detail.match(/<h3>普通员工<\/h3>/g)).toHaveLength(1);
     expect(detail).toContain("参与角色与流程关系");
