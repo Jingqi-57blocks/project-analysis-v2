@@ -24,7 +24,7 @@ import type { DecisionIndex } from "./deterministic-content.js";
 import { validateGrounding } from "./grounding.js";
 import type { CitedFact, SliceReaders } from "./slice-resolve.js";
 
-const BATCH_SCHEMA_VERSION = "authored-task.v11";
+const BATCH_SCHEMA_VERSION = "authored-task.v12";
 const MAX_TASK_PROMPT_BYTES = 160_000;
 
 const DETERMINISTIC_AUTHORING_BLOCKS = new Set([
@@ -1545,17 +1545,23 @@ function normalizeAgentTask(
   };
 
   const placementTargets: MutablePlacementTarget[] = [];
+  const flowGroupTargets: MutablePlacementTarget[] = [];
   const claims = task.claims.map((claim) => ({ ...claim, factIds: remap(claim.factIds) }));
-  const flowGroups = task.flowGroups.map((group, groupIndex) => ({
-    ...group,
-    factIds: remap(group.factIds),
-    steps: group.steps.map((step) => ({ ...step, factIds: remap(step.factIds) })),
-    branches: group.branches.map((branch, branchIndex) => {
+  const flowGroups = task.flowGroups.map((group, groupIndex) => {
+    const factIds = remap(group.factIds);
+    const steps = group.steps.map((step) => ({ ...step, factIds: remap(step.factIds) }));
+    const branches = group.branches.map((branch, branchIndex) => {
       const factIds = remap(branch.factIds);
       placementTargets.push({ label: `flow ${groupIndex + 1} branch ${branchIndex + 1}`, text: `${branch.condition} ${branch.outcome}`, factIds });
       return { ...branch, factIds };
-    }),
-  }));
+    });
+    flowGroupTargets.push({
+      label: `flow group ${groupIndex + 1}`,
+      text: `${group.title} ${group.summary} ${steps.map((step) => `${step.label} ${step.detail}`).join(" ")}`,
+      factIds,
+    });
+    return { ...group, factIds, steps, branches };
+  });
   const lifecycles = task.lifecycles.map((lifecycle, lifecycleIndex) => ({
     ...lifecycle,
     nodes: lifecycle.nodes.map((node, nodeIndex) => {
@@ -1596,6 +1602,31 @@ function normalizeAgentTask(
     target.factIds.push(factId);
     placed.add(factId);
     changes.push(`placed required fact ${factId} on ${target.label}`);
+  }
+  if (request.blockId === "module-flows-branches.flows") {
+    const placedFlows = new Set(normalized.flowGroups.flatMap(idsInFlow));
+    const missingFlows = allowedFacts.filter((fact) => fact.kind === "feature-flow" && !placedFlows.has(fact.factId));
+    for (const fact of missingFlows) {
+      let target = placeRequiredFact(fact, flowGroupTargets, allowedById);
+      if (target === null && candidateScopeSupporting(fact)) {
+        const ranked = normalized.flowGroups.map((group, index) => {
+          const target = flowGroupTargets[index]!;
+          const explicit = /(?:support|supporting|auxiliary|shared|common|辅助|共用|共享|支撑|集成|配置)/i.test(target.text) ? 100 : 0;
+          const supportingFacts = idsInFlow(group)
+            .map((factId) => allowedById.get(factId))
+            .filter((placed): placed is CitedFact => placed !== undefined && candidateScopeSupporting(placed))
+            .length;
+          return { target, score: explicit + supportingFacts };
+        }).sort((a, b) => b.score - a.score || a.target.label.localeCompare(b.target.label));
+        if (ranked[0] !== undefined && ranked[0].score > 0 && ranked[0].score > (ranked[1]?.score ?? 0)) {
+          target = ranked[0].target;
+        }
+      }
+      if (target === null) continue;
+      target.factIds.push(fact.factId);
+      placedFlows.add(fact.factId);
+      changes.push(`placed feature flow ${fact.factId} on ${target.label}`);
+    }
   }
   return { task: normalized, changes: changes.slice(0, 40) };
 }

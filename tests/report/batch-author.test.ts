@@ -56,7 +56,33 @@ describe("prepareBatchAuthor", () => {
         payload: { subject: name, text: `${name} chooses an outcome` },
       });
     }
-    const readers = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", [relPath]));
+    const flowPayload = (featureId: string, featureName: string, entryKey: string, line: number) => ({
+      featureId,
+      featureName,
+      entryKey,
+      steps: [{
+        label: featureName,
+        provenance: { source: { rootName: "r1", relPath, startLine: line, endLine: line, startColumn: null, endColumn: null } },
+      }],
+      diagram: "flowchart LR",
+    });
+    for (const [recordKey, featureId, featureName, entryKey, line] of [
+      ["flow-leave", "feat_leave", "Leave", "r1:POST /leaves", 20],
+      ["flow-jira-post", "feat_jira", "Jira", "r1:POST /jira/server", 30],
+      ["flow-jira-put", "feat_jira", "Jira", "r1:PUT /jira/server", 40],
+    ] as const) {
+      store.run(
+        "INSERT INTO derived_records (snapshot_id, kind, record_key, payload, subject_key) VALUES (?, 'feature-flow', ?, ?, ?)",
+        [SNAPSHOT_ID, recordKey, JSON.stringify(flowPayload(featureId, featureName, entryKey, line)), featureId],
+      );
+    }
+    const membership = {
+      ...membershipOf("leave", [relPath]),
+      entryKeys: new Set(["r1:POST /leaves", "r1:POST /jira/server", "r1:PUT /jira/server"]),
+      coreEntryKeys: new Set(["r1:POST /leaves"]),
+      featureIds: new Set(["feat_leave", "feat_jira"]),
+    };
+    const readers = createSliceReaders(store, SNAPSHOT_ID, membership);
     const request: readonly ReportTarget[] = [moduleTarget("leave", "product")];
     const snapshot: AnalysisSnapshotIdentity = { sourceIdentity: "s", codeGraphIdentity: "s", providerIdentity: "s", schemaVersion: "1", configIdentity: "s" };
     const params: GenerationParams = { executorKind: "test", modelId: "fake", language: "zh-CN" };
@@ -79,23 +105,34 @@ describe("prepareBatchAuthor", () => {
           const first = ids[0]!;
           const lifecycleFirst = ids.find((id) => id !== secondaryDecisionId) ?? first;
           const nearbyDecision = ids.find((id) => id.includes("primaryDecision")) ?? first;
+          const coreFlow = ids.find((id) => id.includes("flow-leave")) ?? first;
+          const jiraPostFlow = ids.find((id) => id.includes("flow-jira-post"));
           const foreign = "behavioral|condition|r1|handlers/leave/service.go|10|foreign";
           return {
             taskId: task.taskId,
             claims: [{ text: "该部分先检查条件! 然后继续处理!；最终由当前事实支持。", factIds: [first, foreign] }],
-            flowGroups: task.structuredFlowRequired ? [{
-              title: "主要流程",
-              summary: "按已知条件处理",
-              factIds: [first],
-              steps: [{ label: "处理请求", detail: "读取当前事实", factIds: [first] }],
-              branches: Array.from({ length: 10 }, (_, index) => ({
-                afterStep: 1,
-                condition: `已知条件 ${index + 1}`,
-                outcome: "继续处理",
-                kind: "conditional" as const,
-                factIds: [first, nearbyDecision, foreign],
-              })),
-            }] : [],
+            flowGroups: task.structuredFlowRequired ? [
+              {
+                title: "主要流程",
+                summary: "按已知条件处理",
+                factIds: [coreFlow],
+                steps: [{ label: "处理请求", detail: "读取当前事实", factIds: [coreFlow] }],
+                branches: Array.from({ length: 10 }, (_, index) => ({
+                  afterStep: 1,
+                  condition: `已知条件 ${index + 1}`,
+                  outcome: "继续处理",
+                  kind: "conditional" as const,
+                  factIds: [first, nearbyDecision, foreign],
+                })),
+              },
+              ...(jiraPostFlow === undefined ? [] : [{
+                title: "Jira 辅助能力",
+                summary: "配置工时使用的 Jira 服务",
+                factIds: [jiraPostFlow],
+                steps: [{ label: "配置 Jira", detail: "保存服务配置", factIds: [jiraPostFlow] }],
+                branches: [],
+              }]),
+            ] : [],
             lifecycles: task.structuredLifecycleRequired ? [{
               title: "业务生命周期",
               summary: "从进入到处理完成",
@@ -180,6 +217,12 @@ describe("prepareBatchAuthor", () => {
       attempt.kind === "lifecycle-rule-repair" && attempt.normalizations.some((change) => change.startsWith("normalized lifecycle repair fact ")),
     ))).toBe(true);
     expect(first.taskMetrics.some((task) => (task.attempts[0]?.normalizations.length ?? 0) > 0)).toBe(true);
+    expect(first.taskMetrics.some((task) => task.attempts[0]?.normalizations.some((change) =>
+      change.includes("placed feature flow") && change.includes("flow-jira-put"),
+    ))).toBe(true);
+    expect([...first.structuredByTask.values()].some((artifact) => artifact.flowGroups.some((group) =>
+      group.factIds.some((factId) => factId.includes("flow-jira-put")),
+    ))).toBe(true);
     expect(second.agentCalls).toBe(0);
     expect(second.cacheHits).toBe(agentTaskCount);
     expect(second.taskMetrics).toHaveLength(first.structuredByTask.size);
