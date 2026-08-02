@@ -239,7 +239,7 @@ const mustPrintAccounting = {
   passed: reportGrade.passed,
   counts: reportGrade.counts,
   note:
-    "A must-print item is 'printed' only when its section is present AND every required authored block in it validated (its own slice grounded). The 8 notification items route to module-notifications-data (product): the section is PRESENT and its authored notes block (declaring `outbound-call`) now grounds on the leave module's outbound-call facts — PI-87's generic outbound-integration-sink capture reverse-reaches the S3/SES SDK sinks to the leave handlers, so the block validates and the 8 items print.",
+    "A must-print item is 'printed' only when its section is present AND every required authored block in it validated (its own slice grounded). The 8 notification items route to module-notifications-data (product): the section is PRESENT and its authored notes block (declaring `outbound-call`) now grounds on the leave module's outbound-call facts — PI-87's generic outbound-integration-sink capture reverse-reaches the S3 SDK sink through the storage wrapper to a leave export handler, so the block validates and the 8 items print. (The SES email send is decoupled via an in-process channel and does not reach a leave handler through the call graph, so leave-scope outbound grounding is S3-only.)",
   assertions: {
     mustPrintAllPrinted: reportGrade.mustPrintPrinted === reportGrade.mustPrintTotal,
     mustPrintAllPlaced: mustPrintSectionPresent === reportGrade.mustPrintTotal,
@@ -370,7 +370,7 @@ const deferredToLLM = {
   effectGroundingGaps: {
     notificationCallFacts,
     outboundCallFacts,
-    note: "The leave module's outbound authoring sites are now captured as behaviour effect facts (PI-87's outbound-integration-sink capture reverse-reaches the S3/SES SDK sinks to the leave handlers), so the module-notifications-data notes block grounds and the 8 notification must-print items print. Notification-call grounding in leave scope remains 0 (a separate deferred item for notification-reachability / the LLM host); the notification section is placed and carries its data-access and outbound-call facts.",
+    note: "The leave module's outbound authoring sites are now captured as behaviour effect facts (PI-87's outbound-integration-sink capture reverse-reaches the S3 SDK sink through the storage wrapper to a leave export handler), so the module-notifications-data notes block grounds and the 8 notification must-print items print. Leave-scope outbound grounding is S3-only: the SES email send is decoupled via an in-process channel and never reaches a leave handler through the call graph. Notification-call grounding in leave scope remains 0 (a separate deferred item for notification-reachability / the LLM host); the notification section is placed and carries its data-access and outbound-call facts.",
   },
   reportItemsOpen: notPrinted,
 };

@@ -34,6 +34,25 @@ describe("detectOutboundSinks — library-standard outbound primitives", () => {
     expect(recs[0]!.provenance.source.startLine).toBe(6);
   });
 
+  it("does NOT match a single-arg wrapper call even when the file also imports the SDK", () => {
+    // A handler can both import the SDK (for a real call) and call a domain wrapper
+    // that reuses an operation name. The import gate passes here, so the context-first
+    // argument is what keeps the wrapper call (`wcpS3.GetObject(key)`) from being taken
+    // as a direct SDK sink; the genuine `AwsUploader.Upload(c, ...)` still matches.
+    const content = [
+      `import (`,
+      `\t"github.com/aws/aws-sdk-go-v2/service/s3"`,
+      `\twcpS3 "bitbucket.org/x/internal/third_party/s3"`,
+      `)`,
+      `func DownloadFile(c context.Context, key string) {`,
+      `\tcontent, err := wcpS3.GetObject(key)`,
+      `\t_, _ = wcpS3.AwsUploader.Upload(c, &s3.PutObjectInput{})`,
+      `}`,
+    ].join("\n");
+    const recs = detectOutboundSinks(ROOT, "internal/handlers/support/service.go", content);
+    expect(ids(recs)).toEqual(["aws-sdk-go.Upload@internal/handlers/support/service.go:7"]);
+  });
+
   it("does NOT match a wrapper reusing an SDK operation name in a file without the SDK import", () => {
     // The handler calls the project's own s3 wrapper — no aws-sdk import here, so
     // the shared method name must not be mistaken for the SDK call it forwards to.
@@ -152,6 +171,24 @@ describe("deriveOutboundReachability — reverse-reaching an SDK sink to its han
     expect(ids(result.external)).toEqual(["aws-sdk-go.@service.go:1"]);
     expect(result.external[0]!.provenance).toMatchObject({ resolutionClass: "inferred", confidence: "low" });
     expect(result.external[0]!.memberName).toBeNull();
+  });
+
+  it("does not attribute a bodyless interface method declaration, but reaches through it", () => {
+    // sink in impl s3.go:12-20; the graph dispatches interface Iface.Do (a one-line
+    // declaration at svc.go:5) to the impl, and a handler svc.go:20-40 calls the
+    // interface. The declaration executes nothing and must not be attributed; the
+    // handler behind it still is.
+    const snapshot = snapshotOf(
+      [
+        node("impl", "function", "s3.go", 12, 20),
+        node("ifaceDecl", "method", "svc.go", 5, 5),
+        node("handler", "function", "svc.go", 20, 40),
+      ],
+      [callsEdge("e1", "ifaceDecl", "impl", "svc.go"), callsEdge("e2", "handler", "ifaceDecl", "svc.go")],
+    );
+    const result = deriveOutboundReachability({ rootName: ROOT, sinks: [sink("s3.go", 15)], snapshot });
+    // Only the handler (svc.go:20), never the one-line declaration (svc.go:5).
+    expect(ids(result.external)).toEqual(["aws-sdk-go.@svc.go:20"]);
   });
 
   it("is deterministic regardless of node/edge input order", () => {

@@ -13,14 +13,20 @@
  *
  * It keys on library vocabulary only — an import path (`aws-sdk-go`, `net/smtp`,
  * `axios`) and the standard operation name — never on a project's own function or
- * variable names. The AWS matcher is import-gated for exactly this reason: a
- * project wrapper that reuses an SDK operation name (`wcpS3.PutObject`) sits in a
- * file that does *not* import the SDK, so it is never mistaken for the SDK call it
- * forwards to. That wrapper is reached instead through the call graph, the same way
- * PI-82 reverse-reaches a notification send to the handler that triggers it: a
- * caller within a shallow bound of a sink is attributed a low-confidence reached
- * record, so the fact lands where a reader looks (the handler) as well as at the
- * SDK call itself — without matching the wrapper by name.
+ * variable names. Two generic signals keep a project wrapper that reuses an SDK
+ * operation name (`wcpS3.PutObject`) apart from the SDK call it forwards to: the
+ * file must import the SDK, and — since a v2 SDK operation is always
+ * `Op(ctx, input, …)` — the call must pass a context first argument, which a domain
+ * wrapper call (`wcpS3.GetObject(key)`) does not. The import gate alone is not
+ * enough: a handler can both import the SDK (for a real call) and call a wrapper in
+ * the same file, so the context-first-arg check is what actually separates them.
+ * The wrapper is reached instead through the call graph, the same way PI-82
+ * reverse-reaches a notification send to the handler that triggers it: a caller
+ * within a shallow bound of a sink is attributed a low-confidence reached record,
+ * so the fact lands where a reader looks (the handler) as well as at the SDK call
+ * itself — without matching the wrapper by name. An interface method declaration
+ * (a callable node with no body) reached through the graph's dispatch edge is not
+ * attributed: it executes nothing.
  *
  * Determinism: roots are walked in name order, files in path order, patterns in a
  * fixed order and matches in source order; the graph is read into sorted indices,
@@ -96,11 +102,17 @@ const SINK_PATTERNS: readonly SinkPattern[] = [
     confidence: "high",
   },
   // ---- Go: AWS SDK client operations ----
+  // The trailing `(ctx, …)` requirement is what distinguishes a real SDK v2 call
+  // (`client.GetObject(ctx, input)`) from a domain wrapper that reuses the operation
+  // name (`wcpS3.GetObject(key)`), which the import gate alone cannot when the same
+  // file both imports the SDK and calls the wrapper. The context first argument is
+  // matched by the SDK's own convention (`ctx`/`c`, `context.TODO()`, `x.Context()`),
+  // not by any project variable name.
   {
     extensions: [".go"],
     requiresImport: ["aws-sdk-go"],
     pattern:
-      /\.(PutObject|GetObject|DeleteObject|HeadObject|CopyObject|PresignGetObject|PresignPutObject|PresignHeadObject|ListObjectsV2|SendEmail|SendRawEmail|SendTemplatedEmail|SendBulkTemplatedEmail|PutItem|GetItem|UpdateItem|DeleteItem|BatchWriteItem|BatchGetItem|SendMessage|SendMessageBatch|ReceiveMessage|Upload|Download)\s*\(/g,
+      /\.(PutObject|GetObject|DeleteObject|HeadObject|CopyObject|PresignGetObject|PresignPutObject|PresignHeadObject|ListObjectsV2|SendEmail|SendRawEmail|SendTemplatedEmail|SendBulkTemplatedEmail|PutItem|GetItem|UpdateItem|DeleteItem|BatchWriteItem|BatchGetItem|SendMessage|SendMessageBatch|ReceiveMessage|Upload|Download)\s*\(\s*(?:\w*[Cc]tx\w*|c|context\s*\.\s*(?:TODO|Background)\s*\(\s*\)|\w+\s*\.\s*Context\s*\(\s*\))\s*,/g,
     packageName: "aws-sdk-go",
     member: null,
     confidence: "medium",
@@ -206,6 +218,15 @@ export function detectOutboundSinks(
 /** A callable node's line range; a null end can only enclose its own start line. */
 function endOf(node: ImportedNode): number {
   return node.endLine ?? (node.startLine ?? 0);
+}
+
+/**
+ * A callable whose whole range is one line has no body — an interface method
+ * declaration or an empty stub. A function with a body always spans the brace on a
+ * later line, so this never excludes real code.
+ */
+function isDeclarationOnly(node: ImportedNode): boolean {
+  return node.startLine !== null && endOf(node) <= node.startLine;
 }
 
 /**
@@ -333,7 +354,10 @@ export function deriveOutboundReachability(
     attributedSinks += 1;
 
     // Bounded, cycle-aware reverse BFS. Depth 0 (the sink's own function) is left
-    // to the direct record; callers from depth 1 up to maxHops are attributed.
+    // to the direct record; callers from depth 1 up to maxHops are attributed. A
+    // bodyless declaration (an interface method the graph reaches through its
+    // interface→impl dispatch edge) is traversed to its real callers but never
+    // attributed — it runs nothing.
     const visited = new Set<string>([enclosing.nativeId]);
     let frontier: string[] = [enclosing.nativeId];
     let depth = 0;
@@ -353,7 +377,7 @@ export function deriveOutboundReachability(
           const node = callableById.get(caller);
           if (node === undefined) continue;
           visited.add(caller);
-          attribute(node, sink.packageName);
+          if (!isDeclarationOnly(node)) attribute(node, sink.packageName);
           next.push(caller);
         }
       }
