@@ -61,13 +61,6 @@ describe("exportProductReportSite", () => {
       payload: { check: "authorization", mechanism: "role-membership", requirement: "AdminC" },
     });
     insertBehaviorFact(store, {
-      factId: "role-general-check",
-      kind: "auth-annotation",
-      relPath: "handlers/leave/service.go",
-      startLine: 21,
-      payload: { check: "authorization", mechanism: "role-membership", requirement: "GeneralC" },
-    });
-    insertBehaviorFact(store, {
       factId: "header-authorization-check",
       kind: "auth-annotation",
       relPath: "handlers/leave/service.go",
@@ -254,6 +247,7 @@ describe("exportProductReportSite", () => {
 
     const overview = readFileSync(join(outDir, "index.html"), "utf8");
     const detail = readFileSync(join(outDir, "modules/leave.html"), "utf8");
+    const stylesheet = readFileSync(join(outDir, "assets/report.css"), "utf8");
     expect(overview).toContain("全部功能模块");
     expect(overview).toContain("角色与参与方式");
     expect(overview).toContain("管理员");
@@ -269,6 +263,8 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("申请进入审批");
     expect(detail).toContain("共用辅助能力");
     expect(detail).toContain("普通员工");
+    expect(detail).toContain("当前事实未把每项操作逐一绑定到该角色");
+    expect(detail).not.toContain("可通过已观测入口参与：提交与审批");
     expect(detail).toContain("管理员");
     expect(detail).not.toContain("<h3>销售</h3>");
     expect(detail).toContain("主要数据对象");
@@ -278,6 +274,7 @@ describe("exportProductReportSite", () => {
     expect(detail).not.toContain("<h3>Authorization</h3>");
     expect(detail).toContain("<h3>项目经理</h3>");
     expect(detail).toContain("<h3>项目负责人</h3>");
+    expect(detail).toContain("个环节明确涉及该角色，具体关系见下方流程图");
     expect(detail).not.toContain("流程审批参与者");
     expect(detail).not.toContain("<h3>负责人</h3>");
     expect(detail.match(/<h3>管理员<\/h3>/g)).toHaveLength(1);
@@ -292,6 +289,8 @@ describe("exportProductReportSite", () => {
     expect(detail).toContain("影响边界");
     expect(detail).toContain("项目概览");
     expect(result.manifest.outputFiles).toContain("assets/report.css");
+    expect(stylesheet).toContain(".object-map article{min-width:0;overflow-wrap:anywhere}");
+    expect(stylesheet).toContain(".lifecycle-cards,.lifecycle-card,.lifecycle-card>header>div{min-width:0}");
     expect(result.manifest.outputFiles).toContain("assets/mermaid.min.js");
     expect(result.elapsedMs).toBeLessThan(5_000);
     store.close();

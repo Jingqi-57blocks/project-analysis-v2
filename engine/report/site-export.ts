@@ -306,8 +306,8 @@ function roleMap(
       const operations = unique(flowGroups.map((group) => group.title), 8);
       const detail = checks.length > 0
         ? `在当前范围的 ${checks.length} 处权限检查中被明确引用。`
-        : operations.length > 0
-          ? `可通过已观测入口参与：${operations.join("、")}。`
+        : moduleId !== undefined && group.label === employee?.label && operations.length > 0
+          ? "项目角色定义中存在该基础用户身份；本模块有可见业务入口，但当前事实未把每项操作逐一绑定到该角色。"
           : "角色编码中定义的通用登录用户身份。";
       return `<article><h3>${html(group.label)}</h3><p>${html(detail)}</p><small>${html(group.raw.join(" / "))}</small>${evidence(uniqueFacts([...group.evidence, ...checks]), "查看角色定义与权限证据", 5)}</article>`;
     });
@@ -326,7 +326,7 @@ function roleMap(
       const facts = unique(nodes.flatMap((node) => node.factIds))
         .map((id) => byId.get(id))
         .filter((fact): fact is CitedFact => fact !== undefined);
-      cards.push(`<article><h3>${html(label)}</h3><p>${html(unique(nodes.map((node) => node.detail), 5).join("；"))}</p><small>由当前生命周期关系确定</small>${evidence(facts, "查看参与关系证据", 6)}</article>`);
+      cards.push(`<article><h3>${html(label)}</h3><p>当前生命周期的 ${nodes.length} 个环节明确涉及该角色，具体关系见下方流程图。</p><small>由当前生命周期关系确定</small>${evidence(facts, "查看参与关系证据", 6)}</article>`);
     }
   }
   if (cards.length === 0) {
