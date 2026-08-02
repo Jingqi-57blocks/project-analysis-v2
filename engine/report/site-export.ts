@@ -154,7 +154,13 @@ function readableRole(value: string): string {
     reviewadmin: "评审管理员",
     reviewmanager: "评审经理",
     reviewpeer: "同级评审人",
+    reviewmain: "主评审人",
+    reviewuser: "评审参与人",
     promotionadmin: "晋升管理员",
+    promotionmanager: "晋升经理",
+    promotionapplier: "晋升申请人",
+    promotionlead: "晋升负责人",
+    promotionpeer: "晋升同级评审人",
     client: "客户",
     systemadmin: "系统管理员",
     sale: "销售",
@@ -274,7 +280,7 @@ function roleMap(
       const employeeRank = (group: (typeof groups)[number]) => group.label === employee?.label ? 0 : 1;
       return employeeRank(a) - employeeRank(b) || checks(b) - checks(a) || a.label.localeCompare(b.label);
     })
-    .slice(0, moduleId === undefined ? 14 : 8)
+    .slice(0, moduleId === undefined ? 24 : 8)
     .map((group) => {
       const checks = uniqueFacts(group.identities.flatMap((identity) => byIdentity.get(identity) ?? []));
       const operations = unique(flowGroups.map((group) => group.title), 8);
