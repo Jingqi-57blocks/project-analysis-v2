@@ -110,6 +110,21 @@ describe("coverageInputForKind — honest per-kind coverage for the applicabilit
     expect(classifyCoverage(empty).state).toBe("not-found");
   });
 
+  it("an unresolved module scope (kbModuleId null) is unknown, never a false 'found none'", () => {
+    const store = seedNotificationKb();
+    // A module id the module model never surfaced: no module to have found none in.
+    const unresolved = { moduleId: "order", kbModuleId: null, kbModuleName: null, files: new Set<string>(), fileCount: 0 };
+    const readers = createSliceReaders(store, SNAPSHOT_ID, unresolved);
+    for (const kind of ["notification-call", "outbound-call", "route", "entity"]) {
+      const result = resolveKindCoverage(readers, moduleScope("order"), kind);
+      expect(result.scopeResolved).toBe(false);
+      expect(classifyCoverage(coverageInputForKind(result)).state).toBe("unknown");
+    }
+    // A resolved module with genuinely none stays not-found — the distinction holds.
+    const resolved = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", IN_MODULE));
+    expect(classifyCoverage(coverageInputForKind(resolveKindCoverage(resolved, moduleScope("leave"), "outbound-call"))).state).toBe("not-found");
+  });
+
   it("a kind this resolver cannot read is unknown, never a confirmed absence", () => {
     const store = seedStore();
     const readers = createSliceReaders(store, SNAPSHOT_ID, membershipOf("leave", IN_MODULE));

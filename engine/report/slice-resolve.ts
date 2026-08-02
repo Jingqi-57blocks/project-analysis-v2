@@ -356,12 +356,36 @@ export interface KindCoverageResult {
   readonly reader: ReaderClass;
   readonly count: number;
   readonly factIds: readonly string[];
+  /**
+   * Whether the scope this coverage is for actually resolved to something the
+   * denominator can be defined over. False only when the report is scoped to a
+   * module the module model never surfaced (an unresolved module id): there is no
+   * module to have found none IN, so its kinds must read `unknown`, not `not-found`.
+   */
+  readonly scopeResolved: boolean;
+}
+
+/**
+ * Whether a scope resolved to a defined denominator. A module scope whose id the
+ * module model did not surface (kbModuleId is null) has no module to scan, so a
+ * "found none" over it would be a false empty — it is reported unresolved instead.
+ */
+function scopeIsResolved(readers: SliceReaders, scope: Scope): boolean {
+  if (scope.kind !== "module") return true;
+  if (scope.moduleId !== readers.membership.moduleId) return true;
+  return readers.membership.kbModuleId !== null;
 }
 
 /** Resolve one declared kind's coverage in a scope — its reader, count and fact ids. */
 export function resolveKindCoverage(readers: SliceReaders, scope: Scope, kind: FactKind): KindCoverageResult {
   const facts = resolveSliceFacts(readers, scope, [kind]);
-  return { kind, reader: readerClassOf(kind), count: facts.length, factIds: facts.map((f) => f.factId) };
+  return {
+    kind,
+    reader: readerClassOf(kind),
+    count: facts.length,
+    factIds: facts.map((f) => f.factId),
+    scopeResolved: scopeIsResolved(readers, scope),
+  };
 }
 
 /**
@@ -371,7 +395,8 @@ export function resolveKindCoverage(readers: SliceReaders, scope: Scope, kind: F
  *
  * - a behaviour or structural kind, and the `*` fact ledger, are `found` when the
  *   slice resolved ≥1 cited fact and `not-found` when the module's files were
- *   scanned and genuinely hold none;
+ *   scanned and genuinely hold none — but `unknown` (scope undefined) when the
+ *   module itself never resolved, since there is nothing to have found none in;
  * - every other reader (`diagnostic`, `identity`, `coverage`, `none`) is `found`
  *   only if it actually resolved a cited fact; with none it is `unknown` via an
  *   undefined scope — an honest "this deterministic pass established nothing here",
@@ -395,7 +420,9 @@ export function coverageInputForKind(result: KindCoverageResult): CoverageInput 
     case "behavior":
     case "structural":
     case "ledger":
-      return { ...base, evidencePresent: result.count > 0 };
+      // An unresolved module scope has no defined denominator: report unknown
+      // (scopeDefined:false) rather than a false "found none".
+      return { ...base, scopeDefined: result.scopeResolved, evidencePresent: result.count > 0 && result.scopeResolved };
     case "diagnostic":
     case "identity":
     case "coverage":
