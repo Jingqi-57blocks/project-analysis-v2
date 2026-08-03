@@ -37,10 +37,15 @@
       "digest": "7e5421c4e0179d555cc430b65a6a56a0d19b8e6478a06b0ee5649ef2f254cafa"
     },
     {
+      "id": "module-identity",
+      "version": "1.0.0",
+      "digest": "513a81010cacdf67a04df224de72023177c7993d611357a363c6b873266fce8f"
+    },
+    {
       "id": "rubric",
       "version": "1.0.0",
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "32aeda8aac13f1a5ae05dd9db79ad5b7b03eae1bd918f4d9a810d951fc92d726"
+  "bundleDigest": "bedb5e73098383330fe5a3134b17b76f6c6ad89cd812f019a18b21b2b9412c2d"
 }

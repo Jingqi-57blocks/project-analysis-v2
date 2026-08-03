@@ -20,6 +20,7 @@ import { DOCUMENT_PRESETS } from "./report/presets.js";
 import { SECTION_CATALOG } from "./report/catalog.js";
 import { loadSpecRegistry } from "./report/specs.js";
 import { CLAIM_CONTRACT_ID, CLAIM_CONTRACT_VERSION, claimId } from "./claim/index.js";
+import { MODULE_CATEGORIES, MODULE_CONTRACT_ID, MODULE_CONTRACT_VERSION } from "./module/index.js";
 import {
   KB_CONTRACT_ID,
   KB_CONTRACT_VERSION,
@@ -146,6 +147,19 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
           "a claim without factIds is invalid",
           "a predicate is a lowercase token, never a sentence",
           "an aggregate is a roll-up over a predicate, never its own claim",
+        ],
+      },
+    },
+    {
+      id: MODULE_CONTRACT_ID,
+      version: MODULE_CONTRACT_VERSION,
+      snapshot: {
+        categories: MODULE_CATEGORIES,
+        invariants: [
+          "identity is structural; a display name is an attribute of it",
+          "changing language changes neither the module count nor the boundaries",
+          "an unresolved reference fails closed and never widens to the project",
+          "a glossary entry carries all three columns",
         ],
       },
     },
