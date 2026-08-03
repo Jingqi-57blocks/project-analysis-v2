@@ -8,8 +8,8 @@
     },
     {
       "id": "report",
-      "version": "1.1.0",
-      "digest": "b5237d7841f283f397119fdda125135009889a296adece0ad94f20bb80f50407"
+      "version": "1.2.0",
+      "digest": "7293370bbaa9d99bb61bb5421905a6f4d934e756fe0561c5710e69898fa42374"
     },
     {
       "id": "truth-leave",
@@ -47,5 +47,5 @@
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "bedb5e73098383330fe5a3134b17b76f6c6ad89cd812f019a18b21b2b9412c2d"
+  "bundleDigest": "073e5a6b01df0d90959f663aa2a518c8285fbc5dc6501f6355d66af81eb8dd04"
 }

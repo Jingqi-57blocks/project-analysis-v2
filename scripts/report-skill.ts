@@ -41,7 +41,8 @@ const snapshot = (kb as unknown as { snapshot: { id: number; runId: string } }).
 
 const registry = loadSpecRegistry();
 const directory = buildModuleDirectory(store, snapshot.id);
-const planned = planReport(parseArgs(argv), registry, directory);
+const request = parseArgs(argv);
+const planned = planReport(request, registry, directory);
 if (!planned.ok) {
   console.error(explainFailures(planned.failures));
   process.exit(2);
@@ -69,6 +70,7 @@ const result = await generateReports({
   ...(resumeRunId.length === 0 ? {} : { resumeRunId }),
   ...(Number.isFinite(chapterConcurrency) && chapterConcurrency > 0 ? { chapterConcurrency } : {}),
   ...(Number.isFinite(targetConcurrency) && targetConcurrency > 0 ? { targetConcurrency } : {}),
+  ...(request.rewriteChapters === undefined ? {} : { rewriteChapters: request.rewriteChapters }),
   plan: planned.plan,
   store,
   snapshotId: snapshot.id,

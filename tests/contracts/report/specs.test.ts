@@ -57,6 +57,19 @@ describe("output spec registry", () => {
     expect(specFor(registry, "release", "product")).toBeUndefined();
   });
 
+  it("asks for Mermaid diagrams, not hand-written SVG", () => {
+    // A wall of SVG path data cannot be read in the source, edited by hand, or
+    // diffed between runs. Rendering to a portable format is the engine's job.
+    expect(registry.contract.body).toMatch(/Diagrams \*\*MUST\*\* be written as Mermaid/);
+    expect(registry.contract.body).toMatch(/MUST NOT\*\* ask the author to emit SVG/);
+    for (const spec of registry.specs) {
+      expect({ id: spec.id, asksForSvg: /emit(ted)? as SVG|以 SVG 产出/.test(spec.body) }).toEqual({
+        id: spec.id,
+        asksForSvg: false,
+      });
+    }
+  });
+
   it("keeps the four specs' evidence model identical by inheriting one contract", () => {
     // The evidence markers live in the shared contract, not in any spec: a spec
     // that redefined them would be the drift PI-108 exists to prevent.

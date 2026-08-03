@@ -23,7 +23,7 @@ Checklist:
 3. **Write only what to write.** How to write is inherited from `contract.md`:
    evidence markers, the five prohibited categories, chapter summaries, the
    hypothesize–search–decide loop, glossary format, coverage requirements,
-   diagram format and claim constraints. A spec **MUST NOT** restate or vary any
+   diagram format (Mermaid) and claim constraints. A spec **MUST NOT** restate or vary any
    of them — that is the drift the shared contract exists to prevent. Reference
    them by section instead.
 

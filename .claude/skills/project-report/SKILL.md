@@ -153,7 +153,8 @@ The rules you will most easily break, restated:
 * Every chapter closes with a summary that **generalizes** the chapter's own
   facts and introduces nothing new.
 * Every coverage number carries its denominator.
-* Diagrams are SVG; branch labels use the target language, never the code's enums.
+* Diagrams are Mermaid, in a fenced ` ```mermaid ` block — never hand-written SVG.
+  Branch labels use the target language, never the code's enums.
 
 ## Before you finish
 

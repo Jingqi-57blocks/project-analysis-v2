@@ -11,6 +11,7 @@
  * Adding a report type is adding a spec file.
  */
 
+import { authorableChapters } from "../contracts/report/chapters.js";
 import { availableCombinations, specFor, type ReportSpec, type SpecRegistry } from "../contracts/report/specs.js";
 import { resolveModuleRef, type ModuleDirectory, type ModuleIdentity } from "../contracts/module/index.js";
 import { UnresolvedModuleError } from "../contracts/module/identity.js";
@@ -26,6 +27,8 @@ export interface ReportRequest {
   readonly targets: readonly TargetRequest[];
   readonly language: string;
   readonly format: string;
+  /** Chapters to author again, by the number the spec gives them. */
+  readonly rewriteChapters?: readonly string[];
 }
 
 export type RequestFailureCode =
@@ -33,7 +36,8 @@ export type RequestFailureCode =
   | "spec-not-found"
   | "module-missing"
   | "module-unresolved"
-  | "duplicate-target";
+  | "duplicate-target"
+  | "chapter-not-found";
 
 export interface RequestFailure {
   readonly code: RequestFailureCode;
@@ -144,6 +148,20 @@ export function planReport(
       }
     }
 
+    // Checked here rather than mid-run: a mistyped chapter number should cost a
+    // sentence, not an allocated run directory, a sliced fact pack and a manifest
+    // recording a failure. Every spec is checked, since two targets may not have
+    // the same chapters.
+    const known = authorableChapters(spec).map((chapter) => chapter.number);
+    for (const number of request.rewriteChapters ?? []) {
+      if (known.includes(number)) continue;
+      failures.push({
+        code: "chapter-not-found",
+        detail: `${spec.id} has no chapter ${number}`,
+        available: known,
+      });
+    }
+
     planned.push({
       scope: target.scope,
       audience: target.audience,
@@ -201,6 +219,7 @@ export function parseArgs(argv: readonly string[]): ReportRequest {
   const scopes: string[] = [];
   const audiences: string[] = [];
   const modules: string[] = [];
+  const rewriteChapters: string[] = [];
   let language = "zh-CN";
   let format = "markdown";
   for (let index = 0; index < argv.length; index += 1) {
@@ -210,6 +229,7 @@ export function parseArgs(argv: readonly string[]): ReportRequest {
     if (flag === "--scope") scopes.push(value);
     else if (flag === "--audience") audiences.push(value);
     else if (flag === "--module") modules.push(value);
+    else if (flag === "--rewrite-chapter") rewriteChapters.push(value);
     else if (flag === "--lang" || flag === "--language") language = value;
     else if (flag === "--format") format = value;
   }
@@ -220,5 +240,5 @@ export function parseArgs(argv: readonly string[]): ReportRequest {
       else for (const module of modules) targets.push({ scope, audience, module });
     }
   }
-  return { targets, language, format };
+  return { targets, language, format, ...(rewriteChapters.length === 0 ? {} : { rewriteChapters }) };
 }

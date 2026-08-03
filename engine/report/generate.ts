@@ -41,6 +41,16 @@ import type { Store } from "../store/types.js";
 /** Kinds without which a spec's mandatory chapters cannot be written. */
 const MANDATORY_KINDS: readonly string[] = ["run-context", "coverage-note"];
 
+export class UnknownChapterError extends Error {
+  constructor(
+    readonly number: string,
+    readonly known: readonly string[],
+  ) {
+    super(`this spec has no chapter ${number}; it has ${known.join(", ")}`);
+    this.name = "UnknownChapterError";
+  }
+}
+
 export interface GenerateInput {
   readonly plan: ReportPlan;
   readonly store: Store;
@@ -78,6 +88,15 @@ export interface GenerateInput {
    * would have finished the first. Set to 1 when the budget is what might run out.
    */
   readonly targetConcurrency?: number;
+  /**
+   * Chapters to author again even though they already exist, by spec number.
+   *
+   * A chapter is the unit worth iterating on: one is unsatisfying, the claim set
+   * behind it is fine, and rewriting the whole report to fix it would cost the
+   * expensive pass again and disturb twelve chapters that were already right.
+   * Only meaningful with `resumeRunId`.
+   */
+  readonly rewriteChapters?: readonly string[];
   /** Membership for each planned module, resolved by the caller. */
   readonly membership: ReadonlyMap<string, { files: ReadonlySet<string>; subjectKeys: ReadonlySet<string> }>;
 }
@@ -214,6 +233,14 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     const chapterDir = `${targetDir}/chapters`;
     mkdirSync(chapterDir, { recursive: true });
     const chapters = authorableChapters(target.spec);
+    // Rewriting one chapter is the tightest loop there is for improving it: the
+    // claim set — the expensive part — is reused untouched, and every other
+    // chapter stays as it was, so what changed is only ever the chapter itself.
+    for (const number of input.rewriteChapters ?? []) {
+      const chapter = chapters.find((entry) => entry.number === number);
+      if (chapter === undefined) throw new UnknownChapterError(number, chapters.map((entry) => entry.number));
+      rmSync(`${chapterDir}/${chapter.slug}.md`, { force: true });
+    }
     const progress =
       input.onProgress === undefined
         ? {}
@@ -257,7 +284,7 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
         });
       }
       await inBatches(pending, input.chapterConcurrency ?? 4, async (chapter) => {
-        await input.runSkill({
+        const chapterOutcome = await input.runSkill({
           phase: "chapter",
           chapter: { ...chapter, outputPath: `${chapterDir}/${chapter.slug}.md` },
           packDir,
@@ -270,6 +297,10 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
           transcriptPath: `${targetDir}/agent-stream-${chapter.slug}.jsonl`,
           ...progress,
         });
+        // Also recorded here: a resumed run skips the claims pass, and without
+        // this the manifest reported "unknown" — the very field PI-114 relies on
+        // to refuse a sub-floor tier.
+        modelTier = chapterOutcome.modelTier;
       });
     } catch (error) {
       return {
