@@ -34,6 +34,7 @@ import {
   type TargetRecord,
 } from "./run-identity.js";
 import type { SkillProgress, SkillRunner } from "./skill-port.js";
+import { MINIMUM_TIER } from "./stability.js";
 import type { Store } from "../store/types.js";
 
 /** Kinds without which a spec's mandatory chapters cannot be written. */
@@ -76,6 +77,8 @@ export interface CrossTargetConflict extends QualifierConflict {
 
 export interface GenerateResult {
   readonly runId: string;
+  /** Set when the run was authored below the tier the trial established as a floor. */
+  readonly belowTierFloor: boolean;
   readonly runPath: string;
   readonly manifest: RunManifest;
   readonly outcomes: readonly TargetOutcome[];
@@ -286,16 +289,23 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
   });
   writeManifest(runPath, manifest);
 
+  // The floor is a floor because the failure below it is fabrication, not lower
+  // quality — so a sub-floor run is not a deliverable however clean its audit
+  // looks. `default` means the host chose, which is the normal path.
+  const belowTierFloor = modelTier !== "default" && modelTier !== MINIMUM_TIER && modelTier === "haiku";
+
   return {
     runId,
     runPath,
     manifest,
     outcomes,
     conflicts,
+    belowTierFloor,
     delivered:
       outcomes.length > 0 &&
       outcomes.every((outcome) => outcome.record.auditPassed === true) &&
-      conflicts.length === 0,
+      conflicts.length === 0 &&
+      !belowTierFloor,
   };
 }
 
@@ -345,6 +355,9 @@ export function explainRun(result: GenerateResult): string {
     for (const finding of outcome.audit?.findings.slice(0, 5) ?? []) {
       lines.push(`    - [${finding.code}] ${finding.evidence}`);
     }
+  }
+  if (result.belowTierFloor) {
+    lines.push(`  authored below the ${MINIMUM_TIER} floor — not a deliverable, whatever the audit says`);
   }
   if (result.conflicts.length > 0) {
     lines.push(`  ${result.conflicts.length} claim(s) described differently by two targets:`);

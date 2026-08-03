@@ -239,10 +239,12 @@ describe("kind usage is measured through claims, not through prose", () => {
           invocation.claimsPath,
           JSON.stringify({ claims: [{ predicate: "route-declared", subject: { type: "route", ref: "r1" }, qualifiers: {}, factIds: ["r1"] }] }),
         );
-        return { modelTier: "haiku" };
+        return { modelTier: "sonnet" };
       }
       writeFileSync(invocation.chapter!.outputPath, "## 章\n\n覆盖率良好，未发现问题。\n");
-      return { modelTier: "haiku" };
+      // Deliberately at the floor: this test is about notices not blocking, and
+      // a sub-floor tier would block for an unrelated reason.
+      return { modelTier: "sonnet" };
     };
     const result = await run([{ scope: "project", audience: "product" }], skipsLedger);
     const audit = JSON.parse(readFileSync(join(result.runPath, "project-product/audit.json"), "utf8"));
@@ -349,5 +351,31 @@ describe("progress events", () => {
   it("names a tool with no obvious subject by its name alone", () => {
     const line = JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: {} }] } });
     expect(progressFrom(line, 0)?.detail).toBe("Bash");
+  });
+});
+
+describe("the tier floor", () => {
+  it("refuses a sub-floor run as a deliverable, however clean its audit", async () => {
+    // The failure below the floor is fabrication, not lower quality, and a
+    // fabricated report is exactly the one that looks fine.
+    const lowTier: SkillRunner = async (invocation) => {
+      const outcome = await goodRunner(invocation);
+      return { ...outcome, modelTier: "haiku" };
+    };
+    const result = await run([{ scope: "project", audience: "product" }], lowTier);
+    expect(result.outcomes[0]?.record.auditPassed).toBe(true);
+    expect(result.belowTierFloor).toBe(true);
+    expect(result.delivered).toBe(false);
+    expect(explainRun(result)).toContain("floor");
+  });
+
+  it("accepts the host's own choice of model", async () => {
+    const hostDefault: SkillRunner = async (invocation) => {
+      const outcome = await goodRunner(invocation);
+      return { ...outcome, modelTier: "default" };
+    };
+    const result = await run([{ scope: "project", audience: "product" }], hostDefault);
+    expect(result.belowTierFloor).toBe(false);
+    expect(result.delivered).toBe(true);
   });
 });
