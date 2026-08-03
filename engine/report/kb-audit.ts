@@ -180,6 +180,15 @@ export interface AuditInput {
   /** The pack the report was written from, when there is one. */
   readonly pack?: FactPack;
   /**
+   * The claim set the report was written from.
+   *
+   * Usage is measured through claims, not through paths in the prose. Derived
+   * kinds — the coverage ledger, the computed findings — carry no file path at
+   * all, so a path-based measure marks them unused however carefully they were
+   * read, and buries the real finding under noise on every correct report.
+   */
+  readonly claims?: readonly { readonly factIds: readonly string[] }[];
+  /**
    * Kinds whose chapter the report demonstrably wrote — supplied by the caller,
    * since which chapter exists is a property of the spec, not of this module.
    */
@@ -237,11 +246,11 @@ export function auditReport(input: AuditInput): AuditResult {
   }
 
   const kindUsage: { kind: string; available: number; cited: number }[] = [];
-  if (pack !== undefined) {
-    const citedKeys = new Set(citedPaths(report));
+  if (pack !== undefined && input.claims !== undefined) {
+    const citedFactIds = new Set(input.claims.flatMap((claim) => claim.factIds));
     for (const kind of [...new Set(pack.rows.map((row) => row.kind))].sort()) {
       const rows = pack.rows.filter((row) => row.kind === kind);
-      const cited = rows.filter((row) => row.relPath !== null && citedKeys.has(row.relPath)).length;
+      const cited = rows.filter((row) => citedFactIds.has(row.key)).length;
       kindUsage.push({ kind, available: rows.length, cited });
     }
     for (const kind of pack.requires) {

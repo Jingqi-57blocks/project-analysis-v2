@@ -1,0 +1,225 @@
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { IN_MEMORY, openStore } from "../../engine/store/open.js";
+import type { Store } from "../../engine/store/types.js";
+import { loadSpecRegistry } from "../../engine/contracts/report/specs.js";
+import type { ModuleDirectory } from "../../engine/contracts/module/index.js";
+import { generateReports, explainRun } from "../../engine/report/generate.js";
+import { planReport } from "../../engine/report/orchestrate.js";
+import { buildSkillPrompt, type SkillRunner } from "../../engine/report/skill-port.js";
+
+const INSTANT = new Date("2026-08-03T06:22:00.000Z");
+let store: Store;
+let snapshotId: number;
+
+const directory: ModuleDirectory = {
+  identities: [
+    { id: "mod_a", structuralName: "leaves", category: "product-capability", rootNames: ["svc"], aliases: [] },
+  ],
+  displayNames: [],
+};
+
+beforeEach(() => {
+  store = openStore(IN_MEMORY);
+  store.run("INSERT INTO workspaces (path, created_at) VALUES ('/w', 't0')");
+  store.run("INSERT INTO snapshots (workspace_id, identity, created_at, published_at) VALUES (1, 'i', 't0', NULL)");
+  snapshotId = store.get<{ id: number }>("SELECT id FROM snapshots")!.id;
+  store.run("INSERT INTO source_roots (snapshot_id, name, path, content_digest) VALUES (?, 'svc', '/w/svc', 'd')", [snapshotId]);
+  store.run("INSERT INTO files (source_root_id, rel_path, size_bytes, disposition) VALUES (1, 'a.go', 10, 'analyzed')");
+  // The gate's mandatory kinds.
+  for (const [kind, key] of [["run-context", "rc"], ["coverage-note", "cn"]] as const) {
+    store.run(
+      "INSERT INTO derived_records (snapshot_id, kind, record_key, payload) VALUES (?, ?, ?, ?)",
+      [snapshotId, kind, key, JSON.stringify({ id: key })],
+    );
+  }
+  store.run(
+    "INSERT INTO structural_records (snapshot_id, source_root_id, kind, record_key, payload, resolution_class, rel_path) VALUES (?, 1, 'route', 'r1', ?, 'resolved', 'a.go')",
+    [snapshotId, JSON.stringify({ rootName: "svc" })],
+  );
+});
+
+function plan(targets: Parameters<typeof planReport>[0]["targets"]) {
+  const result = planReport({ targets, language: "zh-CN", format: "markdown" }, loadSpecRegistry(), directory);
+  if (!result.ok) throw new Error(JSON.stringify(result.failures));
+  return result.plan;
+}
+
+/**
+ * Writes a clean report and a valid claim set, the way a good run would —
+ * including drawing on every kind the pack offers. A run that never touched the
+ * coverage ledger is supposed to fail, so a stub that skipped it would be
+ * testing the wrong thing.
+ */
+const goodRunner: SkillRunner = async (invocation) => {
+  const claim = (predicate: string, type: string, ref: string, factIds: readonly string[]) => ({
+    claimId: `claim:${predicate}:${type}:${ref}`,
+    predicate,
+    subject: { type, ref },
+    qualifiers: {},
+    factIds,
+    usedBy: [],
+  });
+  writeFileSync(
+    invocation.claimsPath,
+    JSON.stringify({
+      claims: [
+        claim("route-declared", "route", "r1", ["r1"]),
+        claim("coverage-recorded", "workspace", ".", ["cn"]),
+        claim("snapshot-recorded", "workspace", "snapshot", ["rc"]),
+      ],
+    }),
+  );
+  writeFileSync(invocation.viewPath, "# 报告\n\n一条路由声明于 a.go。\n");
+  return { modelTier: "sonnet" };
+};
+
+function run(targets: Parameters<typeof planReport>[0]["targets"], runSkill: SkillRunner) {
+  return generateReports({
+    plan: plan(targets),
+    store,
+    snapshotId,
+    snapshotIdentity: "run-1",
+    outputRoot: mkdtempSync(join(tmpdir(), "runs-")),
+    repoRoot: process.cwd(),
+    instant: INSTANT,
+    runSkill,
+    membership: new Map([["mod_a", { files: new Set(["svc/a.go"]), subjectKeys: new Set(["mod_a"]) }]]),
+  });
+}
+
+describe("running a plan", () => {
+  it("produces a deliverable when the skill writes a clean report", async () => {
+    const result = await run([{ scope: "project", audience: "product" }], goodRunner);
+    expect(result.delivered).toBe(true);
+    expect(existsSync(join(result.runPath, "project-product/report.md"))).toBe(true);
+    expect(existsSync(join(result.runPath, "project-product/claims.json"))).toBe(true);
+    expect(existsSync(join(result.runPath, "project-product/audit.json"))).toBe(true);
+  });
+
+  it("writes a manifest recording the tier and the verdict", async () => {
+    const result = await run([{ scope: "project", audience: "product" }], goodRunner);
+    const manifest = JSON.parse(readFileSync(join(result.runPath, "manifest.json"), "utf8"));
+    expect(manifest.modelTier).toBe("sonnet");
+    expect(manifest.auditPassed).toBe(true);
+    expect(manifest.startedAtLocal).toBe("08-03 14:22");
+    expect(manifest.targets[0].specVersion).toBe("1.0.0");
+  });
+
+  it("cuts one pack for two audiences over the same module", async () => {
+    const result = await run(
+      [
+        { scope: "module", audience: "product", module: "leave" },
+        { scope: "module", audience: "developer", module: "leave" },
+      ],
+      goodRunner,
+    );
+    expect(result.outcomes).toHaveLength(2);
+    expect(existsSync(join(result.runPath, "packs/module-mod_a/index.json"))).toBe(true);
+  });
+
+  it("fails the run when the report cites a file that was never read", async () => {
+    const fabricating: SkillRunner = async (invocation) => {
+      writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
+      writeFileSync(invocation.viewPath, "已验证位置：holidays.py\n");
+      return { modelTier: "haiku" };
+    };
+    const result = await run([{ scope: "project", audience: "product" }], fabricating);
+    expect(result.delivered).toBe(false);
+    expect(result.manifest.auditPassed).toBe(false);
+    expect(explainRun(result)).toContain("AUDIT FAILED");
+  });
+
+  it("fails the run when a claim has no supporting facts", async () => {
+    const unsupported: SkillRunner = async (invocation) => {
+      writeFileSync(
+        invocation.claimsPath,
+        JSON.stringify({
+          claims: [
+            { claimId: "claim:p:entity:t", predicate: "p", subject: { type: "entity", ref: "t" }, qualifiers: {}, factIds: [], usedBy: [] },
+          ],
+        }),
+      );
+      writeFileSync(invocation.viewPath, "# 报告\n");
+      return { modelTier: "sonnet" };
+    };
+    const result = await run([{ scope: "project", audience: "product" }], unsupported);
+    expect(result.delivered).toBe(false);
+  });
+
+  it("produces nothing, and says so, when the skill fails", async () => {
+    const failing: SkillRunner = async () => {
+      throw new Error("the model went away");
+    };
+    const result = await run([{ scope: "project", audience: "product" }], failing);
+    expect(result.delivered).toBe(false);
+    expect(result.outcomes[0]?.blocked).toContain("the model went away");
+    expect(explainRun(result)).toContain("NOT PRODUCED");
+  });
+
+  it("produces nothing when the skill writes no view", async () => {
+    const silent: SkillRunner = async () => ({ modelTier: "sonnet" });
+    const result = await run([{ scope: "project", audience: "product" }], silent);
+    expect(result.outcomes[0]?.blocked).toBe("the skill wrote no view");
+  });
+
+  it("never reuses a run directory", async () => {
+    const first = await run([{ scope: "project", audience: "product" }], goodRunner);
+    const second = await generateReports({
+      plan: plan([{ scope: "project", audience: "product" }]),
+      store,
+      snapshotId,
+      snapshotIdentity: "run-1",
+      outputRoot: join(first.runPath, ".."),
+      repoRoot: process.cwd(),
+      instant: INSTANT,
+      runSkill: goodRunner,
+      membership: new Map(),
+    });
+    expect(second.runId).not.toBe(first.runId);
+    expect(existsSync(join(first.runPath, "manifest.json"))).toBe(true);
+  });
+});
+
+describe("the skill prompt", () => {
+  it("names the inputs and defers everything else to SKILL.md", () => {
+    const prompt = buildSkillPrompt({
+      packDir: "/p", specId: "project-product", language: "zh-CN",
+      claimsPath: "/c.json", viewPath: "/v.md", repoRoot: "/repo",
+    });
+    for (const line of ["packPath: /p/index.json", "specId: project-product", "language: zh-CN"]) {
+      expect(prompt).toContain(line);
+    }
+    // Restating the skill's rules here would create a second copy that drifts.
+    expect(prompt).not.toContain("MUST");
+    expect(prompt).toContain("Follow SKILL.md exactly");
+  });
+});
+
+describe("kind usage is measured through claims, not through prose", () => {
+  it("flags a kind the claims never draw on, however well the prose reads", async () => {
+    // The fabricating run in the trial never queried the coverage ledger or the
+    // computed findings, and still wrote the chapters they feed.
+    const skipsLedger: SkillRunner = async (invocation) => {
+      writeFileSync(
+        invocation.claimsPath,
+        JSON.stringify({
+          claims: [
+            { claimId: "claim:route-declared:route:r1", predicate: "route-declared", subject: { type: "route", ref: "r1" }, qualifiers: {}, factIds: ["r1"], usedBy: [] },
+          ],
+        }),
+      );
+      writeFileSync(invocation.viewPath, "# 报告\n\n覆盖率良好，未发现问题。\n");
+      return { modelTier: "haiku" };
+    };
+    const result = await run([{ scope: "project", audience: "product" }], skipsLedger);
+    expect(result.delivered).toBe(false);
+    const audit = JSON.parse(readFileSync(join(result.runPath, "project-product/audit.json"), "utf8"));
+    const unused = audit.findings.filter((f: { code: string }) => f.code === "kind-never-used");
+    expect(unused.map((f: { evidence: string }) => f.evidence).sort()).toEqual(["coverage-note", "run-context"]);
+  });
+});
