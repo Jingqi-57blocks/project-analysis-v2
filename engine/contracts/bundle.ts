@@ -19,6 +19,16 @@ import { loadLeaveTruthLedger } from "./truth/leave.js";
 import { DOCUMENT_PRESETS } from "./report/presets.js";
 import { SECTION_CATALOG } from "./report/catalog.js";
 import { loadSpecRegistry } from "./report/specs.js";
+import {
+  KB_CONTRACT_ID,
+  KB_CONTRACT_VERSION,
+  KB_TABLES,
+  LINE_ANCHORED_KINDS,
+  READING_ORDER,
+  SET_VALUED_KINDS,
+  WORKSPACE_LEVEL_KINDS,
+  loadKbContractGuide,
+} from "./kb/index.js";
 import { REPORT_CONTRACT_ID, REPORT_CONTRACT_VERSION } from "./report/version.js";
 import { COVERAGE_STATES } from "./shared-fact/applicability.js";
 import { FACT_FAMILIES } from "./shared-fact/families.js";
@@ -100,6 +110,25 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
           id: t.id,
           roots: t.roots.map((r) => ({ name: r.name, rev: r.revision })),
         })),
+      },
+    },
+    {
+      id: KB_CONTRACT_ID,
+      version: KB_CONTRACT_VERSION,
+      snapshot: {
+        tables: KB_TABLES.map((t) => ({
+          table: t.table,
+          identity: t.identityColumn,
+          layer: t.layer,
+          kinds: t.kinds,
+          publicColumns: t.publicColumns,
+        })),
+        readingOrder: READING_ORDER,
+        lineAnchored: LINE_ANCHORED_KINDS,
+        setValued: SET_VALUED_KINDS,
+        workspaceLevel: WORKSPACE_LEVEL_KINDS,
+        // The reader-facing guide is prose, so its text is load-bearing too.
+        guideDigest: digestText(loadKbContractGuide()),
       },
     },
     {
