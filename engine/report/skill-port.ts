@@ -49,6 +49,15 @@ export interface SkillInvocation {
   readonly viewPath: string;
   /** Repository root — the skill reads its contracts from here. */
   readonly repoRoot: string;
+  /**
+   * Where intermediate files go.
+   *
+   * An agent working through a large pack writes helper scripts and partial
+   * results. Without somewhere to put them it scatters them wherever it happens
+   * to be, and nobody cleans up: a failed run left seventeen stray files in the
+   * output root. Naming the directory makes them collectable.
+   */
+  readonly scratchDir: string;
   /** Where to keep the agent's stream, so a failed run can be diagnosed. */
   readonly transcriptPath?: string;
   readonly onProgress?: (event: SkillProgress) => void;
@@ -101,6 +110,7 @@ export function buildSkillPrompt(invocation: SkillInvocation): string {
     `specId: ${invocation.specId}`,
     `language: ${invocation.language}`,
     `claimsPath: ${invocation.claimsPath}`,
+    `scratchPath: ${invocation.scratchDir}`,
   ];
   if (invocation.phase === "claims") {
     return [...common, "", "Follow SKILL.md exactly. Write the claim set, then report its path."].join("\n");

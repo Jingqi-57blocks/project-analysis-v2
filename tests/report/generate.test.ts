@@ -173,6 +173,29 @@ describe("running a plan", () => {
     expect(result.outcomes[0]?.blocked).toContain("chapters not written");
   });
 
+  it("clears the agent's intermediates once a report exists", async () => {
+    // A failed run left seventeen stray files in the output root, because the
+    // agent had nowhere named to put them and nobody knew which were its.
+    const messy: SkillRunner = async (invocation) => {
+      writeFileSync(join(invocation.scratchDir, "helper.jq"), "{}");
+      return goodRunner(invocation);
+    };
+    const result = await run([{ scope: "project", audience: "product" }], messy);
+    expect(result.delivered).toBe(true);
+    expect(existsSync(join(result.runPath, "scratch"))).toBe(false);
+  });
+
+  it("keeps the intermediates when the run produced nothing", async () => {
+    const messyAndFailing: SkillRunner = async (invocation) => {
+      writeFileSync(join(invocation.scratchDir, "helper.jq"), "{}");
+      if (invocation.phase === "claims") writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
+      return { modelTier: "sonnet" };
+    };
+    const result = await run([{ scope: "project", audience: "product" }], messyAndFailing);
+    expect(result.delivered).toBe(false);
+    expect(existsSync(join(result.runPath, "scratch/helper.jq"))).toBe(true);
+  });
+
   it("never reuses a run directory", async () => {
     const first = await run([{ scope: "project", audience: "product" }], goodRunner);
     const second = await generateReports({
@@ -195,9 +218,9 @@ describe("the skill prompt", () => {
   it("names the inputs and defers everything else to SKILL.md", () => {
     const prompt = buildSkillPrompt({
       phase: "claims", packDir: "/p", specId: "project-product", language: "zh-CN",
-      claimsPath: "/c.json", viewPath: "/v.md", repoRoot: "/repo",
+      claimsPath: "/c.json", viewPath: "/v.md", repoRoot: "/repo", scratchDir: "/repo/scratch",
     });
-    for (const line of ["packPath: /p/index.json", "specId: project-product", "language: zh-CN"]) {
+    for (const line of ["packPath: /p/index.json", "specId: project-product", "language: zh-CN", "scratchPath: /repo/scratch"]) {
       expect(prompt).toContain(line);
     }
     // Restating the skill's rules here would create a second copy that drifts.

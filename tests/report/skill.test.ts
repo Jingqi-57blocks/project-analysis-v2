@@ -58,6 +58,10 @@ describe("the report skill", () => {
     for (const kind of ["condition", "guard", "call-edge", "value-set"]) expect(body).toContain(kind);
   });
 
+  it("names one place for intermediates, so nothing is left scattered", () => {
+    expect(body).toMatch(/Every file you write that is not an output goes under `scratchPath`/);
+  });
+
   it("confines a call to its own phase, since chapters run concurrently", () => {
     expect(body).toMatch(/Do exactly your phase's work and nothing else/);
     expect(body).toContain("concurrently");
@@ -69,7 +73,7 @@ describe("the report skill", () => {
   });
 
   it("names every input it needs, so a missing one stops the run", () => {
-    for (const input of ["phase", "packPath", "specId", "language", "claimsPath", "chapterOutputPath"]) {
+    for (const input of ["phase", "packPath", "specId", "language", "claimsPath", "scratchPath", "chapterOutputPath"]) {
       expect(body).toContain(input);
     }
   });

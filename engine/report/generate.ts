@@ -11,7 +11,7 @@
  * exactly like one that had nothing to say.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 import {
   indexClaims,
@@ -137,6 +137,8 @@ function readClaims(path: string): readonly Claim[] {
  */
 export async function generateReports(input: GenerateInput): Promise<GenerateResult> {
   const { runId, path: runPath } = allocateRunDirectory(input.outputRoot, input.plan.runLabel, input.instant);
+  const scratchDir = `${runPath}/scratch`;
+  mkdirSync(scratchDir, { recursive: true });
   const inventory = readInventory(input.store, input.snapshotId);
   const packDirs = new Map<string, string>();
   const claimsByTarget = new Map<string, readonly Claim[]>();
@@ -193,6 +195,7 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
         claimsPath,
         viewPath,
         repoRoot: input.repoRoot,
+        scratchDir,
         transcriptPath: `${targetDir}/agent-stream-claims.jsonl`,
         ...progress,
       });
@@ -211,6 +214,7 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
           claimsPath,
           viewPath,
           repoRoot: input.repoRoot,
+          scratchDir,
           transcriptPath: `${targetDir}/agent-stream-${chapter.slug}.jsonl`,
           ...progress,
         });
@@ -261,6 +265,10 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
   // later reader needs to interpret the coverage statements.
   if (outcomes.some((outcome) => outcome.blocked === null)) {
     for (const directory of packDirs.values()) pruneFactPackBulk(directory);
+    // Intermediates go the same way as the pack bulk, and for the same reason:
+    // they are reproducible, they are large, and a run kept forever should hold
+    // what someone will read, not what the author needed along the way.
+    rmSync(scratchDir, { recursive: true, force: true });
   }
 
   const conflicts = crossTargetConflicts(claimsByTarget);

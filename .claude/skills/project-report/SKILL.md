@@ -30,11 +30,18 @@ You are given, in the invocation:
 | `specId` | Which output spec governs this report |
 | `language` | The target language of the view |
 | `claimsPath` | The claim set: written in the `claims` phase, read in the `chapter` phase |
+| `scratchPath` | Where every intermediate file goes |
 
 A `chapter` call additionally carries `chapterNumber`, `chapterTitle`,
 `chapterOutputPath`, and that chapter's own part of the spec inline.
 
 If any is missing, stop and say which. Do not guess a default.
+
+**Every file you write that is not an output goes under `scratchPath`.** Helper
+scripts, partial results, notes — all of it, and nothing outside it. A run that
+scatters intermediates leaves them behind forever, because nobody knows which
+files were yours. The engine deletes `scratchPath` once the run has produced its
+report, and keeps it when the run fails, so a failed run stays diagnosable.
 
 **Do exactly your phase's work and nothing else.** A `claims` call writes the claim
 set and stops. A `chapter` call writes one chapter and stops. Chapters are
