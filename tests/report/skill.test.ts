@@ -17,7 +17,9 @@ describe("the report skill", () => {
   it("points at contract paths that exist, rather than copying them", () => {
     // A copy under the skill would be a second source of truth, outside the
     // drift gate, and would diverge on the first one-sided edit.
-    const referenced = [...body.matchAll(/`(engine\/contracts\/[\w./<>-]+\.md)`/g)].map((match) => match[1] ?? "");
+    const referenced = [...body.matchAll(/`(?:<repoRoot>\/)?(engine\/contracts\/[\w./<>-]+\.md)`/g)].map(
+      (match) => match[1] ?? "",
+    );
     expect(referenced.length).toBeGreaterThan(0);
     for (const path of new Set(referenced)) {
       const concrete = path.replace("<specId>", "project-product");
@@ -26,6 +28,13 @@ describe("the report skill", () => {
         exists: true,
       });
     }
+  });
+
+  it("anchors the contract paths to the repository, not to its own directory", () => {
+    // Given them bare, the agent resolved them against .claude/skills/ and three
+    // reads came back empty.
+    expect(body).toContain("<repoRoot>/engine/contracts/kb/kb-contract.md");
+    expect(body).toMatch(/relative to it|resolve them against `repoRoot`/);
   });
 
   it("does not enumerate the scope × audience combinations", () => {

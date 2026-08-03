@@ -51,11 +51,17 @@ assembles the chapters in spec order.
 
 ## NOW — load exactly four things
 
+The contracts live in the **repository**, not in this skill's directory. `repoRoot`
+is given in the invocation; every path below is relative to it, so resolve them
+against `repoRoot` rather than against wherever this file sits. A read that
+resolves under `.claude/skills/` has gone to the wrong place and will come back
+empty.
+
 **MUST** read, in this order:
 
-1. `engine/contracts/kb/kb-contract.md` — how to read the pack.
-2. `engine/contracts/report/specs/contract.md` — the shared writing contract.
-3. `engine/contracts/report/specs/<specId>.md` — the one spec that governs this report.
+1. `<repoRoot>/engine/contracts/kb/kb-contract.md` — how to read the pack.
+2. `<repoRoot>/engine/contracts/report/specs/contract.md` — the shared writing contract.
+3. `<repoRoot>/engine/contracts/report/specs/<specId>.md` — the one spec that governs this report.
 4. The pack at `packPath`.
 
 **MUST NOT** read the other specs. Four specs run to a thousand lines together;

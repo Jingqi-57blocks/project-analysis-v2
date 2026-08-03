@@ -102,6 +102,10 @@ export class SkillRunError extends Error {
  * `SKILL.md`.
  */
 export function buildSkillPrompt(invocation: SkillInvocation): string {
+  // The contract paths are spelled out absolutely. Given them relative, the agent
+  // resolves them against the skill's own directory and three reads come back
+  // empty — which is what happened, and it then had to grope for them with Bash.
+  const contracts = `${invocation.repoRoot}/engine/contracts`;
   const common = [
     "Use the project-report skill.",
     "",
@@ -111,6 +115,12 @@ export function buildSkillPrompt(invocation: SkillInvocation): string {
     `language: ${invocation.language}`,
     `claimsPath: ${invocation.claimsPath}`,
     `scratchPath: ${invocation.scratchDir}`,
+    `repoRoot: ${invocation.repoRoot}`,
+    "",
+    "Read these three, in this order, at exactly these paths:",
+    `  ${contracts}/kb/kb-contract.md`,
+    `  ${contracts}/report/specs/contract.md`,
+    `  ${contracts}/report/specs/${invocation.specId}.md`,
   ];
   if (invocation.phase === "claims") {
     return [...common, "", "Follow SKILL.md exactly. Write the claim set, then report its path."].join("\n");
