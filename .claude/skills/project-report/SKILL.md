@@ -26,7 +26,8 @@ You are given, in the invocation:
 | Input | Meaning |
 | -- | -- |
 | `phase` | `claims` or `chapter` — which half of the work this call performs |
-| `packPath` | JSON fact pack index — the whole of what is knowable here |
+| `packDb` | The fact pack, as a SQLite database — the whole of what is knowable here |
+| `packIndex` | Its index: what is in scope and how much of it |
 | `specId` | Which output spec governs this report |
 | `language` | The target language of the view |
 | `claimsPath` | The claim set: written in the `claims` phase, read in the `chapter` phase |
@@ -62,7 +63,7 @@ empty.
 1. `<repoRoot>/engine/contracts/kb/kb-contract.md` — how to read the pack.
 2. `<repoRoot>/engine/contracts/report/specs/contract.md` — the shared writing contract.
 3. `<repoRoot>/engine/contracts/report/specs/<specId>.md` — the one spec that governs this report.
-4. The pack at `packPath`.
+4. The pack at `packDb` — query it with SQL, do not scan files.
 
 **MUST NOT** read the other specs. Four specs run to a thousand lines together;
 loading all of them crowds out the facts, and writing a non-technical overview
@@ -131,7 +132,7 @@ Read the claim set at `claimsPath`, then write **only your chapter** to
 `chapterOutputPath`, in `language`, following the part of the spec given inline
 and the shared contract's rules. Open with the chapter's own `##` heading.
 
-**Read the claim set. Do not open the pack.** The claims phase already walked it,
+**Read the claim set. Do not query the pack.** The claims phase already walked it,
 once, so that this phase does not have to — twelve chapters each exploring the
 same pack would cost twelve times what walking it once cost, and the claim set
 exists precisely so that work is done and shared. If a claim's wording is
@@ -143,13 +144,17 @@ cannot see it, and consistency rests on the shared set.
 
 The rules you will most easily break, restated:
 
-* Evidence markers are `fact`, `verified`, `unavailable`. **There is no inferred
-  tier.** Render the marker in the target language.
-* Translating a term is not inference — a report that prints raw table and
-  function names is not acceptable.
-* **MUST NOT** write design intent, motive, consequences, solutions, or evaluation
-  without evidence. A precise fact carries its own weight; appending what it
-  might cause crosses the line.
+* Evidence markers are `fact`, `verified`, `inferred`, `unavailable`. Render each
+  in the target language.
+* **Say what the system does.** "Twenty-five endpoints write to four tables" is
+  true and useless alone; the reader needs "this module handles leave requests
+  from submission through multi-level approval". Mark that `inferred` and name the
+  facts it reads. A report that refuses to say what a system does has not done its
+  job.
+* The line is between **what this is** and **what to do about it**. **MUST NOT**
+  write design intent, motive, consequences, solutions, or evaluation without
+  evidence. A precise fact carries its own weight; appending what it might cause
+  crosses the line.
 * Every chapter closes with a summary that **generalizes** the chapter's own
   facts and introduces nothing new.
 * Every coverage number carries its denominator.

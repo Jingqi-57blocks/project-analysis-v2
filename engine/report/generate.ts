@@ -23,6 +23,7 @@ import {
 import { authorableChapters } from "../contracts/report/chapters.js";
 import { buildFactPack, type FactPack } from "../kb/fact-pack.js";
 import { pruneFactPackBulk, writeFactPack } from "../kb/fact-pack-io.js";
+import { writePackDatabase } from "../kb/pack-db.js";
 import { evaluateGate, explainVerdict } from "../kb/generation-gate.js";
 import { auditReport, readInventory, type AuditResult } from "./kb-audit.js";
 import type { PlannedTarget, ReportPlan } from "./orchestrate.js";
@@ -218,7 +219,11 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     if (cutting === undefined) {
       const directory = `${runPath}/packs/${target.packKey.replace(/[^\w.-]+/g, "-")}`;
       cutting = Promise.resolve().then(() => {
+        // Both forms: the database is what the agent queries, the index is what a
+        // later reader needs to interpret the run's coverage statements after the
+        // bulk has been pruned.
         writeFactPack(pack, directory);
+        writePackDatabase(pack, directory);
         return directory;
       });
       packDirs.set(target.packKey, cutting);

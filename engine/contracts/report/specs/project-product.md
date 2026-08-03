@@ -3,7 +3,7 @@ id: project-product
 scope: project
 audience: product
 inherits: contract.md
-version: 1.0.0
+version: 1.1.0
 title: Project overview, non-technical
 requires:
   - auth-annotation
@@ -61,7 +61,7 @@ The overview answers **structural** questions: what the project is made of, what
 | -- | -- |
 | The project's stated purpose | `unavailable` — see below |
 | Which user roles the system defines | `fact` |
-| Which capabilities are inside the project | `fact` |
+| Which capabilities are inside the project | `fact` for the entry points; `inferred` for what each capability does |
 | Which capabilities are provided by external systems | `fact` |
 | Project stage (pilot, mature, maintenance) | `unavailable` |
 
@@ -82,6 +82,7 @@ Extracting document bodies is an analysis-layer change and is out of scope for t
 | -- | -- |
 | Which independently deployable parts the project has | `fact` |
 | Which business modules each part carries | `fact` |
+| What each part is for, in one line | `inferred` |
 | Which kind of user it serves (employee-facing, admin console, mobile, backend service) | `fact`, from entry-point type and host repository |
 | Whether it has live entry points and is called by other repositories | `fact` |
 | Whether any repository or large block of code has no reachable entry point | `fact` |

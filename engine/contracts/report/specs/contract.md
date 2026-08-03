@@ -1,7 +1,7 @@
 ---
 id: contract
 kind: shared-writing-contract
-version: 1.1.0
+version: 2.0.0
 ---
 
 # Shared writing contract
@@ -22,9 +22,10 @@ this contract never is.
 | -- | -- | -- |
 | `fact` | Directly supported by source | Every instance traces to a file and line |
 | `verified` | A hypothesis checked against the fact store | The code decides the verdict; the checked locations are listed |
+| `inferred` | What the cited facts mean, in business terms | The facts it rests on are listed; a reader can disagree with the reading |
 | `unavailable` | Static analysis cannot answer it | Stated explicitly — never guessed, never left blank |
 
-**These three and no others. There is no "inferred" tier.** Every sentence either points at evidence or is marked unavailable.
+**These four and no others.** Every sentence either points at evidence or is marked unavailable.
 
 Markers are structural tokens, not printed English. The View renders each one into
 the target language. Reference renderings:
@@ -33,11 +34,41 @@ the target language. Reference renderings:
 | -- | -- | -- |
 | `fact` | 事实 | Fact |
 | `verified` | 验证 | Verified |
+| `inferred` | 推断 | Inferred |
 | `unavailable` | 不可得 | Unavailable |
+
+### What `inferred` is for
+
+A report that only lists facts does not tell the reader what they are looking at.
+"Twenty-five endpoints write to four tables" is true and useless on its own;
+"this module handles leave requests from submission through multi-level approval"
+is what makes the rest legible. That reading is an inference, it is marked as one,
+and it is required — a report that refuses to say what a system does has not done
+its job.
+
+An inference **MUST** stay on the "what is this" side:
+
+| Allowed | Not allowed |
+| -- | -- |
+| What the system or module does | What ought to be done about it |
+| What a table or field represents | What might go wrong because of it |
+| Which business activity a flow implements | Why it was built this way |
+| Who a role appears to serve | Whether the design is good |
+
+Every inference **MUST** name the facts it reads. "This module handles leave
+approval `inferred`, from the four approval-level guards and the leave tables it
+writes" is an inference a reader can check and disagree with. The same sentence
+with nothing behind it is a guess.
+
+Prefer `fact` where a fact will do. Reach for `inferred` when the reader needs the
+meaning, not when a fact is inconvenient to find.
 
 **Translating a term is not inference.** Rendering `wcp_leave` as "leave record", or a `CheckIsHR` guard as "accessible to HR specialists", swaps a technical identifier for readable wording without adding information — it stays `fact`. Reports **MUST** do this. A report that dumps table and function names is not acceptable.
 
-## 2. State facts, nothing else
+## 2. Describe the present; do not prescribe or predict
+
+Say what the system is and what it does — that is the report's purpose. Do not say
+what should be done about it, what it might cause, or why it came to be this way.
 
 **These five categories MUST NOT appear:**
 
@@ -49,7 +80,11 @@ the target language. Reference renderings:
 | Solutions | recommendations, acceptance criteria, action items, priority ordering |
 | Evaluation without evidence | "tightly coupled", "poorly designed" |
 
-Source code contains no intent and no consequences, only current state. Why it was built this way, whether it will cause trouble, and whether to change it are the reader's to judge.
+The line runs between **what this is** and **what to do about it**. Reading a
+business meaning off the facts is the first; advice, prediction and motive are the
+second. Source code records what was built, not why it was built or what it will
+cause, and the reader — who knows the schedule, the team and the constraints — is
+the one placed to judge those.
 
 **A precisely stated fact carries its own weight.** "The leave notification call's error is discarded — neither logged nor retried" is complete. Appending "so operations cannot diagnose it" adds nothing and crosses the line.
 
@@ -57,7 +92,7 @@ Source code contains no intent and no consequences, only current state. Why it w
 
 * **Analysis scope**: which source roots were read. A module report additionally states which code the module comprises, which repositories it spans, and how that boundary was determined.
 * **Method**: static source review only; dependencies not installed, services not started, database not connected, tests not executed, production traffic not traced.
-* **Evidence levels**: the three markers from section 1.
+* **Evidence levels**: the four markers from section 1.
 * **Snapshot**: each repository's revision, whether it had uncommitted changes, and the analysis time.
 
 The opening **MUST** describe the subject. It **MUST NOT** open with a description of the analysis method. Chapter introductions address the reader and **MUST NOT** explain how the analyzer works.
