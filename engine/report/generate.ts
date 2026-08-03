@@ -13,7 +13,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-import { indexClaims, type Claim } from "../contracts/claim/index.js";
+import { indexClaims, qualifierConflicts, type Claim, type QualifierConflict } from "../contracts/claim/index.js";
 import { buildFactPack, type FactPack } from "../kb/fact-pack.js";
 import { writeFactPack } from "../kb/fact-pack-io.js";
 import { evaluateGate, explainVerdict } from "../kb/generation-gate.js";
@@ -53,12 +53,25 @@ export interface TargetOutcome {
   readonly blocked: string | null;
 }
 
+export interface CrossTargetConflict extends QualifierConflict {
+  readonly between: readonly [string, string];
+}
+
 export interface GenerateResult {
   readonly runId: string;
   readonly runPath: string;
   readonly manifest: RunManifest;
   readonly outcomes: readonly TargetOutcome[];
-  /** True only if every target produced a report that passed its audit. */
+  /**
+   * Where two targets in this run say different things about one claim.
+   *
+   * Because identity is the predicate and the subject, a disagreement lands on
+   * one claimId and is visible here; it cannot become two unrelated claims that
+   * nobody compares. Aggregates never appear, since a roll-up is computed from
+   * the claim set rather than stored.
+   */
+  readonly conflicts: readonly CrossTargetConflict[];
+  /** True only if every target passed its audit and no two disagree. */
   readonly delivered: boolean;
 }
 
@@ -89,6 +102,7 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
   const { runId, path: runPath } = allocateRunDirectory(input.outputRoot, input.plan.runLabel, input.instant);
   const inventory = readInventory(input.store, input.snapshotId);
   const packDirs = new Map<string, string>();
+  const claimsByTarget = new Map<string, readonly Claim[]>();
   const outcomes: TargetOutcome[] = [];
   let modelTier = "unknown";
 
@@ -156,7 +170,13 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
       JSON.stringify({ passed, findings: audit.findings, invalidClaims: invalid, kindUsage: audit.kindUsage }, null, 2) +
         "\n",
     );
+    claimsByTarget.set(target.directory, [...claims]);
     outcomes.push({ target, record: record({ auditPassed: passed }), audit, blocked: null });
+  }
+
+  const conflicts = crossTargetConflicts(claimsByTarget);
+  if (conflicts.length > 0) {
+    writeFileSync(`${runPath}/claim-conflicts.json`, JSON.stringify(conflicts, null, 2) + "\n");
   }
 
   const manifest = buildManifest({
@@ -174,8 +194,30 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     runPath,
     manifest,
     outcomes,
-    delivered: outcomes.length > 0 && outcomes.every((outcome) => outcome.record.auditPassed === true),
+    conflicts,
+    delivered:
+      outcomes.length > 0 &&
+      outcomes.every((outcome) => outcome.record.auditPassed === true) &&
+      conflicts.length === 0,
   };
+}
+
+/** Every pairwise disagreement between the run's targets, each reported once. */
+export function crossTargetConflicts(
+  claimsByTarget: ReadonlyMap<string, readonly Claim[]>,
+): readonly CrossTargetConflict[] {
+  const entries = [...claimsByTarget.entries()];
+  const conflicts: CrossTargetConflict[] = [];
+  for (let left = 0; left < entries.length; left += 1) {
+    for (let right = left + 1; right < entries.length; right += 1) {
+      const [leftName, leftClaims] = entries[left]!;
+      const [rightName, rightClaims] = entries[right]!;
+      for (const conflict of qualifierConflicts(leftClaims, rightClaims)) {
+        conflicts.push({ ...conflict, between: [leftName, rightName] });
+      }
+    }
+  }
+  return conflicts;
 }
 
 /** A short account of what a run produced, and of what it refused to produce. */
@@ -191,6 +233,12 @@ export function explainRun(result: GenerateResult): string {
     lines.push(`  ${outcome.target.directory}: ${verdict}`);
     for (const finding of outcome.audit?.findings.slice(0, 5) ?? []) {
       lines.push(`    - [${finding.code}] ${finding.evidence}`);
+    }
+  }
+  if (result.conflicts.length > 0) {
+    lines.push(`  ${result.conflicts.length} claim(s) described differently by two targets:`);
+    for (const conflict of result.conflicts.slice(0, 5)) {
+      lines.push(`    - ${conflict.claimId} "${conflict.key}": ${conflict.between.join(" vs ")}`);
     }
   }
   return lines.join("\n");

@@ -223,3 +223,63 @@ describe("kind usage is measured through claims, not through prose", () => {
     expect(unused.map((f: { evidence: string }) => f.evidence).sort()).toEqual(["coverage-note", "run-context"]);
   });
 });
+
+describe("cross-document claim consistency", () => {
+  const claim = (verdict: string, at?: string) => ({
+    claimId: "claim:rule-present:rule-subject:client-delete-guard",
+    predicate: "rule-present",
+    subject: { type: "rule-subject", ref: "client-delete-guard" },
+    qualifiers: at === undefined ? { verdict } : { verdict, at },
+    factIds: ["r1"],
+    usedBy: [],
+  });
+
+  const supporting = [
+    { claimId: "claim:coverage-recorded:workspace:.", predicate: "coverage-recorded", subject: { type: "workspace", ref: "." }, qualifiers: {}, factIds: ["cn"], usedBy: [] },
+    { claimId: "claim:snapshot-recorded:workspace:snapshot", predicate: "snapshot-recorded", subject: { type: "workspace", ref: "snapshot" }, qualifiers: {}, factIds: ["rc"], usedBy: [] },
+  ];
+
+  it("reports two targets that describe one claim differently", async () => {
+    // The archived trial's real disagreement, reproduced: one target judged the
+    // guard unconfirmed, the other found it. Same predicate, same subject.
+    const disagreeing: SkillRunner = async (invocation) => {
+      const overview = invocation.specId === "project-product";
+      writeFileSync(
+        invocation.claimsPath,
+        JSON.stringify({
+          claims: [overview ? claim("unconfirmed") : claim("hit", "svc/a.go:526"), ...supporting],
+        }),
+      );
+      writeFileSync(invocation.viewPath, "# 报告\n");
+      return { modelTier: "sonnet" };
+    };
+    const result = await run(
+      [
+        { scope: "project", audience: "product" },
+        { scope: "module", audience: "product", module: "leave" },
+      ],
+      disagreeing,
+    );
+    expect(result.conflicts.map((c) => c.key).sort()).toEqual(["at", "verdict"]);
+    expect(result.conflicts[0]?.between).toEqual(["project-product", "module-leaves-product"]);
+    expect(result.delivered).toBe(false);
+    expect(existsSync(join(result.runPath, "claim-conflicts.json"))).toBe(true);
+  });
+
+  it("reports nothing when the two targets agree", async () => {
+    const agreeing: SkillRunner = async (invocation) => {
+      writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [claim("hit", "svc/a.go:526"), ...supporting] }));
+      writeFileSync(invocation.viewPath, "# 报告\n");
+      return { modelTier: "sonnet" };
+    };
+    const result = await run(
+      [
+        { scope: "project", audience: "product" },
+        { scope: "module", audience: "product", module: "leave" },
+      ],
+      agreeing,
+    );
+    expect(result.conflicts).toEqual([]);
+    expect(existsSync(join(result.runPath, "claim-conflicts.json"))).toBe(false);
+  });
+});
