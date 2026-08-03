@@ -131,15 +131,37 @@ export function claudeCodeRunner<T>(request: Omit<JsonAgentRequest<T>, "run">): 
     let pending = "";
     let resultEnvelope: ClaudeResultEnvelope | null = null;
     let stderr = "";
-    let wentIdle = false;
+    let settled = false;
     let idle: ReturnType<typeof setTimeout>;
+
+    // Settling never waits on the `close` event: a killed command whose children
+    // still hold the stdout pipe can delay `close` indefinitely, which is exactly
+    // the hang the idle guard exists to prevent. So a give-up path resolves the
+    // promise itself and force-kills the process behind it.
+    const settleResolve = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(idle);
+      rmSync(dir, { recursive: true, force: true });
+      resolve(value);
+    };
+    const settleReject = (error: JsonAgentError): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(idle);
+      rmSync(dir, { recursive: true, force: true });
+      child.kill("SIGTERM");
+      const hardKill = setTimeout(() => child.kill("SIGKILL"), 2_000);
+      hardKill.unref();
+      reject(error);
+    };
 
     const bumpIdle = (): void => {
       clearTimeout(idle);
-      idle = setTimeout(() => {
-        wentIdle = true;
-        child.kill("SIGTERM");
-      }, idleMs);
+      idle = setTimeout(
+        () => settleReject(new JsonAgentError("claude went idle and was terminated", `no output for ${Math.round(idleMs / 1000)}s`)),
+        idleMs,
+      );
     };
 
     const consumeLine = (line: string): void => {
@@ -156,6 +178,7 @@ export function claudeCodeRunner<T>(request: Omit<JsonAgentRequest<T>, "run">): 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
+      if (settled) return;
       bumpIdle();
       pending += chunk;
       let nl = pending.indexOf("\n");
@@ -165,48 +188,37 @@ export function claudeCodeRunner<T>(request: Omit<JsonAgentRequest<T>, "run">): 
         nl = pending.indexOf("\n");
       }
       if (pending.length > MAX_LINE_BYTES) {
-        wentIdle = false;
-        child.kill("SIGTERM");
-        reject(new JsonAgentError("claude produced more output than expected", pending.slice(0, 2_000)));
+        settleReject(new JsonAgentError("claude produced more output than expected", pending.slice(0, 2_000)));
       }
     });
     child.stderr.on("data", (chunk: string) => {
+      if (settled) return;
       bumpIdle();
       if (stderr.length < MAX_STDERR_BYTES) stderr += chunk;
     });
 
     bumpIdle();
 
-    child.once("error", (error) => {
-      clearTimeout(idle);
-      rmSync(dir, { recursive: true, force: true });
-      reject(new JsonAgentError("failed to start claude", error.message));
-    });
+    child.once("error", (error) => settleReject(new JsonAgentError("failed to start claude", error.message)));
     child.once("close", (code, signal) => {
-      clearTimeout(idle);
+      if (settled) return;
       try {
         consumeLine(pending);
-        if (wentIdle) {
-          reject(new JsonAgentError("claude went idle and was terminated", `no output for ${Math.round(idleMs / 1000)}s`));
-          return;
-        }
         if (code !== 0) {
-          reject(new JsonAgentError(`claude exited with ${code ?? signal ?? "unknown status"}`, stderr.trim().slice(-20_000)));
+          settleReject(new JsonAgentError(`claude exited with ${code ?? signal ?? "unknown status"}`, stderr.trim().slice(-20_000)));
           return;
         }
         if (resultEnvelope === null) {
-          reject(new JsonAgentError("claude produced no result event", stderr.trim().slice(-2_000)));
+          settleReject(new JsonAgentError("claude produced no result event", stderr.trim().slice(-2_000)));
           return;
         }
-        resolve(valueFromEnvelope<T>(resultEnvelope));
+        settleResolve(valueFromEnvelope<T>(resultEnvelope));
       } catch (error) {
-        reject(
+        settleReject(
           error instanceof JsonAgentError
             ? error
             : new JsonAgentError("claude returned unreadable output", error instanceof Error ? error.message : String(error)),
         );
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
       }
     });
 

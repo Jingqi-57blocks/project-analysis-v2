@@ -38,7 +38,7 @@ function fakeClaude(body: string, exitCode = 0): string {
 function fakeClaudeIdle(): string {
   const dir = mkdtempSync(join(tmpdir(), "fake-claude-idle-"));
   const path = join(dir, "claude");
-  writeFileSync(path, `#!/bin/sh\nsleep 5\n`, "utf8");
+  writeFileSync(path, `#!/bin/sh\nexec sleep 5\n`, "utf8");
   chmodSync(path, 0o755);
   scripts.push(dir);
   return path;
