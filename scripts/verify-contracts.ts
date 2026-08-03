@@ -23,6 +23,7 @@ import {
 } from "../engine/contracts/report/index.js";
 import { INVALID_CLAIM_EXAMPLES, VALID_CLAIM_EXAMPLES, validateClaim } from "../engine/contracts/claim/index.js";
 import { validateKbContract } from "../engine/contracts/kb/index.js";
+import { MODULE_CATEGORIES, categorize } from "../engine/contracts/module/index.js";
 import { INVALID_PROVENANCE_EXAMPLES, validateProvenance } from "../engine/contracts/shared-fact/index.js";
 import { loadTargetManifest, validateManifest } from "../engine/contracts/targets/index.js";
 import { loadAngelsPizzaSentinels, validateSentinelLedger } from "../engine/contracts/truth/sentinel.js";
@@ -67,6 +68,12 @@ for (const example of VALID_CLAIM_EXAMPLES) {
 for (const example of INVALID_CLAIM_EXAMPLES) {
   check(`invalid claim rejected (${example.why})`, !validateClaim(example.claim).ok);
 }
+check(
+  "module categorization is total",
+  MODULE_CATEGORIES.includes(
+    categorize({ endpointCount: 0, dataEntityCount: 0, outboundTargetCount: 0, symbolCount: 0, dependentCount: 0 }),
+  ),
+);
 
 // 3. Positive / negative fixtures behave as specified.
 for (const ex of LEGAL_COMBINATION_EXAMPLES) check(`legal combination ${ex.name}`, validateRequest(ex.request).ok);
