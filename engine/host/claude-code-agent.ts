@@ -31,6 +31,14 @@ const MAX_STDOUT_BYTES = 16_000_000;
 const MAX_STDERR_BYTES = 200_000;
 
 /**
+ * Authoring a whole module document is one large call, and a capable model may
+ * think for several minutes over it — the Codex-tuned 8-minute default is too
+ * tight and truncates the work. Twenty minutes leaves headroom while still
+ * bounding a genuinely hung command.
+ */
+const DEFAULT_TIMEOUT_MS = 1_200_000;
+
+/**
  * The `claude` argument vector for one authoring call. Print mode with a single
  * JSON result and the schema inline; `--model` is only passed when the identity
  * pins one, so `default` uses the host's configured model.
@@ -104,7 +112,7 @@ export function claudeCodeRunner<T>(request: Omit<JsonAgentRequest<T>, "run">): 
       if (stderr.length < MAX_STDERR_BYTES) stderr += chunk;
     });
 
-    const timeout = setTimeout(() => child.kill("SIGTERM"), request.timeoutMs ?? 480_000);
+    const timeout = setTimeout(() => child.kill("SIGTERM"), request.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
     child.once("error", (error) => {
       clearTimeout(timeout);
