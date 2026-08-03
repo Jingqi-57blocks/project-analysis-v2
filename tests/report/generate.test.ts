@@ -117,7 +117,7 @@ describe("running a plan", () => {
     expect(manifest.modelTier).toBe("sonnet");
     expect(manifest.auditPassed).toBe(true);
     expect(manifest.startedAtLocal).toBe("08-03 14:22");
-    expect(manifest.targets[0].specVersion).toBe("1.0.0");
+    expect(manifest.targets[0].specVersion).toBe("1.1.0");
   });
 
   it("cuts one pack for two audiences over the same module", async () => {
@@ -272,7 +272,7 @@ describe("the skill prompt", () => {
       phase: "claims", packDir: "/p", specId: "project-product", language: "zh-CN",
       claimsPath: "/c.json", viewPath: "/v.md", repoRoot: "/repo", scratchDir: "/repo/scratch",
     });
-    for (const line of ["packPath: /p/index.json", "specId: project-product", "language: zh-CN", "scratchPath: /repo/scratch"]) {
+    for (const line of ["packDb: /p/pack.sqlite", "specId: project-product", "language: zh-CN", "scratchPath: /repo/scratch"]) {
       expect(prompt).toContain(line);
     }
     // Restating the skill's rules here would create a second copy that drifts.
@@ -502,13 +502,14 @@ describe("resuming a run", () => {
     const first = await run([{ scope: "project", audience: "product" }], goodRunner);
     // Drop one chapter and resume; only that one should be authored again.
     const chapters = join(first.runPath, "project-product/chapters");
-    const dropped = readdirSync(chapters)[0]!;
+    const dropped = readdirSync(chapters).filter((name) => name.endsWith(".md"))[0]!;
     rmSync(join(chapters, dropped));
     let written = 0;
     const counting: SkillRunner = async (invocation) => {
       if (invocation.phase === "chapter") written += 1;
       return goodRunner(invocation);
     };
+
     const resumed = await generateReports({
       plan: plan([{ scope: "project", audience: "product" }]),
       store,
@@ -521,6 +522,9 @@ describe("resuming a run", () => {
       membership: new Map(),
       resumeRunId: first.runId,
     });
+    // A resumed run re-cuts the pack; leaving the old database in place made
+    // creating its schema fail and took the whole target down.
+    expect(resumed.outcomes[0]?.blocked).toBeNull();
     expect(written).toBe(1);
     expect(resumed.runId).toBe(first.runId);
     expect(existsSync(join(chapters, dropped))).toBe(true);

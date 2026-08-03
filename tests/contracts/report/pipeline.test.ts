@@ -100,8 +100,10 @@ describe("compileReportPlan — identity moves with each dimension", () => {
   });
 
   it("changes when the preset or generator version changes", () => {
-    const preset = compile([projectTarget("product")], { versions: { preset: "2.0.0" } });
-    const generator = compile([projectTarget("product")], { versions: { generator: "2.0.0" } });
+    // A version distinct from every default, so the test cannot pass or fail by
+    // coinciding with whatever the contracts happen to be on today.
+    const preset = compile([projectTarget("product")], { versions: { preset: "99.0.0" } });
+    const generator = compile([projectTarget("product")], { versions: { generator: "99.0.0" } });
     expect(preset.planDigest).not.toBe(base().planDigest);
     expect(generator.planDigest).not.toBe(base().planDigest);
   });

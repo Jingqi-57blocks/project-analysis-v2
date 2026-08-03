@@ -8,8 +8,8 @@
     },
     {
       "id": "report",
-      "version": "1.2.0",
-      "digest": "7293370bbaa9d99bb61bb5421905a6f4d934e756fe0561c5710e69898fa42374"
+      "version": "2.0.0",
+      "digest": "a1961c05179214af9ce729568c4aa6a93a85e8a7d92b38922976dc85e41d7ad5"
     },
     {
       "id": "truth-leave",
@@ -28,8 +28,8 @@
     },
     {
       "id": "kb-read",
-      "version": "1.0.0",
-      "digest": "054baf940f4dee33ec86b19b171d6497968547070d71a6fc05a060fc253c426e"
+      "version": "2.0.0",
+      "digest": "fbd2cbc9e593a9350dbff5fa334323f14823c2f0f779f4041ef6ff0f4b0f8b12"
     },
     {
       "id": "claim",
@@ -47,5 +47,5 @@
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "073e5a6b01df0d90959f663aa2a518c8285fbc5dc6501f6355d66af81eb8dd04"
+  "bundleDigest": "d9c8aca21f5a245493b85821786f3f621c269e936c1513121c17b5855ec22cc3"
 }

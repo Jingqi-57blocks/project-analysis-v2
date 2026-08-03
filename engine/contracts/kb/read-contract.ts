@@ -17,7 +17,7 @@ import { DERIVED_KINDS } from "../../kb/kinds.js";
 import { STRUCTURAL_KINDS } from "../../structural/kinds.js";
 
 export const KB_CONTRACT_ID = "kb-read";
-export const KB_CONTRACT_VERSION = "1.0.0";
+export const KB_CONTRACT_VERSION = "2.0.0";
 
 /**
  * Which layer a kind belongs to. The distinction is load-bearing for readers:

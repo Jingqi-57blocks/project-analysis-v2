@@ -82,7 +82,7 @@ describe("the report skill", () => {
   });
 
   it("names every input it needs, so a missing one stops the run", () => {
-    for (const input of ["phase", "packPath", "specId", "language", "claimsPath", "scratchPath", "chapterOutputPath"]) {
+    for (const input of ["phase", "packDb", "specId", "language", "claimsPath", "scratchPath", "chapterOutputPath"]) {
       expect(body).toContain(input);
     }
   });

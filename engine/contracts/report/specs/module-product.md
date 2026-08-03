@@ -3,7 +3,7 @@ id: module-product
 scope: module
 audience: product
 inherits: contract.md
-version: 1.0.0
+version: 1.1.0
 title: Module detail, non-technical
 requires:
   - auth-annotation
@@ -75,7 +75,8 @@ A module's boundary is decided by code ownership and call relationships, **MUST 
 
 | Question | Marker |
 | -- | -- |
-| Module name and business domain | `fact` |
+| Module name and business domain | `fact` for the name; `inferred` for the domain |
+| What this module does, in two or three sentences | `inferred` — the reader needs this before anything else |
 | Which business objects it involves | `fact` |
 | Which roles can reach its entry points | `fact` |
 | Where it is entered from (page, API, scheduled job, external callback) | `fact` |
@@ -107,7 +108,7 @@ Format: `contract.md` section 7.
 | -- | -- |
 | Who initiates it | `fact` |
 | Which entry point it starts from | `fact` |
-| The main steps of the happy path | `fact` |
+| The main steps of the happy path | `fact` for the steps; `inferred` for what the flow accomplishes |
 | The condition and branches at each step | `fact` |
 | Which terminal states it reaches (success, rejected, cancelled, error) | `fact` |
 | Which steps are automatic and which need a person | `fact`; scheduled jobs and triggered calls are distinguishable |
