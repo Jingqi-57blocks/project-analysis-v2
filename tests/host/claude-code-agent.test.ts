@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { buildClaudeArgs, claudeCodeRunner, parseClaudeEnvelope } from "../../engine/host/claude-code-agent.js";
+import { buildClaudeArgs, claudeCodeRunner, parseClaudeStream, valueFromEnvelope } from "../../engine/host/claude-code-agent.js";
 import { JsonAgentError, type JsonAgentRequest } from "../../engine/host/json-agent.js";
 
 const schema = { type: "object", additionalProperties: false, required: ["greeting"], properties: { greeting: { type: "string" } } } as const;
@@ -17,12 +17,28 @@ function request(overrides: Partial<Omit<JsonAgentRequest<unknown>, "run">> = {}
   };
 }
 
-/** A throwaway executable that ignores its args, drains stdin and prints `body` on stdout with `exitCode`. */
+/** A stream-json result line, as `claude` prints it last. */
+function resultLine(fields: Record<string, unknown>): string {
+  return JSON.stringify({ type: "result", subtype: "success", is_error: false, ...fields });
+}
+
 const scripts: string[] = [];
+
+/** A throwaway executable that ignores its args, drains stdin, prints `body`, then exits `exitCode`. */
 function fakeClaude(body: string, exitCode = 0): string {
   const dir = mkdtempSync(join(tmpdir(), "fake-claude-"));
   const path = join(dir, "claude");
   writeFileSync(path, `#!/bin/sh\ncat >/dev/null\ncat <<'ENVELOPE'\n${body}\nENVELOPE\nexit ${exitCode}\n`, "utf8");
+  chmodSync(path, 0o755);
+  scripts.push(dir);
+  return path;
+}
+
+/** A throwaway executable that produces no output and just sleeps — a hung command. */
+function fakeClaudeIdle(): string {
+  const dir = mkdtempSync(join(tmpdir(), "fake-claude-idle-"));
+  const path = join(dir, "claude");
+  writeFileSync(path, `#!/bin/sh\nsleep 5\n`, "utf8");
   chmodSync(path, 0o755);
   scripts.push(dir);
   return path;
@@ -33,9 +49,9 @@ afterAll(() => {
 });
 
 describe("buildClaudeArgs", () => {
-  it("uses print mode with an inline schema and no --model for the default identity", () => {
+  it("uses streaming print mode (which --verbose requires) with an inline schema and no --model for the default identity", () => {
     const args = buildClaudeArgs(request(), JSON.stringify(schema));
-    expect(args).toEqual(["--print", "--output-format", "json", "--json-schema", JSON.stringify(schema)]);
+    expect(args).toEqual(["--print", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--json-schema", JSON.stringify(schema)]);
     expect(args).not.toContain("--model");
   });
 
@@ -50,43 +66,57 @@ describe("buildClaudeArgs", () => {
   });
 });
 
-describe("parseClaudeEnvelope", () => {
-  it("returns the parsed structured_output when present", () => {
-    const value = parseClaudeEnvelope<{ greeting: string }>(JSON.stringify({ subtype: "success", is_error: false, structured_output: { greeting: "你好" }, result: "ignored" }));
-    expect(value).toEqual({ greeting: "你好" });
+describe("valueFromEnvelope", () => {
+  it("returns structured_output when present", () => {
+    expect(valueFromEnvelope({ subtype: "success", structured_output: { greeting: "你好" }, result: "ignored" })).toEqual({ greeting: "你好" });
   });
 
-  it("falls back to parsing the result string when structured_output is absent", () => {
-    const value = parseClaudeEnvelope<{ greeting: string }>(JSON.stringify({ subtype: "success", result: '{"greeting":"hi"}' }));
-    expect(value).toEqual({ greeting: "hi" });
+  it("falls back to parsing the result string", () => {
+    expect(valueFromEnvelope({ subtype: "success", result: '{"greeting":"hi"}' })).toEqual({ greeting: "hi" });
   });
 
   it("throws when the envelope reports an error", () => {
-    expect(() => parseClaudeEnvelope(JSON.stringify({ is_error: true, subtype: "error_during_execution", api_error_status: "overloaded" }))).toThrow(JsonAgentError);
+    expect(() => valueFromEnvelope({ is_error: true, subtype: "error_during_execution", api_error_status: "overloaded" })).toThrow(JsonAgentError);
   });
 
   it("throws when the subtype is not success", () => {
-    expect(() => parseClaudeEnvelope(JSON.stringify({ subtype: "error_max_turns", result: "{}" }))).toThrow(/error/i);
-  });
-
-  it("throws on non-JSON stdout", () => {
-    expect(() => parseClaudeEnvelope("not json at all")).toThrow(/unreadable/i);
-  });
-
-  it("throws when a successful envelope carries no usable output", () => {
-    expect(() => parseClaudeEnvelope(JSON.stringify({ subtype: "success" }))).toThrow(/no structured output/i);
+    expect(() => valueFromEnvelope({ subtype: "error_max_turns", result: "{}" })).toThrow(/error/i);
   });
 
   it("throws when the result string is not JSON", () => {
-    expect(() => parseClaudeEnvelope(JSON.stringify({ subtype: "success", result: "plain prose, not json" }))).toThrow(/not JSON/i);
+    expect(() => valueFromEnvelope({ subtype: "success", result: "plain prose" })).toThrow(/not JSON/i);
+  });
+});
+
+describe("parseClaudeStream", () => {
+  const streamEvent = JSON.stringify({ type: "stream_event", event: { type: "content_block_delta", delta: { text: "…" } } });
+
+  it("extracts the terminating result event from a JSONL transcript", () => {
+    const transcript = [streamEvent, resultLine({ structured_output: { greeting: "hola" } })].join("\n");
+    expect(parseClaudeStream(transcript)).toEqual({ greeting: "hola" });
+  });
+
+  it("ignores an earlier line whose prose merely contains the result marker", () => {
+    const decoy = JSON.stringify({ type: "assistant", message: { text: 'I will emit {"type":"result"} shortly' } });
+    const transcript = [decoy, resultLine({ structured_output: { greeting: "real" } })].join("\n");
+    expect(parseClaudeStream(transcript)).toEqual({ greeting: "real" });
+  });
+
+  it("throws when no result event is present", () => {
+    expect(() => parseClaudeStream([streamEvent, streamEvent].join("\n"))).toThrow(/no result event/i);
+  });
+
+  it("surfaces an error result event", () => {
+    expect(() => parseClaudeStream(resultLine({ subtype: "error_max_turns" }))).toThrow(JsonAgentError);
   });
 });
 
 describe("claudeCodeRunner", () => {
-  it("resolves to the structured output the command prints", async () => {
-    const command = fakeClaude(JSON.stringify({ subtype: "success", is_error: false, structured_output: { greeting: "hola" } }));
-    const value = await claudeCodeRunner<{ greeting: string }>(request({ command }));
-    expect(value).toEqual({ greeting: "hola" });
+  const streamEvent = JSON.stringify({ type: "stream_event", event: { type: "content_block_delta" } });
+
+  it("resolves to the structured output from the streamed result event", async () => {
+    const command = fakeClaude([streamEvent, resultLine({ structured_output: { greeting: "hola" } })].join("\n"));
+    expect(await claudeCodeRunner<{ greeting: string }>(request({ command }))).toEqual({ greeting: "hola" });
   });
 
   it("rejects with a JsonAgentError when the command cannot start", async () => {
@@ -96,5 +126,10 @@ describe("claudeCodeRunner", () => {
   it("rejects when the command exits non-zero", async () => {
     const command = fakeClaude("boom", 1);
     await expect(claudeCodeRunner(request({ command }))).rejects.toThrow(/exited with 1/);
+  });
+
+  it("terminates a command that goes idle and reports it", async () => {
+    const command = fakeClaudeIdle();
+    await expect(claudeCodeRunner(request({ command, timeoutMs: 200 }))).rejects.toThrow(/went idle/i);
   });
 });

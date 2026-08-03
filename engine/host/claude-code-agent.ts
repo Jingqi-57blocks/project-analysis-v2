@@ -7,6 +7,13 @@
  * an empty temporary working directory, receives the prompt on stdin and the
  * output schema inline, and returns the one schema-validated JSON value Claude's
  * structured output produces; it is never asked to inspect the analyzed source.
+ *
+ * The command streams its progress (`--output-format stream-json`), which is
+ * used as a liveness signal: authoring a whole module is one long call, so a
+ * fixed wall-clock cap can only be an arbitrary cliff a large enough module
+ * would still hit. Instead the run is killed only after a stretch of *silence* —
+ * distinguishing a slow-but-working call from a genuinely hung one, whatever the
+ * module's size.
  */
 
 import { spawn } from "node:child_process";
@@ -16,7 +23,7 @@ import { join } from "node:path";
 
 import { JsonAgentError, type JsonAgentRequest } from "./json-agent.js";
 
-/** The result envelope `claude -p --output-format json` prints on stdout. */
+/** The terminating result envelope `claude` prints as the last stream-json event. */
 interface ClaudeResultEnvelope {
   readonly type?: string;
   readonly subtype?: string;
@@ -26,28 +33,28 @@ interface ClaudeResultEnvelope {
   readonly structured_output?: unknown;
 }
 
-/** Cap stdout so a runaway command cannot exhaust memory; the envelope is one JSON object. */
-const MAX_STDOUT_BYTES = 16_000_000;
 const MAX_STDERR_BYTES = 200_000;
-
+/** A single stream-json line larger than this without a newline is treated as runaway. */
+const MAX_LINE_BYTES = 33_554_432;
 /**
- * Authoring a whole module document is one large call, and a capable model may
- * think for several minutes over it — the Codex-tuned 8-minute default is too
- * tight and truncates the work. Twenty minutes leaves headroom while still
- * bounding a genuinely hung command.
+ * Kill the command only after this long with no output of any kind — a hung
+ * command, not a slow one. Reset by every streamed event, so a call that keeps
+ * making progress is never interrupted, however large the module.
  */
-const DEFAULT_TIMEOUT_MS = 1_200_000;
+const IDLE_TIMEOUT_MS = 180_000;
 
 /**
- * The `claude` argument vector for one authoring call. Print mode with a single
- * JSON result and the schema inline; `--model` is only passed when the identity
- * pins one, so `default` uses the host's configured model.
+ * The `claude` argument vector for one authoring call. Print mode streaming
+ * JSON (which `--verbose` is required for) with the schema inline; `--model` is
+ * only passed when the identity pins one, so `default` uses the host's model.
  */
 export function buildClaudeArgs(request: Omit<JsonAgentRequest<unknown>, "run">, schemaJson: string): string[] {
   return [
     "--print",
     "--output-format",
-    "json",
+    "stream-json",
+    "--include-partial-messages",
+    "--verbose",
     "--json-schema",
     schemaJson,
     ...(request.identity.model === "default" ? [] : ["--model", request.identity.model]),
@@ -55,18 +62,16 @@ export function buildClaudeArgs(request: Omit<JsonAgentRequest<unknown>, "run">,
   ];
 }
 
+function isResultEnvelope(value: unknown): value is ClaudeResultEnvelope {
+  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "result";
+}
+
 /**
  * Extract the schema-validated value from a Claude result envelope. Prefers the
  * parsed `structured_output`; falls back to parsing the `result` string. A
- * non-success envelope or unparseable output is a {@link JsonAgentError}.
+ * non-success envelope or unusable output is a {@link JsonAgentError}.
  */
-export function parseClaudeEnvelope<T>(stdout: string): T {
-  let envelope: ClaudeResultEnvelope;
-  try {
-    envelope = JSON.parse(stdout) as ClaudeResultEnvelope;
-  } catch {
-    throw new JsonAgentError("claude returned unreadable output", stdout.slice(-20_000));
-  }
+export function valueFromEnvelope<T>(envelope: ClaudeResultEnvelope): T {
   if (envelope.is_error === true || (envelope.subtype !== undefined && envelope.subtype !== "success")) {
     const detail = envelope.api_error_status ?? envelope.subtype ?? "unknown error";
     throw new JsonAgentError("claude reported an error", String(detail));
@@ -81,7 +86,30 @@ export function parseClaudeEnvelope<T>(stdout: string): T {
       throw new JsonAgentError("claude result was not JSON", envelope.result.slice(0, 20_000));
     }
   }
-  throw new JsonAgentError("claude returned no structured output", stdout.slice(-2_000));
+  throw new JsonAgentError("claude returned no structured output", JSON.stringify(envelope).slice(0, 2_000));
+}
+
+/**
+ * Find the terminating result event in a stream-json (JSONL) transcript and
+ * extract its value. The result event is the last line; any earlier stream
+ * event is ignored, and a line that only looks like one (prose containing the
+ * marker) is confirmed by its parsed `type` before it counts.
+ */
+export function parseClaudeStream<T>(stdout: string): T {
+  let envelope: ClaudeResultEnvelope | null = null;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "" || !trimmed.includes('"type":"result"')) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (isResultEnvelope(parsed)) envelope = parsed;
+  }
+  if (envelope === null) throw new JsonAgentError("claude produced no result event", stdout.slice(-2_000));
+  return valueFromEnvelope<T>(envelope);
 }
 
 /** Run one authoring call through the `claude` CLI. Generic over the response type. */
@@ -89,6 +117,7 @@ export function claudeCodeRunner<T>(request: Omit<JsonAgentRequest<T>, "run">): 
   const schemaJson = JSON.stringify(request.schema);
   const dir = mkdtempSync(join(tmpdir(), "project-analysis-claude-"));
   const args = buildClaudeArgs(request, schemaJson);
+  const idleMs = request.timeoutMs ?? IDLE_TIMEOUT_MS;
 
   return new Promise<T>((resolve, reject) => {
     const child = spawn(request.command ?? "claude", args, {
@@ -96,46 +125,80 @@ export function claudeCodeRunner<T>(request: Omit<JsonAgentRequest<T>, "run">): 
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    let stdout = "";
+
+    // Only the terminating result event is kept; every other line is discarded
+    // as it streams, so memory stays bounded regardless of the transcript size.
+    let pending = "";
+    let resultEnvelope: ClaudeResultEnvelope | null = null;
     let stderr = "";
-    let overflowed = false;
+    let wentIdle = false;
+    let idle: ReturnType<typeof setTimeout>;
+
+    const bumpIdle = (): void => {
+      clearTimeout(idle);
+      idle = setTimeout(() => {
+        wentIdle = true;
+        child.kill("SIGTERM");
+      }, idleMs);
+    };
+
+    const consumeLine = (line: string): void => {
+      const trimmed = line.trim();
+      if (trimmed === "" || !trimmed.includes('"type":"result"')) return;
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (isResultEnvelope(parsed)) resultEnvelope = parsed;
+      } catch {
+        // A partial or non-JSON line — ignore it; the real result event is well-formed.
+      }
+    };
+
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-      if (stdout.length > MAX_STDOUT_BYTES) {
-        overflowed = true;
+      bumpIdle();
+      pending += chunk;
+      let nl = pending.indexOf("\n");
+      while (nl !== -1) {
+        consumeLine(pending.slice(0, nl));
+        pending = pending.slice(nl + 1);
+        nl = pending.indexOf("\n");
+      }
+      if (pending.length > MAX_LINE_BYTES) {
+        wentIdle = false;
         child.kill("SIGTERM");
+        reject(new JsonAgentError("claude produced more output than expected", pending.slice(0, 2_000)));
       }
     });
     child.stderr.on("data", (chunk: string) => {
+      bumpIdle();
       if (stderr.length < MAX_STDERR_BYTES) stderr += chunk;
     });
 
-    const timeout = setTimeout(() => child.kill("SIGTERM"), request.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    bumpIdle();
 
     child.once("error", (error) => {
-      clearTimeout(timeout);
+      clearTimeout(idle);
       rmSync(dir, { recursive: true, force: true });
       reject(new JsonAgentError("failed to start claude", error.message));
     });
     child.once("close", (code, signal) => {
-      clearTimeout(timeout);
+      clearTimeout(idle);
       try {
-        if (overflowed) {
-          reject(new JsonAgentError("claude produced more output than expected", stdout.slice(0, 2_000)));
+        consumeLine(pending);
+        if (wentIdle) {
+          reject(new JsonAgentError("claude went idle and was terminated", `no output for ${Math.round(idleMs / 1000)}s`));
           return;
         }
         if (code !== 0) {
-          reject(
-            new JsonAgentError(
-              `claude exited with ${code ?? signal ?? "unknown status"}`,
-              [stderr.trim(), stdout.trim()].filter(Boolean).join("\n").slice(-20_000),
-            ),
-          );
+          reject(new JsonAgentError(`claude exited with ${code ?? signal ?? "unknown status"}`, stderr.trim().slice(-20_000)));
           return;
         }
-        resolve(parseClaudeEnvelope<T>(stdout));
+        if (resultEnvelope === null) {
+          reject(new JsonAgentError("claude produced no result event", stderr.trim().slice(-2_000)));
+          return;
+        }
+        resolve(valueFromEnvelope<T>(resultEnvelope));
       } catch (error) {
         reject(
           error instanceof JsonAgentError
