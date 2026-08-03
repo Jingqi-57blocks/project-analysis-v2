@@ -10,7 +10,7 @@ import { loadSpecRegistry } from "../../engine/contracts/report/specs.js";
 import type { ModuleDirectory } from "../../engine/contracts/module/index.js";
 import { generateReports, explainRun } from "../../engine/report/generate.js";
 import { planReport } from "../../engine/report/orchestrate.js";
-import { buildSkillPrompt, type SkillRunner } from "../../engine/report/skill-port.js";
+import { buildSkillPrompt, progressFrom, type SkillRunner } from "../../engine/report/skill-port.js";
 
 const INSTANT = new Date("2026-08-03T06:22:00.000Z");
 let store: Store;
@@ -281,5 +281,39 @@ describe("cross-document claim consistency", () => {
     );
     expect(result.conflicts).toEqual([]);
     expect(existsSync(join(result.runPath, "claim-conflicts.json"))).toBe(false);
+  });
+});
+
+describe("progress events", () => {
+  it("reads a tool call out of the stream, naming what it acts on", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "packs/project/index.json" } }] },
+    });
+    expect(progressFrom(line, 1500)).toEqual({
+      elapsedMs: 1500,
+      kind: "tool",
+      detail: "Read packs/project/index.json",
+    });
+  });
+
+  it("reports the start and the end", () => {
+    expect(progressFrom(JSON.stringify({ type: "system", subtype: "init" }), 0)?.kind).toBe("start");
+    expect(progressFrom(JSON.stringify({ type: "result" }), 9)?.kind).toBe("done");
+  });
+
+  it("reports reasoning, so a long think is not silence", () => {
+    const line = JSON.stringify({ type: "assistant", message: { content: [{ type: "thinking" }] } });
+    expect(progressFrom(line, 5)?.kind).toBe("thinking");
+  });
+
+  it("ignores a line it cannot read rather than failing the run", () => {
+    expect(progressFrom("not json", 0)).toBeNull();
+    expect(progressFrom(JSON.stringify({ type: "unknown" }), 0)).toBeNull();
+  });
+
+  it("names a tool with no obvious subject by its name alone", () => {
+    const line = JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: {} }] } });
+    expect(progressFrom(line, 0)?.detail).toBe("Bash");
   });
 });

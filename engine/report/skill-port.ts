@@ -13,6 +13,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 
 export interface SkillInvocation {
   /** Directory holding `index.json`, `kinds/*.jsonl` and `subjects.jsonl`. */
@@ -23,6 +24,23 @@ export interface SkillInvocation {
   readonly viewPath: string;
   /** Repository root — the skill reads its contracts from here. */
   readonly repoRoot: string;
+  /** Where to keep the agent's stream, so a failed run can be diagnosed. */
+  readonly transcriptPath?: string;
+  readonly onProgress?: (event: SkillProgress) => void;
+}
+
+/**
+ * A readable account of what the agent is doing right now.
+ *
+ * A long authoring call is otherwise a black box: the two runs that timed out
+ * gave five minutes of silence and no way to tell a slow read from a hung
+ * process. Every tool call the agent makes becomes one of these.
+ */
+export interface SkillProgress {
+  /** Milliseconds since the call started. */
+  readonly elapsedMs: number;
+  readonly kind: "start" | "tool" | "thinking" | "done";
+  readonly detail: string;
 }
 
 export interface SkillOutcome {
@@ -63,14 +81,75 @@ export function buildSkillPrompt(invocation: SkillInvocation): string {
   ].join("\n");
 }
 
-const IDLE_TIMEOUT_MS = 300_000;
+const IDLE_TIMEOUT_MS = 600_000;
+
+/** The one field that names what a tool call is acting on, per tool. */
+const TOOL_SUBJECT: Readonly<Record<string, string>> = {
+  Read: "file_path",
+  Write: "file_path",
+  Edit: "file_path",
+  Glob: "pattern",
+  Grep: "pattern",
+};
+
+function describeTool(name: string, input: Record<string, unknown>): string {
+  const field = TOOL_SUBJECT[name];
+  const subject = field === undefined ? undefined : input[field];
+  return typeof subject === "string" ? `${name} ${subject}` : name;
+}
+
+interface StreamEvent {
+  readonly type?: string;
+  readonly subtype?: string;
+  readonly message?: { readonly content?: readonly Record<string, unknown>[] };
+}
+
+/**
+ * Turns one stream line into progress, or into nothing.
+ *
+ * Exported because the shape of these events is the only thing standing between
+ * a long run and an unexplained wait, so it is worth testing directly rather
+ * than through a spawned process.
+ */
+export function progressFrom(line: string, elapsedMs: number): SkillProgress | null {
+  let event: StreamEvent;
+  try {
+    event = JSON.parse(line) as StreamEvent;
+  } catch {
+    return null;
+  }
+  if (event.type === "system" && event.subtype === "init") {
+    return { elapsedMs, kind: "start", detail: "agent started" };
+  }
+  if (event.type === "result") {
+    return { elapsedMs, kind: "done", detail: "agent finished" };
+  }
+  for (const block of event.message?.content ?? []) {
+    if (block["type"] === "tool_use" && typeof block["name"] === "string") {
+      const input = (block["input"] ?? {}) as Record<string, unknown>;
+      return { elapsedMs, kind: "tool", detail: describeTool(block["name"], input) };
+    }
+    if (block["type"] === "thinking") return { elapsedMs, kind: "thinking", detail: "reasoning" };
+  }
+  return null;
+}
 
 /** Spawns the `claude` CLI in the repository, with the tools the skill needs. */
 export function claudeSkillRunner(model = "default"): SkillRunner {
   return async (invocation) =>
     new Promise<SkillOutcome>((resolve, reject) => {
+      // Streaming is not cosmetic: `--print` alone emits nothing until the very
+      // end, so an idle-timeout would kill every long authoring call. The stream
+      // gives a liveness signal, which is what distinguishes a slow run from a
+      // hung one whatever the report's size — but only with partial messages:
+      // without them a long stretch of reasoning between tool calls emits
+      // nothing, and silence stops meaning what the timeout assumes it means.
       const args = [
         "--print",
+        "--output-format",
+        "stream-json",
+        "--include-partial-messages",
+        "--verbose",
         "--permission-mode",
         "acceptEdits",
         "--allowedTools",
@@ -78,7 +157,11 @@ export function claudeSkillRunner(model = "default"): SkillRunner {
         ...(model === "default" ? [] : ["--model", model]),
       ];
       const child = spawn("claude", args, { cwd: invocation.repoRoot, stdio: ["pipe", "pipe", "pipe"] });
+      const transcript = invocation.transcriptPath;
+      const started = Date.now();
       let stderr = "";
+      let pending = "";
+      let lastReported = "";
       let idle: NodeJS.Timeout | undefined;
       const touch = (): void => {
         if (idle !== undefined) clearTimeout(idle);
@@ -87,7 +170,22 @@ export function claudeSkillRunner(model = "default"): SkillRunner {
           reject(new SkillRunError(invocation.specId, `no output for ${IDLE_TIMEOUT_MS / 1000}s`));
         }, IDLE_TIMEOUT_MS);
       };
-      child.stdout.on("data", touch);
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (transcript !== undefined) appendFileSync(transcript, chunk);
+        touch();
+        if (invocation.onProgress === undefined) return;
+        pending += chunk.toString();
+        const lines = pending.split("\n");
+        pending = lines.pop() ?? "";
+        for (const line of lines) {
+          const event = progressFrom(line, Date.now() - started);
+          // Partial-message streaming repeats a tool call across many events;
+          // reporting each one would bury the change of activity in noise.
+          if (event === null || event.detail === lastReported) continue;
+          lastReported = event.detail;
+          invocation.onProgress(event);
+        }
+      });
       child.stderr.on("data", (chunk: Buffer) => {
         stderr += chunk.toString();
         touch();

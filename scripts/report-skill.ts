@@ -71,6 +71,10 @@ const result = await generateReports({
   instant: new Date(),
   runSkill: claudeSkillRunner(model),
   membership,
+  onProgress: (target, event) => {
+    const seconds = String(Math.round(event.elapsedMs / 1000)).padStart(4);
+    console.log(`  [${seconds}s] ${target}: ${event.detail}`);
+  },
 });
 
 console.log(explainRun(result));

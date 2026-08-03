@@ -26,7 +26,7 @@ import {
   type RunManifest,
   type TargetRecord,
 } from "./run-identity.js";
-import type { SkillRunner } from "./skill-port.js";
+import type { SkillProgress, SkillRunner } from "./skill-port.js";
 import type { Store } from "../store/types.js";
 
 /** Kinds without which a spec's mandatory chapters cannot be written. */
@@ -41,6 +41,8 @@ export interface GenerateInput {
   readonly repoRoot: string;
   readonly instant: Date;
   readonly runSkill: SkillRunner;
+  /** Called as each target progresses, so a long run is never a silent wait. */
+  readonly onProgress?: (target: string, event: SkillProgress) => void;
   /** Membership for each planned module, resolved by the caller. */
   readonly membership: ReadonlyMap<string, { files: ReadonlySet<string>; subjectKeys: ReadonlySet<string> }>;
 }
@@ -144,6 +146,10 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
         claimsPath,
         viewPath,
         repoRoot: input.repoRoot,
+        transcriptPath: `${targetDir}/agent-stream.jsonl`,
+        ...(input.onProgress === undefined
+          ? {}
+          : { onProgress: (event: SkillProgress) => input.onProgress?.(target.directory, event) }),
       });
       modelTier = outcome.modelTier;
     } catch (error) {
