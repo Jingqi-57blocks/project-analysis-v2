@@ -19,6 +19,7 @@ import { loadLeaveTruthLedger } from "./truth/leave.js";
 import { DOCUMENT_PRESETS } from "./report/presets.js";
 import { SECTION_CATALOG } from "./report/catalog.js";
 import { loadSpecRegistry } from "./report/specs.js";
+import { CLAIM_CONTRACT_ID, CLAIM_CONTRACT_VERSION, claimId } from "./claim/index.js";
 import {
   KB_CONTRACT_ID,
   KB_CONTRACT_VERSION,
@@ -129,6 +130,23 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
         workspaceLevel: WORKSPACE_LEVEL_KINDS,
         // The reader-facing guide is prose, so its text is load-bearing too.
         guideDigest: digestText(loadKbContractGuide()),
+      },
+    },
+    {
+      id: CLAIM_CONTRACT_ID,
+      version: CLAIM_CONTRACT_VERSION,
+      snapshot: {
+        // The identity function is the contract. Pinning a worked example makes
+        // any change to how a claimId is formed fail the drift gate, because
+        // that change would silently renumber every persisted claim.
+        identityShape: "claim:<predicate>:<subject.type>:<subject.ref>",
+        identityExample: claimId("table-written-by-multiple-services", { type: "entity", ref: "example_table" }),
+        excludedFromIdentity: ["qualifiers", "factIds", "usedBy"],
+        invariants: [
+          "a claim without factIds is invalid",
+          "a predicate is a lowercase token, never a sentence",
+          "an aggregate is a roll-up over a predicate, never its own claim",
+        ],
       },
     },
     {
