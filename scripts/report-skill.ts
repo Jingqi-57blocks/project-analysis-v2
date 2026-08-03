@@ -61,7 +61,14 @@ for (const target of planned.plan.targets) {
   });
 }
 
+const resumeRunId = flag("resume", "");
+const chapterConcurrency = Number(flag("chapter-concurrency", "4"));
+const targetConcurrency = Number(flag("target-concurrency", "0"));
+
 const result = await generateReports({
+  ...(resumeRunId.length === 0 ? {} : { resumeRunId }),
+  ...(Number.isFinite(chapterConcurrency) && chapterConcurrency > 0 ? { chapterConcurrency } : {}),
+  ...(Number.isFinite(targetConcurrency) && targetConcurrency > 0 ? { targetConcurrency } : {}),
   plan: planned.plan,
   store,
   snapshotId: snapshot.id,

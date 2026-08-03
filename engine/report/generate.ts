@@ -29,6 +29,7 @@ import type { PlannedTarget, ReportPlan } from "./orchestrate.js";
 import {
   allocateRunDirectory,
   buildManifest,
+  openRunDirectory,
   writeManifest,
   type RunManifest,
   type TargetRecord,
@@ -59,6 +60,24 @@ export interface GenerateInput {
    * that bites first is the model's, not the machine's.
    */
   readonly chapterConcurrency?: number;
+  /**
+   * Continue an earlier run instead of starting one.
+   *
+   * A full request is many model calls, and losing all of them to one
+   * interruption is the difference between a retry and a rerun. Anything already
+   * written — a claim set, a finished chapter — is kept and skipped, so a resumed
+   * run costs only what is genuinely left.
+   */
+  readonly resumeRunId?: string;
+  /**
+   * How many targets to author at once.
+   *
+   * Concurrency buys wall clock and costs nothing extra — until a quota window is
+   * the binding constraint, at which point it is actively harmful: two targets
+   * racing through the same budget both stop half-finished, where one at a time
+   * would have finished the first. Set to 1 when the budget is what might run out.
+   */
+  readonly targetConcurrency?: number;
   /** Membership for each planned module, resolved by the caller. */
   readonly membership: ReadonlyMap<string, { files: ReadonlySet<string>; subjectKeys: ReadonlySet<string> }>;
 }
@@ -139,16 +158,27 @@ function readClaims(path: string): readonly Claim[] {
  * the same facts by construction rather than by coincidence.
  */
 export async function generateReports(input: GenerateInput): Promise<GenerateResult> {
-  const { runId, path: runPath } = allocateRunDirectory(input.outputRoot, input.plan.runLabel, input.instant);
+  const { runId, path: runPath } =
+    input.resumeRunId === undefined
+      ? allocateRunDirectory(input.outputRoot, input.plan.runLabel, input.instant)
+      : openRunDirectory(input.outputRoot, input.resumeRunId);
   const scratchDir = `${runPath}/scratch`;
   mkdirSync(scratchDir, { recursive: true });
   const inventory = readInventory(input.store, input.snapshotId);
-  const packDirs = new Map<string, string>();
+  /**
+   * Packs in flight, keyed by `packKey`.
+   *
+   * A promise rather than a path: with targets running concurrently, caching the
+   * result would let two targets that share a pack both find nothing cached and
+   * both cut it, writing over each other. Caching the work means the first one
+   * cuts and the rest wait.
+   */
+  const packDirs = new Map<string, Promise<string>>();
   const claimsByTarget = new Map<string, readonly Claim[]>();
   const outcomes: TargetOutcome[] = [];
   let modelTier = "unknown";
 
-  for (const target of input.plan.targets) {
+  const runTarget = async (target: PlannedTarget): Promise<TargetOutcome> => {
     const base = { scope: target.scope, audience: target.audience, module: target.module?.structuralName ?? null };
     const record = (over: Partial<TargetRecord>): TargetRecord => ({
       ...base,
@@ -162,16 +192,19 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     const pack = packFor(input, target);
     const gate = evaluateGate({ pack, mandatoryKinds: MANDATORY_KINDS });
     if (!gate.ok) {
-      outcomes.push({ target, record: record({}), audit: null, blocked: explainVerdict(gate) });
-      continue;
+      return { target, record: record({}), audit: null, blocked: explainVerdict(gate) };
     }
 
-    let packDir = packDirs.get(target.packKey);
-    if (packDir === undefined) {
-      packDir = `${runPath}/packs/${target.packKey.replace(/[^\w.-]+/g, "-")}`;
-      writeFactPack(pack, packDir);
-      packDirs.set(target.packKey, packDir);
+    let cutting = packDirs.get(target.packKey);
+    if (cutting === undefined) {
+      const directory = `${runPath}/packs/${target.packKey.replace(/[^\w.-]+/g, "-")}`;
+      cutting = Promise.resolve().then(() => {
+        writeFactPack(pack, directory);
+        return directory;
+      });
+      packDirs.set(target.packKey, cutting);
     }
+    const packDir = await cutting;
 
     const targetDir = `${runPath}/${target.directory}`;
     mkdirSync(targetDir, { recursive: true });
@@ -190,24 +223,40 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
       // One pass over the whole pack. Splitting this would let two workers each
       // invent a wording for the same finding; the pack, not the chapter list,
       // is what keeps the conclusions one set.
-      const claimsOutcome = await input.runSkill({
-        phase: "claims",
-        packDir,
-        specId: target.spec.id,
-        language: input.plan.language,
-        claimsPath,
-        viewPath,
-        repoRoot: input.repoRoot,
-        scratchDir,
-        transcriptPath: `${targetDir}/agent-stream-claims.jsonl`,
-        ...progress,
-      });
-      modelTier = claimsOutcome.modelTier;
+      //
+      // Skipped when the claim set survives from an earlier attempt: it is the
+      // single most expensive call in the run, and redoing it would also change
+      // the claims the finished chapters were written against.
+      if (existsSync(claimsPath)) {
+        input.onProgress?.(target.directory, { elapsedMs: 0, kind: "start", detail: "claims already written, kept" });
+      } else {
+        const claimsOutcome = await input.runSkill({
+          phase: "claims",
+          packDir,
+          specId: target.spec.id,
+          language: input.plan.language,
+          claimsPath,
+          viewPath,
+          repoRoot: input.repoRoot,
+          scratchDir,
+          transcriptPath: `${targetDir}/agent-stream-claims.jsonl`,
+          ...progress,
+        });
+        modelTier = claimsOutcome.modelTier;
+      }
 
       // Chapters run concurrently. Safe only because they share one claim set,
       // so two of them cannot contradict each other however independently
       // they were written.
-      await inBatches(chapters, input.chapterConcurrency ?? 4, async (chapter) => {
+      const pending = chapters.filter((chapter) => !existsSync(`${chapterDir}/${chapter.slug}.md`));
+      if (pending.length < chapters.length) {
+        input.onProgress?.(target.directory, {
+          elapsedMs: 0,
+          kind: "start",
+          detail: `${chapters.length - pending.length} chapter(s) already written, kept`,
+        });
+      }
+      await inBatches(pending, input.chapterConcurrency ?? 4, async (chapter) => {
         await input.runSkill({
           phase: "chapter",
           chapter: { ...chapter, outputPath: `${chapterDir}/${chapter.slug}.md` },
@@ -223,24 +272,22 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
         });
       });
     } catch (error) {
-      outcomes.push({
+      return {
         target,
         record: record({}),
         audit: null,
         blocked: error instanceof Error ? error.message : String(error),
-      });
-      continue;
+      };
     }
 
     const missing = chapters.filter((chapter) => !existsSync(`${chapterDir}/${chapter.slug}.md`));
     if (missing.length > 0) {
-      outcomes.push({
+      return {
         target,
         record: record({}),
         audit: null,
         blocked: `chapters not written: ${missing.map((chapter) => chapter.number).join(", ")}`,
-      });
-      continue;
+      };
     }
     writeFileSync(
       viewPath,
@@ -259,15 +306,61 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
         "\n",
     );
     claimsByTarget.set(target.directory, [...claims]);
-    outcomes.push({ target, record: record({ auditPassed: passed }), audit, blocked: null });
+    return { target, record: record({ auditPassed: passed }), audit, blocked: null };
+  };
+
+  // Targets run concurrently. They are independent by construction — each reads
+  // its own pack and produces its own claim set, and the cross-document check
+  // runs after all of them — so making them queue only spends wall clock.
+  const attempt = async (target: PlannedTarget): Promise<TargetOutcome> => {
+    try {
+      return await runTarget(target);
+    } catch (error) {
+      return {
+        target,
+        record: {
+          scope: target.scope,
+          audience: target.audience,
+          module: target.module?.structuralName ?? null,
+          specId: target.spec.id,
+          specVersion: target.spec.version,
+          directory: target.directory,
+          auditPassed: null,
+        },
+        audit: null,
+        blocked: error instanceof Error ? error.message : String(error),
+      } satisfies TargetOutcome;
+    }
+  };
+
+  const produced: TargetOutcome[] = [];
+  const limit = input.targetConcurrency ?? input.plan.targets.length;
+  if (limit <= 1) {
+    for (const target of input.plan.targets) {
+      const outcome = await attempt(target);
+      produced.push(outcome);
+      // A spent budget will not refill within this run, so continuing would only
+      // convert the remaining targets into further empty directories.
+      if (outcome.blocked !== null && /quota exhausted/i.test(outcome.blocked)) break;
+    }
+  } else {
+    const queue = [...input.plan.targets];
+    await Promise.all(
+      Array.from({ length: Math.min(limit, queue.length) }, async () => {
+        for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+          produced.push(await attempt(next));
+        }
+      }),
+    );
   }
+  outcomes.push(...produced);
 
   // The packs have served their purpose once every target has been authored.
   // A run that produced nothing keeps them, because that is when the rows are
   // worth having; a run that succeeded keeps only the index, which is what a
   // later reader needs to interpret the coverage statements.
   if (outcomes.some((outcome) => outcome.blocked === null)) {
-    for (const directory of packDirs.values()) pruneFactPackBulk(directory);
+    for (const cutting of packDirs.values()) pruneFactPackBulk(await cutting);
     // Intermediates go the same way as the pack bulk, and for the same reason:
     // they are reproducible, they are large, and a run kept forever should hold
     // what someone will read, not what the author needed along the way.
