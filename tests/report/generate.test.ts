@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -65,26 +65,7 @@ function plan(targets: Parameters<typeof planReport>[0]["targets"]) {
  * testing the wrong thing.
  */
 const goodRunner: SkillRunner = async (invocation) => {
-  if (invocation.phase === "claims") {
-    const claim = (predicate: string, type: string, ref: string, factIds: readonly string[]) => ({
-      predicate,
-      subject: { type, ref },
-      qualifiers: {},
-      factIds,
-    });
-    writeFileSync(
-      invocation.claimsPath,
-      JSON.stringify({
-        claims: [
-          claim("route-declared", "route", "r1", ["r1"]),
-          claim("coverage-recorded", "workspace", ".", ["cn"]),
-          claim("snapshot-recorded", "workspace", "snapshot", ["rc"]),
-        ],
-      }),
-    );
-    return { modelTier: "sonnet" };
-  }
-  writeFileSync(invocation.chapter!.outputPath, `## ${invocation.chapter!.title}\n\n一条路由声明于 a.go。\n`);
+  writeFileSync(invocation.viewPath, "# 报告\n\n一条路由声明于 a.go。\n");
   return { modelTier: "sonnet" };
 };
 
@@ -107,7 +88,6 @@ describe("running a plan", () => {
     const result = await run([{ scope: "project", audience: "product" }], goodRunner);
     expect(result.delivered).toBe(true);
     expect(existsSync(join(result.runPath, "project-product/report.md"))).toBe(true);
-    expect(existsSync(join(result.runPath, "project-product/claims.json"))).toBe(true);
     expect(existsSync(join(result.runPath, "project-product/audit.json"))).toBe(true);
   });
 
@@ -138,7 +118,7 @@ describe("running a plan", () => {
     // holds the work, not the result.
     let cuts = 0;
     const counting: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") cuts += 1;
+      cuts += 1;
       return goodRunner(invocation);
     };
     const result = await run(
@@ -177,33 +157,13 @@ describe("running a plan", () => {
 
   it("fails the run when the report cites a file that was never read", async () => {
     const fabricating: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") {
-        writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
-        return { modelTier: "haiku" };
-      }
-      writeFileSync(invocation.chapter!.outputPath, "已验证位置：holidays.py\n");
-      return { modelTier: "haiku" };
+      writeFileSync(invocation.viewPath, "已验证位置：holidays.py\n");
+      return { modelTier: "sonnet" };
     };
     const result = await run([{ scope: "project", audience: "product" }], fabricating);
     expect(result.delivered).toBe(false);
     expect(result.manifest.auditPassed).toBe(false);
     expect(explainRun(result)).toContain("AUDIT FAILED");
-  });
-
-  it("fails the run when a claim has no supporting facts", async () => {
-    const unsupported: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") {
-        writeFileSync(
-          invocation.claimsPath,
-          JSON.stringify({ claims: [{ predicate: "p", subject: { type: "entity", ref: "t" }, qualifiers: {}, factIds: [] }] }),
-        );
-        return { modelTier: "sonnet" };
-      }
-      writeFileSync(invocation.chapter!.outputPath, "## 章\n");
-      return { modelTier: "sonnet" };
-    };
-    const result = await run([{ scope: "project", audience: "product" }], unsupported);
-    expect(result.delivered).toBe(false);
   });
 
   it("produces nothing, and says so, when the skill fails", async () => {
@@ -216,13 +176,10 @@ describe("running a plan", () => {
     expect(explainRun(result)).toContain("NOT PRODUCED");
   });
 
-  it("produces nothing when a chapter is not written", async () => {
-    const silent: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
-      return { modelTier: "sonnet" };
-    };
+  it("produces nothing when the skill writes no report", async () => {
+    const silent: SkillRunner = async () => ({ modelTier: "sonnet" });
     const result = await run([{ scope: "project", audience: "product" }], silent);
-    expect(result.outcomes[0]?.blocked).toContain("chapters not written");
+    expect(result.outcomes[0]?.blocked).toBe("the skill wrote no report");
   });
 
   it("clears the agent's intermediates once a report exists", async () => {
@@ -240,7 +197,6 @@ describe("running a plan", () => {
   it("keeps the intermediates when the run produced nothing", async () => {
     const messyAndFailing: SkillRunner = async (invocation) => {
       writeFileSync(join(invocation.scratchDir, "helper.jq"), "{}");
-      if (invocation.phase === "claims") writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
       return { modelTier: "sonnet" };
     };
     const result = await run([{ scope: "project", audience: "product" }], messyAndFailing);
@@ -269,8 +225,8 @@ describe("running a plan", () => {
 describe("the skill prompt", () => {
   it("names the inputs and defers everything else to SKILL.md", () => {
     const prompt = buildSkillPrompt({
-      phase: "claims", packDir: "/p", specId: "project-product", language: "zh-CN",
-      claimsPath: "/c.json", viewPath: "/v.md", repoRoot: "/repo", scratchDir: "/repo/scratch",
+      packDir: "/p", specId: "project-product", language: "zh-CN",
+      viewPath: "/v.md", repoRoot: "/repo", scratchDir: "/repo/scratch",
     });
     for (const line of ["packDb: /p/pack.sqlite", "specId: project-product", "language: zh-CN", "scratchPath: /repo/scratch"]) {
       expect(prompt).toContain(line);
@@ -278,97 +234,6 @@ describe("the skill prompt", () => {
     // Restating the skill's rules here would create a second copy that drifts.
     expect(prompt).not.toContain("MUST");
     expect(prompt).toContain("Follow SKILL.md exactly");
-  });
-});
-
-describe("kind usage is measured through claims, not through prose", () => {
-  it("notices a kind the claims never draw on, without failing the run for it", async () => {
-    // The fabricating run in the trial never queried the coverage ledger or the
-    // computed findings, and still wrote the chapters they feed.
-    const skipsLedger: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") {
-        writeFileSync(
-          invocation.claimsPath,
-          JSON.stringify({ claims: [{ predicate: "route-declared", subject: { type: "route", ref: "r1" }, qualifiers: {}, factIds: ["r1"] }] }),
-        );
-        return { modelTier: "sonnet" };
-      }
-      writeFileSync(invocation.chapter!.outputPath, "## 章\n\n覆盖率良好，未发现问题。\n");
-      // Deliberately at the floor: this test is about notices not blocking, and
-      // a sub-floor tier would block for an unrelated reason.
-      return { modelTier: "sonnet" };
-    };
-    const result = await run([{ scope: "project", audience: "product" }], skipsLedger);
-    const audit = JSON.parse(readFileSync(join(result.runPath, "project-product/audit.json"), "utf8"));
-    const unused = audit.findings.filter((f: { code: string }) => f.code === "kind-never-used");
-    expect(unused.map((f: { evidence: string }) => f.evidence).sort()).toEqual(["coverage-note", "run-context"]);
-    // Not blocking: the contract directs the author to read the derived layer
-    // first, so an unread raw kind is documented behaviour, not untruth.
-    for (const finding of unused) expect(finding.severity).toBe("notice");
-    expect(result.delivered).toBe(true);
-  });
-});
-
-describe("cross-document claim consistency", () => {
-  const claim = (verdict: string, at?: string) => ({
-    predicate: "rule-present",
-    subject: { type: "rule-subject", ref: "client-delete-guard" },
-    qualifiers: at === undefined ? { verdict } : { verdict, at },
-    factIds: ["r1"],
-    usedBy: [],
-  });
-
-  const supporting = [
-    { predicate: "coverage-recorded", subject: { type: "workspace", ref: "." }, qualifiers: {}, factIds: ["cn"] },
-    { predicate: "snapshot-recorded", subject: { type: "workspace", ref: "snapshot" }, qualifiers: {}, factIds: ["rc"] },
-  ];
-
-  it("reports two targets that describe one claim differently", async () => {
-    // The archived trial's real disagreement, reproduced: one target judged the
-    // guard unconfirmed, the other found it. Same predicate, same subject.
-    const disagreeing: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") {
-        const overview = invocation.specId === "project-product";
-        writeFileSync(
-          invocation.claimsPath,
-          JSON.stringify({ claims: [overview ? claim("unconfirmed") : claim("hit", "svc/a.go:526"), ...supporting] }),
-        );
-        return { modelTier: "sonnet" };
-      }
-      writeFileSync(invocation.chapter!.outputPath, "## 章\n");
-      return { modelTier: "sonnet" };
-    };
-    const result = await run(
-      [
-        { scope: "project", audience: "product" },
-        { scope: "module", audience: "product", module: "leave" },
-      ],
-      disagreeing,
-    );
-    expect(result.conflicts.map((c) => c.key).sort()).toEqual(["at", "verdict"]);
-    expect(result.conflicts[0]?.between).toEqual(["project-product", "module-leaves-product"]);
-    expect(result.delivered).toBe(false);
-    expect(existsSync(join(result.runPath, "claim-conflicts.json"))).toBe(true);
-  });
-
-  it("reports nothing when the two targets agree", async () => {
-    const agreeing: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") {
-        writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [claim("hit", "svc/a.go:526"), ...supporting] }));
-        return { modelTier: "sonnet" };
-      }
-      writeFileSync(invocation.chapter!.outputPath, "## 章\n");
-      return { modelTier: "sonnet" };
-    };
-    const result = await run(
-      [
-        { scope: "project", audience: "product" },
-        { scope: "module", audience: "product", module: "leave" },
-      ],
-      agreeing,
-    );
-    expect(result.conflicts).toEqual([]);
-    expect(existsSync(join(result.runPath, "claim-conflicts.json"))).toBe(false);
   });
 });
 
@@ -473,81 +338,6 @@ describe("surviving an interruption", () => {
   });
 });
 
-describe("resuming a run", () => {
-  it("keeps a claim set that already exists rather than paying for it again", async () => {
-    const first = await run([{ scope: "project", audience: "product" }], goodRunner);
-    let claimsPasses = 0;
-    const counting: SkillRunner = async (invocation) => {
-      if (invocation.phase === "claims") claimsPasses += 1;
-      return goodRunner(invocation);
-    };
-    await generateReports({
-      plan: plan([{ scope: "project", audience: "product" }]),
-      store,
-      snapshotId,
-      snapshotIdentity: "run-1",
-      outputRoot: join(first.runPath, ".."),
-      repoRoot: process.cwd(),
-      instant: INSTANT,
-      runSkill: counting,
-      membership: new Map(),
-      resumeRunId: first.runId,
-    });
-    // The claims pass is the most expensive call in the run, and redoing it
-    // would also change the claims the finished chapters were written against.
-    expect(claimsPasses).toBe(0);
-  });
-
-  it("writes only the chapters that are missing", async () => {
-    const first = await run([{ scope: "project", audience: "product" }], goodRunner);
-    // Drop one chapter and resume; only that one should be authored again.
-    const chapters = join(first.runPath, "project-product/chapters");
-    const dropped = readdirSync(chapters).filter((name) => name.endsWith(".md"))[0]!;
-    rmSync(join(chapters, dropped));
-    let written = 0;
-    const counting: SkillRunner = async (invocation) => {
-      if (invocation.phase === "chapter") written += 1;
-      return goodRunner(invocation);
-    };
-
-    const resumed = await generateReports({
-      plan: plan([{ scope: "project", audience: "product" }]),
-      store,
-      snapshotId,
-      snapshotIdentity: "run-1",
-      outputRoot: join(first.runPath, ".."),
-      repoRoot: process.cwd(),
-      instant: INSTANT,
-      runSkill: counting,
-      membership: new Map(),
-      resumeRunId: first.runId,
-    });
-    // A resumed run re-cuts the pack; leaving the old database in place made
-    // creating its schema fail and took the whole target down.
-    expect(resumed.outcomes[0]?.blocked).toBeNull();
-    expect(written).toBe(1);
-    expect(resumed.runId).toBe(first.runId);
-    expect(existsSync(join(chapters, dropped))).toBe(true);
-  });
-
-  it("refuses to resume a run that does not exist", async () => {
-    await expect(
-      generateReports({
-        plan: plan([{ scope: "project", audience: "product" }]),
-        store,
-        snapshotId,
-        snapshotIdentity: "run-1",
-        outputRoot: mkdtempSync(join(tmpdir(), "runs-")),
-        repoRoot: process.cwd(),
-        instant: INSTANT,
-        runSkill: goodRunner,
-        membership: new Map(),
-        resumeRunId: "08-03_00-00_nothing",
-      }),
-    ).rejects.toThrow(/no run to resume/);
-  });
-});
-
 describe("one target at a time", () => {
   it("stops after a spent budget instead of emptying the remaining targets", async () => {
     let started = 0;
@@ -600,7 +390,6 @@ describe("one target at a time", () => {
       runSkill: slow,
       membership: new Map([["mod_a", { files: new Set(["svc/a.go"]), subjectKeys: new Set(["mod_a"]) }]]),
       targetConcurrency: 1,
-      chapterConcurrency: 1,
     });
     expect(peak).toBe(1);
   });

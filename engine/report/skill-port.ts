@@ -15,37 +15,11 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
-/**
- * Which half of the work an invocation performs.
- *
- * `claims` runs once over the whole pack: two workers deriving conclusions
- * separately would each invent a wording for the same finding, and the pack —
- * not the chapter list — is the unit that keeps them consistent.
- *
- * `chapter` runs once per chapter, and they run concurrently. That is safe only
- * because every chapter draws on the same claim set, so two chapters cannot
- * contradict each other however independently they were written.
- */
-export type SkillPhase = "claims" | "chapter";
-
-export interface ChapterAssignment {
-  readonly number: string;
-  readonly title: string;
-  readonly slug: string;
-  /** The chapter's own text from the spec — all a worker needs beyond the contract. */
-  readonly body: string;
-  readonly outputPath: string;
-}
-
 export interface SkillInvocation {
-  readonly phase: SkillPhase;
-  /** Present exactly when the phase is `chapter`. */
-  readonly chapter?: ChapterAssignment;
-  /** Directory holding `index.json`, `kinds/*.jsonl` and `subjects.jsonl`. */
+  /** Directory holding the pack database and its index. */
   readonly packDir: string;
   readonly specId: string;
   readonly language: string;
-  readonly claimsPath: string;
   readonly viewPath: string;
   /** Repository root — the skill reads its contracts from here. */
   readonly repoRoot: string;
@@ -106,15 +80,14 @@ export function buildSkillPrompt(invocation: SkillInvocation): string {
   // resolves them against the skill's own directory and three reads come back
   // empty — which is what happened, and it then had to grope for them with Bash.
   const contracts = `${invocation.repoRoot}/engine/contracts`;
-  const common = [
+  return [
     "Use the project-report skill.",
     "",
-    `phase: ${invocation.phase}`,
     `packDb: ${invocation.packDir}/pack.sqlite`,
     `packIndex: ${invocation.packDir}/index.json`,
     `specId: ${invocation.specId}`,
     `language: ${invocation.language}`,
-    `claimsPath: ${invocation.claimsPath}`,
+    `reportPath: ${invocation.viewPath}`,
     `scratchPath: ${invocation.scratchDir}`,
     `repoRoot: ${invocation.repoRoot}`,
     "",
@@ -122,24 +95,8 @@ export function buildSkillPrompt(invocation: SkillInvocation): string {
     `  ${contracts}/kb/kb-contract.md`,
     `  ${contracts}/report/specs/contract.md`,
     `  ${contracts}/report/specs/${invocation.specId}.md`,
-  ];
-  if (invocation.phase === "claims") {
-    return [...common, "", "Follow SKILL.md exactly. Write the claim set, then report its path."].join("\n");
-  }
-  const chapter = invocation.chapter;
-  return [
-    ...common,
-    `chapterNumber: ${chapter?.number ?? ""}`,
-    `chapterTitle: ${chapter?.title ?? ""}`,
-    `chapterOutputPath: ${chapter?.outputPath ?? ""}`,
     "",
-    "Read the claim set. Do not open the pack — the claims phase already walked it.",
-    "",
-    "This chapter's part of the spec:",
-    "",
-    chapter?.body ?? "",
-    "",
-    "Follow SKILL.md exactly. Write this one chapter, then report its path.",
+    "Follow SKILL.md exactly. Write the whole report, then report its path.",
   ].join("\n");
 }
 
