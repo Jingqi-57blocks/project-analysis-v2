@@ -13,7 +13,13 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-import { indexClaims, qualifierConflicts, type Claim, type QualifierConflict } from "../contracts/claim/index.js";
+import {
+  indexClaims,
+  makeClaim,
+  qualifierConflicts,
+  type Claim,
+  type QualifierConflict,
+} from "../contracts/claim/index.js";
 import { buildFactPack, type FactPack } from "../kb/fact-pack.js";
 import { writeFactPack } from "../kb/fact-pack-io.js";
 import { evaluateGate, explainVerdict } from "../kb/generation-gate.js";
@@ -88,10 +94,30 @@ function packFor(input: GenerateInput, target: PlannedTarget): FactPack {
   });
 }
 
+/**
+ * Reads the claim set, deriving each claim's identity here rather than trusting
+ * one to arrive.
+ *
+ * Identity is a function of the predicate and the subject, so asking the author
+ * to write it out invites exactly the drift the function exists to prevent — and
+ * the first real run confirmed it: every claim came back correct in every other
+ * respect and with no `claimId` at all, because the contract's own example does
+ * not show one.
+ */
 function readClaims(path: string): readonly Claim[] {
   if (!existsSync(path)) return [];
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as { claims?: readonly Claim[] };
-  return parsed.claims ?? [];
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+    claims?: readonly (Partial<Claim> & Pick<Claim, "predicate" | "subject" | "factIds">)[];
+  };
+  return (parsed.claims ?? []).map((claim) =>
+    makeClaim({
+      predicate: claim.predicate,
+      subject: claim.subject,
+      factIds: claim.factIds ?? [],
+      ...(claim.qualifiers === undefined ? {} : { qualifiers: claim.qualifiers }),
+      ...(claim.usedBy === undefined ? {} : { usedBy: claim.usedBy }),
+    }),
+  );
 }
 
 /**

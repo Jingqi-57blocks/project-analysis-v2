@@ -84,6 +84,9 @@ Every conclusion becomes one claim:
 
 * **MUST NOT** emit a claim with no `factIds`. That is the only thing separating
   a claim from a sentence you made up.
+* **MUST NOT** write a `claimId`. Identity is a function of the predicate and the
+  subject, and the engine computes it — writing one out only creates a second
+  version that can disagree with the first.
 * `predicate` **MUST** be a lowercase token (`table-written-by-multiple-services`),
   never a sentence. It is language-independent; the view is where language enters.
 * `subject` **MUST** come from the pack's `subjects` list. Facts of a
