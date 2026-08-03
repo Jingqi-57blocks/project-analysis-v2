@@ -27,10 +27,15 @@
       "digest": "abe13cc46dffdae948ab2cecdaa5f8bba5c34630e3ed38e0cd3672b468b1b106"
     },
     {
+      "id": "kb-read",
+      "version": "1.0.0",
+      "digest": "054baf940f4dee33ec86b19b171d6497968547070d71a6fc05a060fc253c426e"
+    },
+    {
       "id": "rubric",
       "version": "1.0.0",
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "5aa2757c630cc0fa05f18138cde1f85e27edacafef30ca7062d931e5b32369d9"
+  "bundleDigest": "f7b3e92ab433688d4e933ab1b4f7e1a275d7050be089c3ea67aa3c8aba9f0b2c"
 }

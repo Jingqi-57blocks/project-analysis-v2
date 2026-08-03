@@ -21,6 +21,7 @@ import {
   validateRequest,
   validateSpecRegistry,
 } from "../engine/contracts/report/index.js";
+import { validateKbContract } from "../engine/contracts/kb/index.js";
 import { INVALID_PROVENANCE_EXAMPLES, validateProvenance } from "../engine/contracts/shared-fact/index.js";
 import { loadTargetManifest, validateManifest } from "../engine/contracts/targets/index.js";
 import { loadAngelsPizzaSentinels, validateSentinelLedger } from "../engine/contracts/truth/sentinel.js";
@@ -56,6 +57,8 @@ for (const preset of DOCUMENT_PRESETS) {
 }
 const specs = validateSpecRegistry(loadSpecRegistry());
 check("output specs", specs.ok, specs.ok ? "" : specs.reasons.join("; "));
+const kb = validateKbContract();
+check("knowledge-base read contract", kb.ok, kb.ok ? "" : kb.reasons.join("; "));
 
 // 3. Positive / negative fixtures behave as specified.
 for (const ex of LEGAL_COMBINATION_EXAMPLES) check(`legal combination ${ex.name}`, validateRequest(ex.request).ok);

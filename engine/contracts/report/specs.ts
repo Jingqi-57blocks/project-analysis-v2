@@ -17,65 +17,21 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 
+import { READABLE_KINDS } from "../kb/read-contract.js";
+
 const SPECS_DIR = new URL("./specs/", import.meta.url);
 
 /** Frontmatter `kind` of the inherited writing contract, which is not a report type. */
 const SHARED_CONTRACT_KIND = "shared-writing-contract";
 
 /**
- * Fact kinds a spec may require. This is the report side declaring what it is
- * allowed to ask for; PI-109's knowledge-base read contract must supply exactly
- * these and is the authority on their payloads.
+ * Fact kinds a spec may require: exactly what the knowledge-base read contract
+ * serves. Deriving it rather than listing it means a spec cannot require a kind
+ * the store stopped producing, and a new kind becomes requirable without an edit
+ * here.
  */
-export const REQUIRABLE_FACT_KINDS: readonly string[] = [
-  // structural
-  "auth-annotation",
-  "call-edge",
-  "condition",
-  "data-access",
-  "decision",
-  "discarded-error",
-  "entity",
-  "entity-constraint",
-  "entity-field",
-  "entity-relation",
-  "error-handling",
-  "guard",
-  "import",
-  "module-containment",
-  "notification-call",
-  "outbound-call",
-  "package-dependency",
-  "reference",
-  "route",
-  "scheduled-task",
-  "source-file",
-  "symbol",
-  "transaction-boundary",
-  "type-relation",
-  "validation-rule",
-  // behavioural
-  "business-rule",
-  "state",
-  "test-relation",
-  "transition",
-  "value-set",
-  // derived
-  "base-binding",
-  "component",
-  "coverage-note",
-  "cross-root-link",
-  "feature",
-  "feature-finding",
-  "feature-flow",
-  "health-signal",
-  "map-edge",
-  "module",
-  "run-context",
-  "structural-finding",
-  "trace",
-  "unlinked-call",
-];
+export const REQUIRABLE_FACT_KINDS: readonly string[] = READABLE_KINDS;
+
 
 const REQUIRABLE = new Set(REQUIRABLE_FACT_KINDS);
 
