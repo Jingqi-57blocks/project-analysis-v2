@@ -1,17 +1,12 @@
 ---
 name: project-report
-description: Write a source-understanding report from a bounded fact pack — fact pack → claims → view. Use when asked to generate a project overview or module detail report from an analysis snapshot. Never reads the analysed project's source.
+description: Write a source-understanding report from a bounded fact pack. Use when asked to generate a project overview or module detail report from an analysis snapshot. Never reads the analysed project's source.
 ---
 
 # Project report
 
-You turn a **bounded fact pack** into a report, in two steps and no others:
-
-```
-fact pack  ──▶  claims  ──▶  view
-              (language-      (one audience,
-               independent)    one language)
-```
+You turn a **bounded fact pack** into one report: read the pack, write the
+document the spec describes.
 
 Slicing, auditing and rendering happen outside you. You do not choose what to
 read, you do not decide whether the report ships, and you do not produce HTML.
@@ -25,16 +20,12 @@ You are given, in the invocation:
 
 | Input | Meaning |
 | -- | -- |
-| `phase` | `claims` or `chapter` — which half of the work this call performs |
 | `packDb` | The fact pack, as a SQLite database — the whole of what is knowable here |
 | `packIndex` | Its index: what is in scope and how much of it |
 | `specId` | Which output spec governs this report |
-| `language` | The target language of the view |
-| `claimsPath` | The claim set: written in the `claims` phase, read in the `chapter` phase |
+| `language` | The target language of the report |
+| `reportPath` | Where to write the finished report |
 | `scratchPath` | Where every intermediate file goes |
-
-A `chapter` call additionally carries `chapterNumber`, `chapterTitle`,
-`chapterOutputPath`, and that chapter's own part of the spec inline.
 
 If any is missing, stop and say which. Do not guess a default.
 
@@ -43,12 +34,6 @@ scripts, partial results, notes — all of it, and nothing outside it. A run tha
 scatters intermediates leaves them behind forever, because nobody knows which
 files were yours. The engine deletes `scratchPath` once the run has produced its
 report, and keeps it when the run fails, so a failed run stays diagnosable.
-
-**Do exactly your phase's work and nothing else.** A `claims` call writes the claim
-set and stops. A `chapter` call writes one chapter and stops. Chapters are
-authored concurrently by separate calls; writing a neighbour's chapter, or the
-assembled report, would collide with another call in flight. The engine
-assembles the chapters in spec order.
 
 ## NOW — load exactly four things
 
@@ -90,59 +75,13 @@ stops that.
 For each kind, note: how many rows, and what they say. A kind with zero rows in
 scope is a fact about the project and **MUST** be reported as such.
 
-## ACT — produce claims, then the view
+## ACT — write the report
 
-### Phase `claims` — the claim set
+Write it to `reportPath`, in `language`, following the spec's chapter list and the
+shared contract's rules. Cover every chapter the spec numbers, in its order.
 
-Every conclusion becomes one claim:
-
-```json
-{
-  "predicate": "table-written-by-multiple-services",
-  "subject": { "type": "entity", "ref": "<stable reference>" },
-  "qualifiers": { "writers": ["…"] },
-  "factIds": ["<pack row key>", "…"]
-}
-```
-
-* **MUST NOT** emit a claim with no `factIds`. That is the only thing separating
-  a claim from a sentence you made up.
-* **MUST NOT** write a `claimId`. Identity is a function of the predicate and the
-  subject, and the engine computes it — writing one out only creates a second
-  version that can disagree with the first.
-* `predicate` **MUST** be a lowercase token (`table-written-by-multiple-services`),
-  never a sentence. It is language-independent; the view is where language enters.
-* `subject` **MUST** come from the pack's `subjects` list. Facts of a
-  line-anchored kind (`condition`, `guard`, `call-edge`, `data-access`,
-  `decision`, `error-handling`, `outbound-call`, `discarded-error`,
-  `auth-annotation`, `value-set`) cite freely as evidence but **MUST NOT** be the
-  thing a claim is about — their identity contains a file line and moves on
-  unrelated edits.
-* Variable content (counts, lists, verdicts) goes in `qualifiers`, never in the
-  predicate or subject.
-* **MUST NOT** emit an aggregate claim. "7 tables are written by more than one
-  service" is not a claim; it is the count of the claims sharing that predicate,
-  and the renderer computes it. Emit the seven.
-
-Write the claim set to `claimsPath` as `{"claims":[…]}`.
-
-### Phase `chapter` — one chapter
-
-Read the claim set at `claimsPath`, then write **only your chapter** to
-`chapterOutputPath`, in `language`, following the part of the spec given inline
-and the shared contract's rules. Open with the chapter's own `##` heading.
-
-**Read the claim set. Do not query the pack.** The claims phase already walked it,
-once, so that this phase does not have to — twelve chapters each exploring the
-same pack would cost twelve times what walking it once cost, and the claim set
-exists precisely so that work is done and shared. If a claim's wording is
-unclear, write from what the claim says; do not go back to the facts behind it.
-
-Every statement traces to a claim; every claim traces to fact ids. A conclusion
-that is not already a claim does not belong in a chapter — the other chapters
-cannot see it, and consistency rests on the shared set.
-
-The rules you will most easily break, restated:
+Every statement rests on facts you read from the pack, and cites them. The rules
+you will most easily break, restated:
 
 * Evidence markers are `fact`, `verified`, `inferred`, `unavailable`. Render each
   in the target language.
@@ -155,6 +94,8 @@ The rules you will most easily break, restated:
   write design intent, motive, consequences, solutions, or evaluation without
   evidence. A precise fact carries its own weight; appending what it might cause
   crosses the line.
+* Translating a term is not inference — a report that prints raw table and
+  function names is not acceptable.
 * Every chapter closes with a summary that **generalizes** the chapter's own
   facts and introduces nothing new.
 * Every coverage number carries its denominator.
@@ -166,9 +107,7 @@ The rules you will most easily break, restated:
 Check each, and fix what fails:
 
 - [ ] Every kind in `requires` was opened, and every zero-row kind is reported.
-- [ ] Every claim has at least one factId.
-- [ ] No claim's subject is a line-anchored fact.
-- [ ] No aggregate was emitted as a claim.
+- [ ] Every chapter the spec numbers is present, in the spec's order.
 - [ ] Every `unavailable` item is stated, not silently dropped.
 - [ ] No design intent, motive, consequence, solution, or unevidenced evaluation.
 - [ ] Every chapter has a generalizing summary.

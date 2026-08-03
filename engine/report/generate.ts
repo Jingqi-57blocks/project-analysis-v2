@@ -13,14 +13,6 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
-import {
-  indexClaims,
-  makeClaim,
-  qualifierConflicts,
-  type Claim,
-  type QualifierConflict,
-} from "../contracts/claim/index.js";
-import { authorableChapters } from "../contracts/report/chapters.js";
 import { buildFactPack, type FactPack } from "../kb/fact-pack.js";
 import { pruneFactPackBulk, writeFactPack } from "../kb/fact-pack-io.js";
 import { writePackDatabase } from "../kb/pack-db.js";
@@ -42,16 +34,6 @@ import type { Store } from "../store/types.js";
 /** Kinds without which a spec's mandatory chapters cannot be written. */
 const MANDATORY_KINDS: readonly string[] = ["run-context", "coverage-note"];
 
-export class UnknownChapterError extends Error {
-  constructor(
-    readonly number: string,
-    readonly known: readonly string[],
-  ) {
-    super(`this spec has no chapter ${number}; it has ${known.join(", ")}`);
-    this.name = "UnknownChapterError";
-  }
-}
-
 export interface GenerateInput {
   readonly plan: ReportPlan;
   readonly store: Store;
@@ -63,14 +45,6 @@ export interface GenerateInput {
   readonly runSkill: SkillRunner;
   /** Called as each target progresses, so a long run is never a silent wait. */
   readonly onProgress?: (target: string, event: SkillProgress) => void;
-  /**
-   * How many chapters may be authored at once.
-   *
-   * Chapters are independent given the claim set, so this is a throughput knob
-   * rather than a correctness one — kept modest by default because the limit
-   * that bites first is the model's, not the machine's.
-   */
-  readonly chapterConcurrency?: number;
   /**
    * Continue an earlier run instead of starting one.
    *
@@ -89,15 +63,6 @@ export interface GenerateInput {
    * would have finished the first. Set to 1 when the budget is what might run out.
    */
   readonly targetConcurrency?: number;
-  /**
-   * Chapters to author again even though they already exist, by spec number.
-   *
-   * A chapter is the unit worth iterating on: one is unsatisfying, the claim set
-   * behind it is fine, and rewriting the whole report to fix it would cost the
-   * expensive pass again and disturb twelve chapters that were already right.
-   * Only meaningful with `resumeRunId`.
-   */
-  readonly rewriteChapters?: readonly string[];
   /** Membership for each planned module, resolved by the caller. */
   readonly membership: ReadonlyMap<string, { files: ReadonlySet<string>; subjectKeys: ReadonlySet<string> }>;
 }
@@ -110,10 +75,6 @@ export interface TargetOutcome {
   readonly blocked: string | null;
 }
 
-export interface CrossTargetConflict extends QualifierConflict {
-  readonly between: readonly [string, string];
-}
-
 export interface GenerateResult {
   readonly runId: string;
   /** Set when the run was authored below the tier the trial established as a floor. */
@@ -121,16 +82,7 @@ export interface GenerateResult {
   readonly runPath: string;
   readonly manifest: RunManifest;
   readonly outcomes: readonly TargetOutcome[];
-  /**
-   * Where two targets in this run say different things about one claim.
-   *
-   * Because identity is the predicate and the subject, a disagreement lands on
-   * one claimId and is visible here; it cannot become two unrelated claims that
-   * nobody compares. Aggregates never appear, since a roll-up is computed from
-   * the claim set rather than stored.
-   */
-  readonly conflicts: readonly CrossTargetConflict[];
-  /** True only if every target passed its audit and no two disagree. */
+  /** True only if every target passed its audit. */
   readonly delivered: boolean;
 }
 
@@ -143,32 +95,6 @@ function packFor(input: GenerateInput, target: PlannedTarget): FactPack {
     ...(target.module === null ? {} : { moduleId: target.module.structuralName }),
     ...(membership === undefined ? {} : { moduleFiles: membership.files, subjectKeys: membership.subjectKeys }),
   });
-}
-
-/**
- * Reads the claim set, deriving each claim's identity here rather than trusting
- * one to arrive.
- *
- * Identity is a function of the predicate and the subject, so asking the author
- * to write it out invites exactly the drift the function exists to prevent — and
- * the first real run confirmed it: every claim came back correct in every other
- * respect and with no `claimId` at all, because the contract's own example does
- * not show one.
- */
-function readClaims(path: string): readonly Claim[] {
-  if (!existsSync(path)) return [];
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as {
-    claims?: readonly (Partial<Claim> & Pick<Claim, "predicate" | "subject" | "factIds">)[];
-  };
-  return (parsed.claims ?? []).map((claim) =>
-    makeClaim({
-      predicate: claim.predicate,
-      subject: claim.subject,
-      factIds: claim.factIds ?? [],
-      ...(claim.qualifiers === undefined ? {} : { qualifiers: claim.qualifiers }),
-      ...(claim.usedBy === undefined ? {} : { usedBy: claim.usedBy }),
-    }),
-  );
 }
 
 /**
@@ -194,7 +120,6 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
    * cuts and the rest wait.
    */
   const packDirs = new Map<string, Promise<string>>();
-  const claimsByTarget = new Map<string, readonly Claim[]>();
   const outcomes: TargetOutcome[] = [];
   let modelTier = "unknown";
 
@@ -232,81 +157,25 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
 
     const targetDir = `${runPath}/${target.directory}`;
     mkdirSync(targetDir, { recursive: true });
-    const claimsPath = `${targetDir}/claims.json`;
     const viewPath = `${targetDir}/report.md`;
 
-    const chapterDir = `${targetDir}/chapters`;
-    mkdirSync(chapterDir, { recursive: true });
-    const chapters = authorableChapters(target.spec);
-    // Rewriting one chapter is the tightest loop there is for improving it: the
-    // claim set — the expensive part — is reused untouched, and every other
-    // chapter stays as it was, so what changed is only ever the chapter itself.
-    for (const number of input.rewriteChapters ?? []) {
-      const chapter = chapters.find((entry) => entry.number === number);
-      if (chapter === undefined) throw new UnknownChapterError(number, chapters.map((entry) => entry.number));
-      rmSync(`${chapterDir}/${chapter.slug}.md`, { force: true });
-    }
     const progress =
       input.onProgress === undefined
         ? {}
         : { onProgress: (event: SkillProgress) => input.onProgress?.(target.directory, event) };
 
     try {
-      // One pass over the whole pack. Splitting this would let two workers each
-      // invent a wording for the same finding; the pack, not the chapter list,
-      // is what keeps the conclusions one set.
-      //
-      // Skipped when the claim set survives from an earlier attempt: it is the
-      // single most expensive call in the run, and redoing it would also change
-      // the claims the finished chapters were written against.
-      if (existsSync(claimsPath)) {
-        input.onProgress?.(target.directory, { elapsedMs: 0, kind: "start", detail: "claims already written, kept" });
-      } else {
-        const claimsOutcome = await input.runSkill({
-          phase: "claims",
-          packDir,
-          specId: target.spec.id,
-          language: input.plan.language,
-          claimsPath,
-          viewPath,
-          repoRoot: input.repoRoot,
-          scratchDir,
-          transcriptPath: `${targetDir}/agent-stream-claims.jsonl`,
-          ...progress,
-        });
-        modelTier = claimsOutcome.modelTier;
-      }
-
-      // Chapters run concurrently. Safe only because they share one claim set,
-      // so two of them cannot contradict each other however independently
-      // they were written.
-      const pending = chapters.filter((chapter) => !existsSync(`${chapterDir}/${chapter.slug}.md`));
-      if (pending.length < chapters.length) {
-        input.onProgress?.(target.directory, {
-          elapsedMs: 0,
-          kind: "start",
-          detail: `${chapters.length - pending.length} chapter(s) already written, kept`,
-        });
-      }
-      await inBatches(pending, input.chapterConcurrency ?? 4, async (chapter) => {
-        const chapterOutcome = await input.runSkill({
-          phase: "chapter",
-          chapter: { ...chapter, outputPath: `${chapterDir}/${chapter.slug}.md` },
-          packDir,
-          specId: target.spec.id,
-          language: input.plan.language,
-          claimsPath,
-          viewPath,
-          repoRoot: input.repoRoot,
-          scratchDir,
-          transcriptPath: `${targetDir}/agent-stream-${chapter.slug}.jsonl`,
-          ...progress,
-        });
-        // Also recorded here: a resumed run skips the claims pass, and without
-        // this the manifest reported "unknown" — the very field PI-114 relies on
-        // to refuse a sub-floor tier.
-        modelTier = chapterOutcome.modelTier;
+      const outcome = await input.runSkill({
+        packDir,
+        specId: target.spec.id,
+        language: input.plan.language,
+        viewPath,
+        repoRoot: input.repoRoot,
+        scratchDir,
+        transcriptPath: `${targetDir}/agent-stream.jsonl`,
+        ...progress,
       });
+      modelTier = outcome.modelTier;
     } catch (error) {
       return {
         target,
@@ -316,33 +185,16 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
       };
     }
 
-    const missing = chapters.filter((chapter) => !existsSync(`${chapterDir}/${chapter.slug}.md`));
-    if (missing.length > 0) {
-      return {
-        target,
-        record: record({}),
-        audit: null,
-        blocked: `chapters not written: ${missing.map((chapter) => chapter.number).join(", ")}`,
-      };
+    if (!existsSync(viewPath)) {
+      return { target, record: record({}), audit: null, blocked: "the skill wrote no report" };
     }
-    writeFileSync(
-      viewPath,
-      chapters
-        .map((chapter) => readFileSync(`${chapterDir}/${chapter.slug}.md`, "utf8").trim())
-        .join("\n\n"),
-    );
 
-    const claims = readClaims(claimsPath);
-    const { invalid } = indexClaims([...claims]);
-    const audit = auditReport({ report: readFileSync(viewPath, "utf8"), inventory, pack, claims });
-    const passed = audit.passed && invalid.length === 0;
+    const audit = auditReport({ report: readFileSync(viewPath, "utf8"), inventory, pack });
     writeFileSync(
       `${targetDir}/audit.json`,
-      JSON.stringify({ passed, findings: audit.findings, invalidClaims: invalid, kindUsage: audit.kindUsage }, null, 2) +
-        "\n",
+      JSON.stringify({ passed: audit.passed, findings: audit.findings, kindUsage: audit.kindUsage }, null, 2) + "\n",
     );
-    claimsByTarget.set(target.directory, [...claims]);
-    return { target, record: record({ auditPassed: passed }), audit, blocked: null };
+    return { target, record: record({ auditPassed: audit.passed }), audit, blocked: null };
   };
 
   // Targets run concurrently. They are independent by construction — each reads
@@ -403,11 +255,6 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     rmSync(scratchDir, { recursive: true, force: true });
   }
 
-  const conflicts = crossTargetConflicts(claimsByTarget);
-  if (conflicts.length > 0) {
-    writeFileSync(`${runPath}/claim-conflicts.json`, JSON.stringify(conflicts, null, 2) + "\n");
-  }
-
   const manifest = buildManifest({
     runId,
     instant: input.instant,
@@ -428,46 +275,12 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     runPath,
     manifest,
     outcomes,
-    conflicts,
     belowTierFloor,
     delivered:
       outcomes.length > 0 &&
       outcomes.every((outcome) => outcome.record.auditPassed === true) &&
-      conflicts.length === 0 &&
       !belowTierFloor,
   };
-}
-
-/** Every pairwise disagreement between the run's targets, each reported once. */
-export function crossTargetConflicts(
-  claimsByTarget: ReadonlyMap<string, readonly Claim[]>,
-): readonly CrossTargetConflict[] {
-  const entries = [...claimsByTarget.entries()];
-  const conflicts: CrossTargetConflict[] = [];
-  for (let left = 0; left < entries.length; left += 1) {
-    for (let right = left + 1; right < entries.length; right += 1) {
-      const [leftName, leftClaims] = entries[left]!;
-      const [rightName, rightClaims] = entries[right]!;
-      for (const conflict of qualifierConflicts(leftClaims, rightClaims)) {
-        conflicts.push({ ...conflict, between: [leftName, rightName] });
-      }
-    }
-  }
-  return conflicts;
-}
-
-/**
- * Runs `work` over `items` with at most `limit` in flight.
- *
- * A plain `Promise.all` over thirteen chapters would open thirteen model calls
- * at once; the limit that bites first is the model's, not the machine's.
- */
-async function inBatches<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
-  const queue = [...items];
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, queue.length)) }, async () => {
-    for (let next = queue.shift(); next !== undefined; next = queue.shift()) await work(next);
-  });
-  await Promise.all(workers);
 }
 
 /** A short account of what a run produced, and of what it refused to produce. */
@@ -487,12 +300,6 @@ export function explainRun(result: GenerateResult): string {
   }
   if (result.belowTierFloor) {
     lines.push(`  authored below the ${MINIMUM_TIER} floor — not a deliverable, whatever the audit says`);
-  }
-  if (result.conflicts.length > 0) {
-    lines.push(`  ${result.conflicts.length} claim(s) described differently by two targets:`);
-    for (const conflict of result.conflicts.slice(0, 5)) {
-      lines.push(`    - ${conflict.claimId} "${conflict.key}": ${conflict.between.join(" vs ")}`);
-    }
   }
   return lines.join("\n");
 }

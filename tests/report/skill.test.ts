@@ -60,20 +60,16 @@ describe("the report skill", () => {
     expect(body).toContain("health-signal");
   });
 
-  it("carries the claim rules that the contract enforces", () => {
-    expect(body).toContain("factIds");
-    expect(body).toMatch(/MUST NOT\*{0,2} emit a claim with no/);
-    expect(body).toMatch(/MUST NOT\*{0,2} emit an aggregate claim/);
-    for (const kind of ["condition", "guard", "call-edge", "value-set"]) expect(body).toContain(kind);
+  it("carries the writing rules the contract enforces", () => {
+    // The distinction the report lives or dies on: say what the system does,
+    // never what to do about it.
+    expect(body).toMatch(/Say what the system does/);
+    expect(body).toMatch(/MUST NOT\*{0,2}\s*\n?\s*write design intent/);
+    expect(body).toContain("inferred");
   });
 
   it("names one place for intermediates, so nothing is left scattered", () => {
     expect(body).toMatch(/Every file you write that is not an output goes under `scratchPath`/);
-  });
-
-  it("confines a call to its own phase, since chapters run concurrently", () => {
-    expect(body).toMatch(/Do exactly your phase's work and nothing else/);
-    expect(body).toContain("concurrently");
   });
 
   it("ends with a checklist the run can be held to", () => {
@@ -82,7 +78,7 @@ describe("the report skill", () => {
   });
 
   it("names every input it needs, so a missing one stops the run", () => {
-    for (const input of ["phase", "packDb", "specId", "language", "claimsPath", "scratchPath", "chapterOutputPath"]) {
+    for (const input of ["packDb", "specId", "language", "reportPath", "scratchPath"]) {
       expect(body).toContain(input);
     }
   });
