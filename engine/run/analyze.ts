@@ -13,6 +13,10 @@ import { extractRoot, type RootFacts } from "../kb/extract.js";
 import { derive } from "../kb/derive.js";
 import { recordDerived } from "../kb/persist.js";
 import { countDerived } from "../kb/kinds.js";
+import { assembleBehaviorModel } from "../kb/behavior-assemble.js";
+import { persistBehaviorModel } from "../kb/behavior-persist.js";
+import { behaviorInputFrom } from "../kb/behavior-input.js";
+import type { TestCoverage } from "../kb/test-derive.js";
 import { recordAssembledModel, recordCapabilities } from "../structural/persist.js";
 import { recordEvidence } from "../semantic/persist.js";
 import { PhaseTimer, recordPhaseMetrics } from "./metrics.js";
@@ -255,6 +259,66 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       (written) => ({ items: written }),
     );
 
+    // Derive and persist the behaviour model from the extracted evidence. This was
+    // the base-layer gap the PI-19 baseline surfaced: the derivers existed but were
+    // never run over an analysis, so no behaviour facts reached the knowledge base.
+    //
+    // Behaviour derivation must not take down an otherwise-complete run: the
+    // structural KB is already extracted, derived and persisted. If the behaviour
+    // validator or persist fails-closed, record the reason as a gap and still
+    // publish the structural knowledge base rather than aborting the whole run.
+    // Hoisted out of the phase closure so it can reach the AnalysisResult return.
+    // Defaults to "not-run": if behaviour derivation fails-closed below, a caller
+    // that cannot attest the reader ran gets no free test-absence pass at the gate.
+    let testCoverage: TestCoverage = "not-run";
+    timer.time(
+      "behavior",
+      () => {
+        try {
+          // The code index (when one was built) lets the notification-reachability
+          // deriver reverse-reach send sinks to the handlers that trigger them.
+          const behaviorOpts = {
+            rootPaths: new Map(roots.map((root) => [root.name, root.path] as const)),
+            ...(codeIndexPath === undefined ? {} : { codeIndexPath }),
+          };
+          const { input, notes } = behaviorInputFrom(rootFacts, behaviorOpts);
+          const assembled = assembleBehaviorModel(input);
+          testCoverage = assembled.testCoverage;
+          const facts = persistBehaviorModel(store, handle!.snapshotId, assembled.model).facts;
+          // Record the reachability pass's coverage notes (bounds it hit, an absent
+          // or degraded index) as fact-less behaviour diagnostics, so a cap or a
+          // missing index is auditable rather than passing for full coverage.
+          for (const note of notes) {
+            store.run(
+              `INSERT INTO behavior_diagnostics (snapshot_id, fact_id, reason) VALUES (?, NULL, ?)`,
+              [handle!.snapshotId, note],
+            );
+          }
+          // A fact-less receipt: whether the test-relation reader ran for this
+          // snapshot, kept distinct from finding no tests. The gate reads it to
+          // decide whether a test-relation absence is confirmable.
+          store.run(
+            `INSERT INTO behavior_diagnostics (snapshot_id, fact_id, reason) VALUES (?, NULL, ?)`,
+            [handle!.snapshotId, `test-coverage: ${testCoverage}`],
+          );
+          return facts;
+        } catch (behaviorError) {
+          // The behaviour model is snapshot-level; attribute its failure to the
+          // first root so the NOT NULL foreign key holds, and record why.
+          const firstRootId = handle!.roots[0]?.id;
+          if (firstRootId !== undefined) {
+            store.run(
+              `INSERT INTO extraction_failures (snapshot_id, source_root_id, provider_id, scope, reason)
+               VALUES (?, ?, 'behavior', 'behavior-model', ?)`,
+              [handle!.snapshotId, firstRootId, behaviorError instanceof Error ? behaviorError.message : String(behaviorError)],
+            );
+          }
+          return 0;
+        }
+      },
+      (facts) => ({ items: facts }),
+    );
+
     timer.time(
       "publish",
       () => publishOrRefuse(store, handle!, rootSnapshots, now),
@@ -273,6 +337,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       roots: rootResults,
       providerReport,
       codeIndexPath: codeIndexPath ?? null,
+      testCoverage,
     };
   } catch (error) {
     // A failed run's phase timings are still worth having — they show where

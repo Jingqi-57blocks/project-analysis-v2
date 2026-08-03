@@ -128,6 +128,8 @@ export type ReferenceKind = (typeof CONVENTIONAL_REFERENCE_KINDS)[number] | (str
 
 /** A use of a symbol somewhere other than its definition. */
 export interface ReferenceRecord {
+  /** The symbol containing the reference when the provider can identify it. */
+  readonly fromSymbolId?: SymbolId | null;
   readonly symbolId: SymbolId;
   readonly kind: ReferenceKind;
   readonly source: SourceRef;

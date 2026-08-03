@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "contracts": [
+    {
+      "id": "shared-fact",
+      "version": "1.0.0",
+      "digest": "e0e38c05e4a2d3ad9795a7b54ef7868bb804161d6160601733fb7a68eae3d6e5"
+    },
+    {
+      "id": "report",
+      "version": "1.0.0",
+      "digest": "2812aec7250ee407352d6a88f601ffe8863039f1916175cc6a51c6c733a8369c"
+    },
+    {
+      "id": "truth-leave",
+      "version": "0.3.0",
+      "digest": "dca6eea8435ee8d67c1ff8a3a546cd521c2936a41a71102f4d5cd3fabb044b7f"
+    },
+    {
+      "id": "sentinel-angels-pizza",
+      "version": "0.1.0",
+      "digest": "aa5e3fdddcb50e7b80e4fb438854b418b583179780a12c714b2f55310abd5f57"
+    },
+    {
+      "id": "targets",
+      "version": "0.1.0",
+      "digest": "abe13cc46dffdae948ab2cecdaa5f8bba5c34630e3ed38e0cd3672b468b1b106"
+    },
+    {
+      "id": "rubric",
+      "version": "1.0.0",
+      "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
+    }
+  ],
+  "bundleDigest": "aa8fa986c58843126a7cc9db468731d0e6fdafb7606179c6a83726df550777dc"
+}

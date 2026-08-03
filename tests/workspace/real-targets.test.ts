@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { selectWorkspace } from "../../engine/workspace/select.js";
 import { analyzedRoots } from "../../engine/workspace/types.js";
-import { TARGETS } from "../../engine/targets/registry.js";
+import { TARGETS } from "../support/targets/registry.js";
 import { announceSkip, targetAvailability } from "../support/targets.js";
 
 /**

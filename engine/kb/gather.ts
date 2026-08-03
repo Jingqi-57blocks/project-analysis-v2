@@ -20,15 +20,18 @@ import type {
   OutboundCallRecord,
   RouteRecord,
 } from "../structural/boundaries.js";
-import type { CallEdgeRecord, SymbolRecord } from "../structural/code.js";
+import type { CallEdgeRecord, ReferenceRecord, SymbolRecord, TypeRelationRecord } from "../structural/code.js";
 import type {
   ModuleContainmentRecord,
   PackageDependencyRecord,
 } from "../structural/dependencies.js";
 import type {
   ConditionRecord,
+  DecisionRecord,
   DiscardedErrorRecord,
   ErrorHandlingRecord,
+  GuardRecord,
+  NotificationCallRecord,
   TransactionBoundaryRecord,
   ValidationRuleRecord,
 } from "../structural/rules.js";
@@ -47,12 +50,17 @@ export interface GatheredRecords {
   readonly calls: readonly OutboundCallRecord[];
   readonly symbols: readonly SymbolRecord[];
   readonly callEdges: readonly CallEdgeRecord[];
+  readonly references: readonly ReferenceRecord[];
+  readonly typeRelations: readonly TypeRelationRecord[];
   readonly dataAccess: readonly DataAccessRecord[];
   readonly validations: readonly ValidationRuleRecord[];
   readonly transactions: readonly TransactionBoundaryRecord[];
   readonly errorHandling: readonly ErrorHandlingRecord[];
   readonly authAnnotations: readonly AuthAnnotationRecord[];
   readonly conditions: readonly ConditionRecord[];
+  readonly decisions: readonly DecisionRecord[];
+  readonly guards: readonly GuardRecord[];
+  readonly notifications: readonly NotificationCallRecord[];
   readonly discarded: readonly DiscardedErrorRecord[];
   readonly containment: readonly ModuleContainmentRecord[];
   readonly dependencies: readonly PackageDependencyRecord[];
@@ -79,12 +87,17 @@ interface Buckets {
   calls: OutboundCallRecord[];
   symbols: SymbolRecord[];
   callEdges: CallEdgeRecord[];
+  references: ReferenceRecord[];
+  typeRelations: TypeRelationRecord[];
   dataAccess: DataAccessRecord[];
   validations: ValidationRuleRecord[];
   transactions: TransactionBoundaryRecord[];
   errorHandling: ErrorHandlingRecord[];
   authAnnotations: AuthAnnotationRecord[];
   conditions: ConditionRecord[];
+  decisions: DecisionRecord[];
+  guards: GuardRecord[];
+  notifications: NotificationCallRecord[];
   discarded: DiscardedErrorRecord[];
   containment: ModuleContainmentRecord[];
   dependencies: PackageDependencyRecord[];
@@ -101,12 +114,17 @@ function emptyBuckets(): Buckets {
     calls: [],
     symbols: [],
     callEdges: [],
+    references: [],
+    typeRelations: [],
     dataAccess: [],
     validations: [],
     transactions: [],
     errorHandling: [],
     authAnnotations: [],
     conditions: [],
+    decisions: [],
+    guards: [],
+    notifications: [],
     discarded: [],
     containment: [],
     dependencies: [],
@@ -137,6 +155,12 @@ function sortInto(buckets: Buckets, model: AssembledModel, generated: ReadonlySe
       case "call-edge":
         buckets.callEdges.push(assembled.record as CallEdgeRecord);
         break;
+      case "reference":
+        buckets.references.push(assembled.record as ReferenceRecord);
+        break;
+      case "type-relation":
+        buckets.typeRelations.push(assembled.record as TypeRelationRecord);
+        break;
       case "data-access":
         buckets.dataAccess.push(assembled.record as DataAccessRecord);
         break;
@@ -154,6 +178,15 @@ function sortInto(buckets: Buckets, model: AssembledModel, generated: ReadonlySe
         break;
       case "condition":
         buckets.conditions.push(assembled.record as ConditionRecord);
+        break;
+      case "decision":
+        buckets.decisions.push(assembled.record as DecisionRecord);
+        break;
+      case "guard":
+        buckets.guards.push(assembled.record as GuardRecord);
+        break;
+      case "notification-call":
+        buckets.notifications.push(assembled.record as NotificationCallRecord);
         break;
       case "discarded-error":
         buckets.discarded.push(assembled.record as DiscardedErrorRecord);

@@ -12,8 +12,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "verify:contracts": "tsx scripts/verify-contracts.ts",
     "target:derive": "tsx scripts/derive-variant.ts",
     "analyze": "tsx scripts/analyze.ts",
+    "report": "tsx scripts/report.ts",
     "status": "tsx scripts/status.ts",
     "export": "tsx scripts/export.ts"
   },
@@ -30,5 +32,8 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
+  },
+  "dependencies": {
+    "mermaid": "^11.16.0"
   }
 }

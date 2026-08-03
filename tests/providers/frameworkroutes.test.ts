@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createGinReader } from "../../engine/providers/frameworkroutes/readers/gin.js";
 import { createExpressReader } from "../../engine/providers/frameworkroutes/readers/express.js";
+import { createVueRouterReader } from "../../engine/providers/frameworkroutes/readers/vuerouter.js";
 import { createFrameworkRoutesProvider } from "../../engine/providers/frameworkroutes/provider.js";
 import { joinRoutePath } from "../../engine/providers/frameworkroutes/readers/types.js";
 import { sharedIndexRoot } from "../../engine/providers/codegraph/cli.js";
@@ -178,6 +179,31 @@ func Reg(e *gin.Engine) {
     expect(candidates["/d"]).toEqual([]);
   });
 
+  it("normalizes an imported package alias before handler linking", () => {
+    write("go.mod", GO_MOD);
+    write(
+      "r.go",
+      `package r
+import (
+  aplyGeneral "example.com/svc/internal/handlers/application/general"
+  e "example.com/svc/internal/pkg/error"
+  "github.com/gin-gonic/gin"
+)
+func Reg(engine *gin.Engine) {
+  engine.GET("/applications", e.CatchError(aplyGeneral.Pagination))
+}
+`,
+    );
+
+    const reading = createGinReader().read(root(["go.mod", "r.go"]));
+    expect(reading.routes[0]!.handlerCandidates).toEqual([
+      "aplyGeneral.Pagination",
+      "general.Pagination",
+      "e.CatchError",
+      "error.CatchError",
+    ]);
+  });
+
   it("does not detect a Go project without gin", () => {
     write("go.mod", "module x\n\nrequire github.com/pkg/errors v0.9.1\n");
     expect(createGinReader().detect(root(["go.mod"]))).toBe(false);
@@ -282,9 +308,175 @@ app.use('/logs', logRouter);
     expect(reading.failures).toEqual([]);
   });
 
+  it("reads routes registered on the application object with their full path", () => {
+    // Verbatim shape from the real target's index.js: const app = express();
+    // app.get('/api/products', getProducts) — no express.Router() anywhere.
+    write("package.json", PACKAGE_JSON);
+    write(
+      "index.js",
+      `const app = express();
+app.use(cors());
+app.get('/api/products', getProducts);
+app.post('/api/login', loginLimiter, login);
+app.get('/', (req, res) => { res.send('ok'); });
+`,
+    );
+
+    const reading = createExpressReader().read(root(["package.json", "index.js"]));
+
+    expect(reading.routes.map((r) => `${r.method} ${r.path}`).sort()).toEqual([
+      "GET /",
+      "GET /api/products",
+      "POST /api/login",
+    ]);
+    const products = reading.routes.find((r) => r.path === "/api/products")!;
+    expect(products.handlerName).toBe("getProducts");
+    expect(products.provenance.resolutionClass).toBe("resolved");
+    const login = reading.routes.find((r) => r.path === "/api/login")!;
+    expect(login.handlerName).toBe("login");
+    expect(login.middleware).toEqual(["loginLimiter"]);
+    expect(reading.failures).toEqual([]);
+  });
+
+  it("records an app-object registration with a non-literal path as a failure, not a guess", () => {
+    write("package.json", PACKAGE_JSON);
+    write("index.js", "const app = express();\napp.get('/api/' + resource, handler);\n");
+
+    const reading = createExpressReader().read(root(["package.json", "index.js"]));
+    expect(reading.routes).toEqual([]);
+    expect(reading.failures[0]!.reason).toContain("string literal");
+  });
+
+  it("reads app-object routes and router mounts together, without duplication", () => {
+    write("package.json", PACKAGE_JSON);
+    write(
+      "index.js",
+      `const app = express();
+app.get('/api/ping', ping);
+app.use('/leaves', require('./routes/leave')(passport));
+`,
+    );
+    write("routes/leave.js", "const router = express.Router();\nrouter.get('/types', h);\n");
+
+    const reading = createExpressReader().read(
+      root(["package.json", "index.js", "routes/leave.js"]),
+    );
+    expect(reading.routes.map((r) => `${r.method} ${r.path}`).sort()).toEqual([
+      "GET /api/ping",
+      "GET /leaves/types",
+    ]);
+    expect(reading.failures).toEqual([]);
+  });
+
+  it("invents no route from app-wide middleware or a listen call", () => {
+    write("package.json", PACKAGE_JSON);
+    write(
+      "index.js",
+      `const app = express();
+app.use(cors());
+app.use(express.json());
+app.listen(3000);
+`,
+    );
+
+    const reading = createExpressReader().read(root(["package.json", "index.js"]));
+    expect(reading.routes).toEqual([]);
+    expect(reading.failures).toEqual([]);
+  });
+
   it("does not detect a node project without express", () => {
     write("package.json", JSON.stringify({ dependencies: { vue: "^3.0.0" } }));
     expect(createExpressReader().detect(root(["package.json"]))).toBe(false);
+  });
+});
+
+const VUE_PACKAGE_JSON = JSON.stringify({ dependencies: { "vue-router": "^4.0.0" } });
+
+describe("vue-router reader", () => {
+  it("reads the createRouter table as client routes with their component", () => {
+    // Verbatim shape from the real target's src/router/index.js.
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.js",
+      `import { createRouter, createWebHistory } from 'vue-router'
+import HomeView from '../views/HomeView.vue'
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    { path: '/', name: 'home', component: HomeView, meta: { title: 'Home' } },
+    { path: '/product/:id', name: 'product', component: () => import('../views/ProductView.vue') },
+    { path: '/checkout', name: 'checkout', component: () => import('../views/CheckoutView.vue') },
+  ],
+})
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.js"]));
+
+    expect(reading.routes.map((r) => r.path).sort()).toEqual(["/", "/checkout", "/product/:id"]);
+    expect(reading.routes.every((r) => r.surface === "client" && r.method === null)).toBe(true);
+    expect(reading.routes.find((r) => r.path === "/")!.handlerName).toBe("HomeView");
+    // A lazily imported component names no symbol here.
+    expect(reading.routes.find((r) => r.path === "/product/:id")!.handlerName).toBeNull();
+    expect(reading.failures).toEqual([]);
+  });
+
+  it("composes nested children under the parent path", () => {
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.ts",
+      `import { createRouter } from 'vue-router'
+const router = createRouter({
+  routes: [
+    { path: '/user', component: UserLayout, children: [
+      { path: 'profile', component: Profile },
+      { path: 'settings', component: Settings },
+    ] },
+  ],
+})
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.ts"]));
+    expect(reading.routes.map((r) => r.path).sort()).toEqual([
+      "/user",
+      "/user/profile",
+      "/user/settings",
+    ]);
+  });
+
+  it("records a runtime-assembled path as a failure, never a guess", () => {
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.js",
+      `import { createRouter } from 'vue-router'
+const base = '/x'
+const router = createRouter({ routes: [ { path: base + '/y', component: C } ] })
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.js"]));
+    expect(reading.routes).toEqual([]);
+    expect(reading.failures[0]!.reason).toContain("string literal");
+  });
+
+  it("does not read a plain object that merely has a path key", () => {
+    write("package.json", VUE_PACKAGE_JSON);
+    write(
+      "src/router/index.js",
+      `import { createRouter } from 'vue-router'
+const fileConfig = { path: '/some/asset/path' }
+const router = createRouter({ routes: [ { path: '/home', component: Home } ] })
+`,
+    );
+
+    const reading = createVueRouterReader().read(root(["package.json", "src/router/index.js"]));
+    expect(reading.routes.map((r) => r.path)).toEqual(["/home"]);
+  });
+
+  it("does not detect a node project without vue-router", () => {
+    write("package.json", JSON.stringify({ dependencies: { react: "^18.0.0" } }));
+    expect(createVueRouterReader().detect(root(["package.json"]))).toBe(false);
   });
 });
 

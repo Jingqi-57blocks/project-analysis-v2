@@ -1,0 +1,2449 @@
+{
+  "manifest": {
+    "targetId": "wcp-v2",
+    "module": "leave",
+    "version": "0.3.0",
+    "roots": [
+      {
+        "name": "wcp-service-v2",
+        "language": "Go",
+        "sha": "7db2ee8d2670993fe185d7293d6a315753602acd",
+        "dirty": false
+      },
+      {
+        "name": "wcp-ui",
+        "language": "React/TS",
+        "sha": "b86dfa27e95f2109dcd9bcbdec147b62dbc8312d",
+        "dirty": false
+      },
+      {
+        "name": "wcp-service",
+        "language": "Node/JS",
+        "sha": "9df6897542a15025dbda798f0c30d769c59c36ed",
+        "dirty": true,
+        "dirtyNote": "one untracked .DS_Store (non-source)"
+      }
+    ],
+    "status": "draft-source-verified; pending human domain sign-off"
+  },
+  "items": [
+    {
+      "id": "T-STRUCT-EP-01",
+      "facets": [
+        "M1"
+      ],
+      "category": "entry-point",
+      "claim": "POST /v2/leaves -> Creation is the apply entry point",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/router.go",
+          "lines": "30"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-EP-02",
+      "facets": [
+        "M1"
+      ],
+      "category": "entry-point",
+      "claim": "POST /v2/leaves/{id} -> Approve; PUT /v2/leaves/{id} -> Reject",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/router.go",
+          "lines": "66, 89"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-EP-03",
+      "facets": [
+        "M1"
+      ],
+      "category": "entry-point",
+      "claim": "DELETE /v2/leaves/{id} -> Deletion (cancel pending); POST /v2/leaves/{id}/application -> DeletionApplication (cancel approved)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/router.go",
+          "lines": "192, 217",
+          "note": "192=DeletionApplication, 217=Deletion"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-EP-04",
+      "facets": [
+        "M1"
+      ],
+      "category": "entry-point",
+      "claim": "list: GET /v2/leaves (Pagination), GET /v2/leaves/me (OwnPagination); export GET /v2/leaves/export (Export)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/router.go",
+          "lines": "140, 165, 239"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-EP-05",
+      "facets": [
+        "M1"
+      ],
+      "category": "entry-point",
+      "claim": "prompts: GET /v2/leaves/apply-prompt (ApplyLeavePrompt), GET /v2/leaves/{id}/approve-prompt (ApproveLeavePrompt); sick balance GET /v2/leaves/remain-fully-paid-sick",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/router.go",
+          "lines": "247, 255, 263",
+          "note": "247=ApproveLeavePrompt, 255=ApplyLeavePrompt, 263=GetUserRemainFullySickLeave"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-UI-01",
+      "facets": [
+        "M1"
+      ],
+      "category": "call-edge",
+      "claim": "UI leave feature calls Go /v2/* (leaves, plus holiday, holiday-hour, calculation); no static call to the legacy /leaves* API found",
+      "evidence": [
+        {
+          "root": "wcp-ui",
+          "path": "src/pages/leave/leave-service.ts",
+          "note": "whole file; calls /v2/* only"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-TBL-01",
+      "facets": [
+        "M1"
+      ],
+      "category": "db-table",
+      "claim": "tables: wcp_leave, wcp_leave_detail, wcp_approve, wcp_holiday_hour, wcp_holiday_hour_change_log, wcp_upload_file",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/model/leave.go"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/constant/table.go"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-TBL-02",
+      "facets": [
+        "M1"
+      ],
+      "category": "db-ownership",
+      "claim": "leave schema/migrations live in wcp-service (JS); Go v2 has no migrations, shares the tables",
+      "evidence": [
+        {
+          "root": "wcp-service",
+          "path": "migrations/",
+          "note": "*leave* migrations through 2025; wcp-service-v2 has no migrations dir"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-STRUCT-JS-LEGACY",
+      "facets": [
+        "M1"
+      ],
+      "category": "boundary",
+      "claim": "wcp-service/routes/leave.js exposes 11 real leave endpoints at /leaves, but no static caller exists in the 5 roots; superseded by Go /v2. NOT proven dead (external traffic not knowable statically)",
+      "evidence": [
+        {
+          "root": "wcp-service",
+          "path": "app.js",
+          "lines": "100",
+          "note": "mounts leaveRouter at /leaves"
+        },
+        {
+          "root": "wcp-service",
+          "path": "routes/leave.js",
+          "note": "11 real (non-stubbed) leave endpoints; whole-workspace grep found no static caller"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ],
+      "allowedUnresolved": "production liveness of the legacy /leaves* routes is unresolved -- not knowable statically; resolution is routes-exist-but-no-static-caller (superseded, not proven-dead)"
+    },
+    {
+      "id": "T-STRUCT-JS-STILL",
+      "facets": [
+        "M1"
+      ],
+      "category": "boundary",
+      "claim": "wcp-service is not dead: owns leave schema + leaveService used by a live cron (worklog reminder) & report exports",
+      "evidence": [
+        {
+          "root": "wcp-service",
+          "path": "services/notificationService.js",
+          "lines": "81",
+          "note": "leaveService.queryLeavesByDates in the missing-worklog reminder"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-ST-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "state-set",
+      "claim": "9 leave statuses: WaitingL1(1) L2(2) L3(3) Approved(4) Rejected(5) Completed(6) Cancelled(7) WaitingHR(8) WaitingLeadCancel(9)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/constant/leave.go",
+          "lines": "96-105"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-ST-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "state-set",
+      "claim": "approval-record statuses: Rejected(0) Approved(1) Cancelled(2) WaitingApprove(3) SubmitCancelApplication(4)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/constant/leave.go",
+          "lines": "198-204"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "create -> initial status: sensitive type -> WaitingHR(8) unless the configured HR is the applicant; else -> WaitingL1(1), or L2(2) if applicant is own leader. Self-approval collapse at chain build can advance further or straight to Approved(4)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "129-173"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/approvement.go",
+          "lines": "90-92, 138-156"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ],
+      "allowedUnresolved": "creation-time self-approval collapse can advance past the nominal initial status, up to Approved(4)"
+    },
+    {
+      "id": "T-BEHAV-TR-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "HR approve -> WaitingL1(1) [or L2(2) if applicant == L1 mgr]",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "460-465"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-03",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "L1 approve: hours>16 -> WaitingL2(2), else -> Approved(4)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "510-516, 606-611"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-04",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "L2 approve: hours>40 -> WaitingL3(3), else -> Approved(4)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "557-563, 606-611"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-05",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "L3 approve -> Approved(4)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "606-611"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-06",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "reject (any waiting) -> Rejected(5); one rejection terminates; hours restored",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "889-897"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "823-828"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-07",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "own Deletion (status 1/2/3/8) -> Cancelled(7); hours restored",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "1372-1387"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "761"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-08",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "DeletionApplication (status 4/6) -> WaitingLeadCancel(9); no balance change",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "1264-1314"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-09",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "lead approves cancel (9) -> Cancelled(7) + restore; lead rejects (9) -> Approved(4), no change",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "424-456, 848-862"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-10",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "escalation threshold is leave hours (>16, >40), not org depth",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "510, 557"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-TR-11",
+      "facets": [
+        "M2"
+      ],
+      "category": "transition",
+      "claim": "Approved(4) -> Completed(6) is written by the Go cron syncLvCompleted when end_date has passed; registered at service startup. (Production execution needs runtime evidence; a JS markLeaveDone cron also existed but is disabled.)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/third_party/cron/cron.go",
+          "lines": "19, 41-55"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "init/initialization.go",
+          "lines": "71",
+          "note": "runTask block that calls wcpCron.Setup()"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ],
+      "allowedUnresolved": "whether the syncLvCompleted cron actually runs in production is not confirmable statically"
+    },
+    {
+      "id": "T-BEHAV-TR-12",
+      "facets": [
+        "M2"
+      ],
+      "category": "rule",
+      "claim": "overlapping/duplicate same-day leave is not hard-blocked at creation; the pre-apply duplicate prompt is broken (always returns empty)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "1877",
+          "note": "ApplyLeavePrompt queries repeats but never returns them"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-CONC-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "concurrency",
+      "claim": "no row locking on approve/reject/cancel; guard is Status != nil only",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "grep: no FOR UPDATE / clause.Locking in handlers/leave; only guard is lastAprv.Status != nil"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-PERM-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "permission",
+      "claim": "approve/reject: Admin or HR always; else must be isProjMng and the exact ApproverID of the current pending step; else Forbidden",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "369-399, 817-846"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-PERM-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "permission",
+      "claim": "cancel (both branches) is owner-only",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "1362, 1253-1260"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-RULE-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "approval-routing",
+      "claim": "chain built by type: PTO/Special = L1->L2->L3; sensitive = HR->L1->L2->L3; others = L1->L2->L3",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "370-374, 473-479, 488-492"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-RULE-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "approval-routing",
+      "claim": "at creation, a node whose approver == applicant auto-approves & cascades; no next manager -> jump to Approved(4)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/approvement.go",
+          "lines": "90-92, 138-156"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-RULE-03",
+      "facets": [
+        "M2"
+      ],
+      "category": "balance",
+      "claim": "balance is decremented at creation (<Type>Token += consumption), not at approval",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "258-292"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-RULE-04",
+      "facets": [
+        "M2"
+      ],
+      "category": "balance",
+      "claim": "Sick/UTO/Maternity/Paternity/Marriage/Funeral/Prenatal are not balance-capped at creation (IgnoreMap)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_abst.go",
+          "lines": "25-33"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-VAL-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "validation",
+      "claim": "attachment required for Sick/Maternity/Prenatal/Marriage -> \"Attachment is required.\"",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "73-80"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-VAL-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "validation",
+      "claim": "BTO forbidden during probation -> \"BTO cannot be taken during the probation period.\"",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "112-114"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-VAL-03",
+      "facets": [
+        "M2"
+      ],
+      "category": "validation",
+      "claim": "BTO must be exactly 8h & single day; Prenatal 8h & single day",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "1018-1023, 1166-1172"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-VAL-04",
+      "facets": [
+        "M2"
+      ],
+      "category": "validation",
+      "claim": "sick leave >1 work day requires a doctor's note",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_abst.go",
+          "lines": "258-265"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-VAL-05",
+      "facets": [
+        "M2"
+      ],
+      "category": "validation",
+      "claim": "insufficient balance (capped types) -> \"Not enough holiday.\"",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_abst.go",
+          "lines": "284, 310, 406, 432"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-VAL-06",
+      "facets": [
+        "M2"
+      ],
+      "category": "validation",
+      "claim": "presale/EOR project blocks leave; project must exist",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "63-71"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-VAL-LIST",
+      "facets": [
+        "M2"
+      ],
+      "category": "validation",
+      "claim": "the creation validations enumerated in leave-lifecycle.md 4 (project/attachment/probation/BTO-8h/prenatal/sick-note/balance/...) -- each with a file:line there",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "full creation-validation list enumerated in truth-set/leave-lifecycle.md 4; individual validations pinned in service.go / brdg_impl.go / brdg_abst.go (see VAL-01..06)"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "allowedUnresolved": "the full validation list is not yet independently pinned as a complete set with in-repo file:line (open item #1)"
+    },
+    {
+      "id": "T-BEHAV-EXC-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "exception",
+      "claim": "acting on a decided step -> \"Already approved/cancelled.\"",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "394, 842"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-EXC-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "exception",
+      "claim": "cancel when status not cancelable -> \"This leave request is not in the progress of cancel.\"",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "1366"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-01",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Applied / forward-to-next: email -> the single next approver; mobile -> next approver + applicant. tmpl leave_application_applied",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "226-232, 241-247",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-02",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Approve step (status sync): email + mobile -> applicant. tmpl leave_application_approved",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "428-434",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-03",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Rejected: email -> To applicant, Cc every approver; mobile -> applicant. tmpl leave_application_rejected",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "790-800, 861",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-04",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Cancelled (own pending): email -> every approver; mobile -> HRs-of-nation + applicant. tmpl leave_application_cancelled",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "1282-1292, 1488-1508",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-05",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Broadcast fires on a full approval via the Approve handler (not the creation-time self-approval collapse). email -> HRs of nation + every approver + every member of every active project the applicant belongs to + site managers + applicant (body = MessageToTeam); mobile -> all those project members + applicant. tmpl leave_broadcast. Email set is a union of whole groups; keep it un-narrowed",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "697",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "1646-1675, 1730-1740",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-06",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Cancellation-approved: email -> same wide union as broadcast (batched 50); mobile -> applicant only. tmpl leave_cancellation_approved",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "1378-1417",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-07",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Cancellation-applied: email -> single routed approver (leader, or site manager if applicant is own leader); mobile -> HRs-of-nation + applicant. tmpl leave_cancellation_applied",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "1004-1020, 1094-1107",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-NOTIF-08",
+      "facets": [
+        "M3"
+      ],
+      "category": "notification",
+      "claim": "Update-plan reminder -> project leader (email), only when hours>40 && office in {1,2} && endDate > first-day-of-current-month",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "700-722",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "1789",
+          "note": "Authoring/dispatch site. The terminal send is decoupled from here via a goroutine + interface dispatch (service.go `go cpst.Execute`) and a Go channel (email.go `SesCh <- input`) to `smtp.SendMail` in internal/third_party/ses/ses.go — not reachable by generic static call-graph analysis. Resolved at the report layer (M3, authored by the LLM reading the code), not the structural deriver (M2). See .analysis/pi-82-notification-finding.md."
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-BEHAV-SE-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "side-effect",
+      "claim": "rows written on create: wcp_leave, wcp_leave_detail (per day), wcp_approve (chain), wcp_upload_file (per attachment), wcp_holiday_hour (token mutate)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "117-292"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-SE-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "side-effect",
+      "claim": "no wcp_holiday_hour_change_log row on create (only on manual edit / withdrawal trim)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "617-636"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-SE-03",
+      "facets": [
+        "M2"
+      ],
+      "category": "integration",
+      "claim": "leave email = SES over SMTP, in-process channel worker-pool (10), failures logged & dropped (no retry). Emails render via html/template (handlers/notification/parse.go:5) -- user fields are escaped",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/third_party/ses/ses.go",
+          "lines": "26-40"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/notification/parse.go",
+          "lines": "5"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-SE-04",
+      "facets": [
+        "M2"
+      ],
+      "category": "integration",
+      "claim": "S3 for attachments (presigned GET) and xlsx exports (PutObject)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/third_party/s3/s3.go"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "1776-1782"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-BEHAV-SE-05",
+      "facets": [
+        "M2"
+      ],
+      "category": "integration",
+      "claim": "no external queue; no calls to other services from the leave package",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "grep across leave/notification files: no external queue/broker; no calls to other services"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "allowedUnresolved": "scoped absence -- verified only within the leave/notification files read; declare scope"
+    },
+    {
+      "id": "T-BEHAV-ABS-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "absent",
+      "claim": "funeral/marriage/paternity change-log write is fully commented out -- it does not happen",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "615-675"
+        }
+      ],
+      "expectedResolution": "absent",
+      "expectedStatus": "absent",
+      "criticality": "normal",
+      "mustFind": false,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "allowedUnresolved": "report as not-happening, not as a feature (proven-absent)"
+    },
+    {
+      "id": "T-RPT-01",
+      "facets": [
+        "M3"
+      ],
+      "category": "pm-vs-dev",
+      "claim": "the state machine (3) belongs in both reports; PM as a plain approval-lifecycle diagram, dev with the exact status constants & transition lines -- same fact IDs",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "460-611",
+          "note": "state machine = T-BEHAV-ST-01 + T-BEHAV-TR-01..11; see constant/leave.go:96-105"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-objects-rules-states"
+        },
+        {
+          "scope": "module",
+          "audience": "developer",
+          "sectionId": "module-branches-rules-states"
+        }
+      ]
+    },
+    {
+      "id": "T-RPT-02",
+      "facets": [
+        "M3"
+      ],
+      "category": "pm-vs-dev",
+      "claim": "notification recipient unions (NOTIF-05/06) must appear in the PM report as \"notifies X, Y, Z and ...\", never narrowed to one role; keep email vs mobile distinct",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "lines": "1646-1740",
+          "note": "NOTIF-05/06 unions must not be narrowed in the PM report"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "product",
+          "sectionId": "module-notifications-data"
+        }
+      ]
+    },
+    {
+      "id": "T-RPT-03",
+      "facets": [
+        "M3"
+      ],
+      "category": "dev-only",
+      "claim": "technical-fragility items (dropped SES errors, Special negative-guard gap, hours-escalation self-skip gap, approver-level mismatch) belong to the developer report only",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "technical-fragility items -> developer report only; enumerated in leave-lifecycle.md 11"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "developer",
+          "sectionId": "module-impl-issues"
+        }
+      ]
+    },
+    {
+      "id": "T-RPT-04",
+      "facets": [
+        "M3"
+      ],
+      "category": "coverage-honesty",
+      "claim": "JS prod-liveness (JS-LEGACY) must surface as unresolved, not omitted or guessed",
+      "evidence": [
+        {
+          "root": "wcp-service",
+          "path": "routes/leave.js",
+          "note": "prod-liveness of T-STRUCT-JS-LEGACY must surface as a declared unresolved gap"
+        }
+      ],
+      "expectedResolution": "unresolved",
+      "expectedStatus": "unresolved",
+      "criticality": "normal",
+      "mustFind": false,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "reportSections": [
+        {
+          "scope": "module",
+          "audience": "developer",
+          "sectionId": "coverage"
+        }
+      ],
+      "allowedUnresolved": "declared coverage gap -- emit as unresolved, counted in the denominator"
+    },
+    {
+      "id": "T-M4-01",
+      "facets": [
+        "M4"
+      ],
+      "category": "fresh-run",
+      "claim": "a fresh analysis of the frozen snapshot reproduces every found item above under its truth id",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "fresh run must reproduce every 'found' item under its truth id"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-M4-02",
+      "facets": [
+        "M4"
+      ],
+      "category": "fresh-run",
+      "claim": "the JS-LEGACY prod-liveness item is emitted as unresolved, counted in the denominator, never silently dropped",
+      "evidence": [
+        {
+          "root": "wcp-service",
+          "path": "routes/leave.js",
+          "note": "1 declared gap; counted, never dropped"
+        }
+      ],
+      "expectedResolution": "unresolved",
+      "expectedStatus": "unresolved",
+      "criticality": "normal",
+      "mustFind": false,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "allowedUnresolved": "the single declared unresolved gap for the leave module"
+    },
+    {
+      "id": "T-M4-03",
+      "facets": [
+        "M4"
+      ],
+      "category": "fresh-run",
+      "claim": "the module-only leave report (product + developer) is generated with shared fact IDs and no project-level docs, per PI-3 report-truth annotations",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "module scope x {product,developer}; shared fact IDs; no project-level docs"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": false,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-ROLE-01",
+      "facets": [
+        "M1",
+        "M2"
+      ],
+      "category": "role",
+      "claim": "applicant (employee) -- creates leave; owner-only cancel",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "57, 1362"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ]
+    },
+    {
+      "id": "T-ROLE-02",
+      "facets": [
+        "M1",
+        "M2"
+      ],
+      "category": "role",
+      "claim": "project leader = L1 approver",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/approvement.go",
+          "note": "Level1 approver"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "168-173"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ]
+    },
+    {
+      "id": "T-ROLE-03",
+      "facets": [
+        "M1",
+        "M2"
+      ],
+      "category": "role",
+      "claim": "L2 / L3 managers = escalation approvers (hours>16 / >40)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "510, 557"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ]
+    },
+    {
+      "id": "T-ROLE-04",
+      "facets": [
+        "M1",
+        "M2"
+      ],
+      "category": "role",
+      "claim": "HR = approver for the 5 sensitive types; also balance editor",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "473-479"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leaveHistory/service.go",
+          "lines": "149"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ]
+    },
+    {
+      "id": "T-ROLE-05",
+      "facets": [
+        "M1",
+        "M2"
+      ],
+      "category": "role",
+      "claim": "site manager = cancel approver when applicant is their own leader",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "1287-1303"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ]
+    },
+    {
+      "id": "T-ROLE-06",
+      "facets": [
+        "M1",
+        "M2"
+      ],
+      "category": "role",
+      "claim": "Admin / HR = may act on any leave at any step",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "lines": "371-375"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "critical",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product"
+      ]
+    },
+    {
+      "id": "T-OBJ-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "object",
+      "claim": "Leave (request) -- the core object; its lifecycle IS the 9-state machine (3)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/model/leave.go"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-OBJ-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "object",
+      "claim": "LeaveDetail -- per-day/segment consumption rows",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/model/leave.go"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-OBJ-03",
+      "facets": [
+        "M2"
+      ],
+      "category": "object",
+      "claim": "Approve record -- one per approval step (the trail)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/model/leave.go",
+          "note": "wcp_approve"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-OBJ-04",
+      "facets": [
+        "M2"
+      ],
+      "category": "object",
+      "claim": "HolidayHour -- per-user/per-year balance (the consumed resource)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leaveHistory/serializer.go",
+          "lines": "37-65"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "product",
+        "developer"
+      ]
+    },
+    {
+      "id": "T-OBJ-05",
+      "facets": [
+        "M2"
+      ],
+      "category": "object",
+      "claim": "UploadFile -- attachment (doctor note etc.)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_impl.go",
+          "lines": "180-193"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-01",
+      "facets": [
+        "M1"
+      ],
+      "category": "dep-out",
+      "claim": "leave -> handlers/support (hour calc CalculationAuto/Regular)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/service.go",
+          "note": "import handlers/support"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/brdg_abst.go",
+          "note": "import handlers/support"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-02",
+      "facets": [
+        "M1"
+      ],
+      "category": "dep-out",
+      "claim": "leave -> configs (nation/location: HR emails, expiration windows)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "imports configs (5x)"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-03",
+      "facets": [
+        "M1"
+      ],
+      "category": "dep-out",
+      "claim": "leave -> model (project, employee, holiday lookups)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "imports model (7x)"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-04",
+      "facets": [
+        "M1"
+      ],
+      "category": "dep-out",
+      "claim": "leave -> handlers/notification (email, html/template) + notification/email",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/notification.go",
+          "note": "imports handlers/notification + notification/email"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-05",
+      "facets": [
+        "M1"
+      ],
+      "category": "dep-in",
+      "claim": "leaveHistory and management depend on the leave package",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leaveHistory/service.go",
+          "lines": "4"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/management/service.go",
+          "lines": "5"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-06",
+      "facets": [
+        "M1"
+      ],
+      "category": "dep-in",
+      "claim": "routes wired in handlers.go (leaveGrp)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/handlers.go",
+          "lines": "96-112"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-07",
+      "facets": [
+        "M1"
+      ],
+      "category": "cross-repo",
+      "claim": "shares wcp_leave* schema with wcp-service (JS owns migrations); called by wcp-ui",
+      "evidence": [
+        {
+          "root": "wcp-service",
+          "path": "migrations/",
+          "note": "wcp_leave* schema owned by JS"
+        },
+        {
+          "root": "wcp-ui",
+          "path": "src/pages/leave/leave-service.ts",
+          "note": "UI caller of Go /v2/*"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-XMOD-08",
+      "facets": [
+        "M1"
+      ],
+      "category": "cross-repo",
+      "claim": "JS leaveService still consumed by a live worklog-reminder cron + report exports (not the JS leave routes)",
+      "evidence": [
+        {
+          "root": "wcp-service",
+          "path": "services/notificationService.js",
+          "lines": "81"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-TEST-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "test-relation",
+      "claim": "no automated tests for the leave module -- 0 *_test.go in handlers/leave (the whole Go service has only 7 test files); 0 UI leave tests",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "find *_test.go -> none in handlers/leave; 7 test files total in the Go service; 0 UI leave tests"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "absent",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-IMPACT-01",
+      "facets": [
+        "M1"
+      ],
+      "category": "change-impact",
+      "claim": "changing leave affects: leaveHistory, management (Go imports); JS worklog-reminder cron, report exports, and billing (shared schema/service)",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/handlers/leave/",
+          "note": "dependents: leaveHistory, management (Go imports); wcp-service worklog-reminder cron, report exports, billing (shared schema/service)"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ]
+    },
+    {
+      "id": "T-ACT-01",
+      "facets": [
+        "M2"
+      ],
+      "category": "activation",
+      "claim": "email send path is reachable (in-process) but delivery is best-effort/dropped -- production delivery not confirmable statically",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/third_party/ses/ses.go",
+          "lines": "33-36"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "allowedUnresolved": "production email delivery is not confirmable statically (best-effort; send failures logged and dropped)"
+    },
+    {
+      "id": "T-ACT-02",
+      "facets": [
+        "M2"
+      ],
+      "category": "activation",
+      "claim": "the Go syncLvCompleted cron (the Completed writer) is present and registered at startup; whether it actually runs in production is not confirmable statically",
+      "evidence": [
+        {
+          "root": "wcp-service-v2",
+          "path": "internal/third_party/cron/cron.go",
+          "lines": "19"
+        },
+        {
+          "root": "wcp-service-v2",
+          "path": "init/initialization.go",
+          "lines": "71"
+        }
+      ],
+      "expectedResolution": "observed",
+      "expectedStatus": "found",
+      "criticality": "normal",
+      "mustFind": true,
+      "mustPrint": true,
+      "requiredScope": [
+        "module"
+      ],
+      "requiredAudience": [
+        "developer"
+      ],
+      "allowedUnresolved": "production execution of the cron is not confirmable statically"
+    }
+  ]
+}

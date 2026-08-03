@@ -10,7 +10,7 @@ import { readEvidence, readEvidenceConflicts, recordEvidence } from "../../engin
 import type { EvidenceItem, SemanticCollector, SemanticContribution } from "../../engine/semantic/types.js";
 import { declared, lineRef } from "../../engine/structural/provenance.js";
 import { createDocumentationCollector, readmeSections, configKeys } from "../../engine/collectors/documentation.js";
-import { createCodeTextCollector, docComments } from "../../engine/collectors/code.js";
+import { createCodeTextCollector, docComments, sourceExcerpts } from "../../engine/collectors/code.js";
 
 let workDir: string;
 
@@ -253,6 +253,33 @@ describe("code-text collector", () => {
     }
   });
 
+  it("keeps bounded verbatim function excerpts for cached semantic review", () => {
+    const content = [
+      "export async function approve(request: Request) {",
+      "  if (request.status !== 'pending') throw new Error('invalid state');",
+      "  return repository.save(request);",
+      "}",
+      "const cancel = async (request: Request) => {",
+      "  request.status = 'cancelled';",
+      "  return repository.save(request);",
+      "};",
+    ].join("\n");
+    const excerpts = sourceExcerpts(content, "approval.ts");
+    expect(excerpts.map((excerpt) => excerpt.label)).toEqual(["approve", "cancel"]);
+    expect(excerpts[0]!.text).toContain("request.status !== 'pending'");
+    expect(excerpts[1]!.startLine).toBe(5);
+  });
+
+  it("stores excerpts as declared source evidence without a symbol dependency", () => {
+    write("approval.go", "func Approve(status string) error {\n  if status != \"pending\" { return errors.New(\"invalid state\") }\n  return nil\n}\n");
+    const excerpt = createCodeTextCollector()
+      .collect(root(["approval.go"]))
+      .items.find((candidate) => candidate.kind === "source-excerpt");
+    expect(excerpt?.label).toBe("Approve");
+    expect(excerpt?.text).toContain("status != \"pending\"");
+    expect(excerpt?.provenance.resolutionClass).toBe("declared");
+  });
+
   it("declares a gap for a language whose comment syntax it does not know", () => {
     write("a.zig", "// a comment\n");
     const contribution = createCodeTextCollector().collect(root(["a.zig"]));
@@ -297,6 +324,26 @@ describe("persistence", () => {
     expect(stored).toHaveLength(1);
     expect(stored[0]!.text).toBe("does a thing");
     expect(stored[0]!.attributions).toEqual(["a"]);
+  });
+
+  it("round-trips the complete source range for multi-line evidence", () => {
+    const source = {
+      rootName: "svc",
+      relPath: "approval.go",
+      startLine: 10,
+      endLine: 14,
+      startColumn: 0,
+      endColumn: null,
+    };
+    const excerpt = item({
+      kind: "source-excerpt",
+      text: "func Approve() {\n  if blocked {\n    return\n  }\n}",
+      source,
+      provenance: declared(source),
+    });
+    recordEvidence(store, snapshotId, rootId, assembleEvidence("svc", [contribution("a", [excerpt])]));
+
+    expect(readEvidence(store, snapshotId)[0]).toMatchObject({ startLine: 10, endLine: 14 });
   });
 
   it("persists a disagreement rather than resolving it", () => {

@@ -6,7 +6,7 @@
  * capability gap rather than discovered later by noticing a thin report.
  */
 
-import { relative } from "node:path";
+import { basename, join, relative } from "node:path";
 
 import { emptyRecords, type StructuralRecords } from "../../structural/kinds.js";
 import {
@@ -21,23 +21,23 @@ import {
 } from "../../structural/provider.js";
 import type { PreflightResult } from "../types.js";
 import type { SymbolId } from "../../structural/identity.js";
+import { declared, fileRef, lineRef, unresolved } from "../../structural/provenance.js";
+import type { CallEdgeRecord, ReferenceRecord, TypeRelationRecord } from "../../structural/code.js";
 import {
-  CALLEE_LIMIT,
   NODE_LIMIT,
   VERIFIED_VERSION,
-  calleesOf,
   codegraphVersion,
   ensureIndexed,
   queryNodes,
   sharedIndexRoot,
   withIndexLock,
   type CodeGraphNode,
-  type CodeGraphRelation,
 } from "./cli.js";
+import { readBatchDb } from "./batchdb.js";
+import type { CodeGraphNodeRecord, CodeGraphSnapshot } from "./batch.js";
 import {
   isSymbolNode,
   nodeSymbolId,
-  toCallEdge,
   toImport,
   toRoute,
   toSymbol,
@@ -64,13 +64,11 @@ export interface CodeGraphOptions {
   readonly indexRoot?: string;
 
   /**
-   * Whether to query callees per symbol.
+   * Whether to import call edges from the batch index.
    *
-   * That loop is one subprocess per callable symbol and dominates extraction —
-   * measured at 96% of a run. A report that needs entry points and structure
-   * but not the call graph can skip it, and the provider then declares
-   * call-edge support as none with the reason, so nothing mistakes the absence
-   * for a codebase without calls.
+   * A caller can still omit the graph for a deliberately structural-only run.
+   * The provider then declares call-edge support as none, so an empty edge set
+   * cannot be mistaken for a codebase without calls.
    */
   readonly callEdges?: boolean;
 
@@ -85,9 +83,6 @@ export interface CodeGraphOptions {
    */
   readonly skipSymbolsIn?: (relPath: string) => boolean;
 }
-
-/** Symbol kinds worth asking for callees. Querying every constant would multiply cost for no edges. */
-const CALLABLE_KINDS: ReadonlySet<string> = new Set(["function", "method"]);
 
 /**
  * What this provider can and cannot supply.
@@ -108,16 +103,17 @@ export function codegraphCapabilities(options: CodeGraphOptions = {}): ProviderC
         kind: "symbol",
         language: ANY_LANGUAGE,
         support: "full",
-        // The index covers the directory holding every root, so the cap is
-        // shared across them and across whatever else sits beside them.
-        limits: [`at most ${NODE_LIMIT} nodes across the indexed directory`],
+        limits: [
+          "all nodes are read in one pass from the version-gated batch index",
+          `the CLI fallback is limited to ${NODE_LIMIT} nodes across the indexed directory`,
+        ],
       },
       {
         kind: "call-edge",
         language: ANY_LANGUAGE,
         support: callEdges ? "partial" : "none",
         limits: callEdges ? [
-          "only functions and methods are queried for callees",
+          "all resolved call edges are read in one pass from the version-gated CodeGraph index",
           // Measured against a real Go service: every edge came back resolved,
           // because CodeGraph only reports callees it has indexed. Calls into
           // third-party packages are therefore absent from the graph rather
@@ -125,8 +121,7 @@ export function codegraphCapabilities(options: CodeGraphOptions = {}): ProviderC
           // codebase that never touches its dependencies.
           "only calls to indexed symbols are reported; calls into dependencies do not appear at all",
           "dynamic dispatch and reflection are reported as unresolved where they surface",
-          "one subprocess call per callable symbol, so extraction time grows with symbol count",
-          `at most ${CALLEE_LIMIT} callees are read per symbol; hitting the cap is recorded as a failure`,
+          "dynamic dispatch and reflection remain unresolved where CodeGraph cannot establish a target",
         ] : ["call-edge extraction was switched off for this run"],
       },
       {
@@ -148,8 +143,18 @@ export function codegraphCapabilities(options: CodeGraphOptions = {}): ProviderC
       // Declared as unsupported rather than left silent, so the assembler and
       // the coverage matrix can tell a refusal from an oversight.
       { kind: "export", language: ANY_LANGUAGE, support: "none", limits: [] },
-      { kind: "reference", language: ANY_LANGUAGE, support: "none", limits: [] },
-      { kind: "type-relation", language: ANY_LANGUAGE, support: "none", limits: [] },
+      {
+        kind: "reference",
+        language: ANY_LANGUAGE,
+        support: "partial",
+        limits: ["resolved reference and instantiation edges from the CodeGraph batch index"],
+      },
+      {
+        kind: "type-relation",
+        language: ANY_LANGUAGE,
+        support: "partial",
+        limits: ["extends and implements edges observed by CodeGraph"],
+      },
       { kind: "package-dependency", language: ANY_LANGUAGE, support: "none", limits: [] },
       { kind: "build-target", language: ANY_LANGUAGE, support: "none", limits: [] },
       { kind: "module-containment", language: ANY_LANGUAGE, support: "none", limits: [] },
@@ -169,12 +174,6 @@ export function codegraphCapabilities(options: CodeGraphOptions = {}): ProviderC
 function standingGaps(): readonly CapabilityGap[] {
   return [
     { kind: "export", language: ANY_LANGUAGE, reason: "CodeGraph does not expose export records" },
-    { kind: "reference", language: ANY_LANGUAGE, reason: "CodeGraph does not expose reference sites" },
-    {
-      kind: "type-relation",
-      language: ANY_LANGUAGE,
-      reason: "CodeGraph does not expose inheritance or interface conformance",
-    },
     {
       kind: "package-dependency",
       language: ANY_LANGUAGE,
@@ -240,6 +239,158 @@ interface SharedIndex {
   readonly nodes: readonly CodeGraphNode[];
   /** True when the query came back full, so there were probably more nodes. */
   readonly truncated: boolean;
+  /** One read of every CodeGraph edge; null only when the version/schema gate rejects it. */
+  readonly batch: CodeGraphSnapshot | null;
+  readonly batchFailure: string | null;
+}
+
+function batchNode(node: CodeGraphNodeRecord): CodeGraphNode {
+  return {
+    id: node.nativeId,
+    kind: node.kind,
+    name: node.name,
+    qualifiedName: node.metadata.qualifiedName ?? null,
+    filePath: node.filePath,
+    language: node.metadata.language ?? null,
+    startLine: node.startLine,
+    endLine: node.endLine,
+    startColumn: null,
+    endColumn: null,
+    signature: node.metadata.signature ?? null,
+    visibility: node.metadata.visibility ?? null,
+    isExported: node.metadata.isExported === "1" || node.metadata.isExported === "true",
+  };
+}
+
+interface ScopedBatchNode {
+  readonly rootName: string;
+  readonly node: CodeGraphNode;
+}
+
+function scopedBatchNode(
+  node: CodeGraphNodeRecord,
+  parent: string,
+  roots: readonly string[],
+  current: StructuralRootInput,
+): ScopedBatchNode | null {
+  const ordered = [...roots].sort((a, b) => b.length - a.length);
+  for (const rootPath of ordered) {
+    const prefix = `${relative(parent, rootPath)}/`;
+    if (!node.filePath.startsWith(prefix)) continue;
+    return {
+      rootName: rootPath === current.path ? current.name : basename(rootPath),
+      node: { ...batchNode(node), filePath: node.filePath.slice(prefix.length) },
+    };
+  }
+  return null;
+}
+
+function canonicalNodeId(
+  scoped: ScopedBatchNode,
+  options: CodeGraphOptions,
+): SymbolId {
+  // The in-process declaration reader deliberately omits signatures. Where it
+  // owns a file, use that exact identity for batch edges too; otherwise the
+  // edge points at a second, signature-bearing id that is absent from the
+  // merged model and every trace silently stops.
+  const signature = options.skipSymbolsIn?.(scoped.node.filePath) === true
+    ? null
+    : (scoped.node.signature ?? null);
+  return nodeSymbolId(scoped.rootName, { ...scoped.node, signature });
+}
+
+/** Normalize every batch call edge for one root without an N+1 CLI loop. */
+export function batchCallEdges(
+  snapshot: CodeGraphSnapshot,
+  parent: string,
+  roots: readonly string[],
+  current: StructuralRootInput,
+  options: CodeGraphOptions,
+): readonly CallEdgeRecord[] {
+  return batchRelations(snapshot, parent, roots, current, options).callEdges;
+}
+
+export interface BatchRelations {
+  readonly callEdges: readonly CallEdgeRecord[];
+  readonly references: readonly ReferenceRecord[];
+  readonly typeRelations: readonly TypeRelationRecord[];
+}
+
+/** Import calls, instantiations/references and type relations from one batch read. */
+export function batchRelations(
+  snapshot: CodeGraphSnapshot,
+  parent: string,
+  roots: readonly string[],
+  current: StructuralRootInput,
+  options: CodeGraphOptions,
+): BatchRelations {
+  const rawById = new Map(snapshot.nodes.map((node) => [node.nativeId, node] as const));
+  const scopedById = new Map<string, ScopedBatchNode>();
+  for (const node of snapshot.nodes) {
+    const scoped = scopedBatchNode(node, parent, roots, current);
+    if (scoped !== null) scopedById.set(node.nativeId, scoped);
+  }
+  const unresolvedBySource = new Map<string, string[]>();
+  for (const ref of snapshot.unresolvedReferences) {
+    const list = unresolvedBySource.get(ref.fromNativeId) ?? [];
+    list.push(ref.name);
+    unresolvedBySource.set(ref.fromNativeId, list);
+  }
+
+  const currentPrefix = `${relative(parent, current.path)}/`;
+  const permitted = current.analyzedFiles.length === 0 ? null : new Set(current.analyzedFiles);
+  const callEdges: CallEdgeRecord[] = [];
+  const references: ReferenceRecord[] = [];
+  const typeRelations: TypeRelationRecord[] = [];
+  for (const edge of snapshot.edges) {
+    const sourceRaw = rawById.get(edge.fromNativeId);
+    if (sourceRaw === undefined || !sourceRaw.filePath.startsWith(currentPrefix)) continue;
+    const sourceRelPath = sourceRaw.filePath.slice(currentPrefix.length);
+    if (permitted !== null && !permitted.has(sourceRelPath)) continue;
+    const caller = scopedById.get(edge.fromNativeId);
+    if (caller === undefined || !isSymbolNode(caller.node)) continue;
+    const target = edge.toNativeId === null ? undefined : scopedById.get(edge.toNativeId);
+    const resolvedTarget = target !== undefined && isSymbolNode(target.node) ? target : null;
+    const source = edge.startLine === null
+      ? fileRef(current.name, sourceRelPath)
+      : lineRef(current.name, sourceRelPath, edge.startLine);
+    const unresolvedName = unresolvedBySource.get(edge.fromNativeId)?.[0];
+    const callerId = canonicalNodeId(caller, options);
+    const targetId = resolvedTarget === null ? null : canonicalNodeId(resolvedTarget, options);
+    if (edge.kind === "calls" || edge.kind === "call") {
+      callEdges.push({
+        callerId,
+        calleeId: targetId,
+        calleeName: resolvedTarget?.node.name ?? unresolvedName ?? "unresolved callee",
+        provenance: resolvedTarget === null
+          ? unresolved(source, "CodeGraph recorded the call but did not resolve its target inside the analyzed roots")
+          : declared(source),
+      });
+      continue;
+    }
+    if ((edge.kind === "references" || edge.kind === "reference" || edge.kind === "instantiates") && targetId !== null) {
+      references.push({
+        fromSymbolId: callerId,
+        symbolId: targetId,
+        kind: edge.kind === "instantiates" ? "instantiate" : "reference",
+        source,
+        provenance: declared(source),
+      });
+      continue;
+    }
+    if (edge.kind === "implements" || edge.kind === "extends") {
+      typeRelations.push({
+        subtypeId: callerId,
+        supertypeId: targetId,
+        supertypeName: resolvedTarget?.node.name ?? unresolvedName ?? "unresolved type",
+        relation: edge.kind,
+        provenance: targetId === null
+          ? unresolved(source, "CodeGraph recorded the type relation but did not resolve its target inside the analyzed roots")
+          : declared(source),
+      });
+    }
+  }
+  return { callEdges, references, typeRelations };
 }
 
 /**
@@ -303,54 +454,15 @@ function extractFrom(
 
   const symbolNodes = usableNodes.filter(isSymbolNode);
 
-  // A callee relation carries only a simple name and file, so resolution keys
-  // on those. Two symbols in one file can share a simple name — `User.Save`
-  // and `Account.Save` are both `Save` in `models.go` — and picking whichever
-  // was indexed last would attach the call to an arbitrary one of them, then
-  // record it as `declared`: a wrong fact asserted as directly observed.
-  //
-  // Ambiguous names are therefore marked and left unresolved. An edge that
-  // says "calls something named Save, target ambiguous" is worth more than one
-  // confidently naming the wrong function.
-  const symbolsByName = new Map<string, SymbolId>();
-  const ambiguousNames = new Set<string>();
-  for (const node of symbolNodes) {
-    const key = calleeKey(node.filePath, node.name);
-    if (symbolsByName.has(key)) ambiguousNames.add(key);
-    else symbolsByName.set(key, nodeSymbolId(root.name, node));
-  }
-
-  const resolveCallee = (relation: CodeGraphRelation): SymbolId | null => {
-    const key = calleeKey(relation.filePath, relation.name, prefix);
-    if (ambiguousNames.has(key)) return null;
-    return symbolsByName.get(key) ?? null;
-  };
-
-  const callEdges = [];
-  for (const node of options.callEdges === false ? [] : symbolNodes) {
-    if (!CALLABLE_KINDS.has(node.kind)) continue;
-    try {
-      const callerId = nodeSymbolId(root.name, node);
-      const callees = calleesOf(root.path, node.name);
-      for (const callee of callees) {
-        callEdges.push(toCallEdge(root.name, callerId, callee, resolveCallee));
-      }
-      // The query is capped, and a full page back means there were probably
-      // more. Recorded rather than left silent: a hub function quietly losing
-      // its edges past the cap would understate fan-out with no trace.
-      if (callees.length >= CALLEE_LIMIT) {
-        failures.push({
-          scope: `${node.filePath}::${node.name}`,
-          reason: `callee list reached the ${CALLEE_LIMIT} result cap, so further edges from this symbol were not read`,
-        });
-      }
-    } catch (error) {
-      // One symbol's callee query failing must not discard every other edge.
-      failures.push({
-        scope: `${node.filePath}::${node.name}`,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    }
+  const relations = shared.batch === null
+    ? { callEdges: [], references: [], typeRelations: [] }
+    : batchRelations(shared.batch, shared.parent, options.roots ?? [], root, options);
+  const callEdges = options.callEdges === false ? [] : relations.callEdges;
+  if (options.callEdges !== false && shared.batch === null) {
+    failures.push({
+      scope: root.name,
+      reason: `CodeGraph batch edge import failed: ${shared.batchFailure ?? "unknown batch failure"}`,
+    });
   }
 
   const isKind = (node: CodeGraphNode, kind: string): boolean => node.kind === kind;
@@ -369,6 +481,8 @@ function extractFrom(
         .map((n) => toImport(root.name, n)),
       route: usableNodes.filter((n) => isKind(n, "route")).map((n) => toRoute(root.name, n)),
       "call-edge": callEdges,
+      reference: relations.references,
+      "type-relation": relations.typeRelations,
     },
     failures,
   };
@@ -394,11 +508,14 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
     // reported as a codebase with no symbols rather than as a clash.
     resolved = withIndexLock(parent, () => {
       ensureIndexed(parent);
-      const nodes = queryNodes(parent);
+      const outcome = readBatchDb(join(parent, ".codegraph", "codegraph.db"), parent);
+      const nodes = outcome.ok ? outcome.snapshot.nodes.map(batchNode) : queryNodes(parent);
       return {
         parent,
         nodes,
-        truncated: nodes.length >= NODE_LIMIT,
+        truncated: outcome.ok ? outcome.snapshot.truncation.truncated : nodes.length >= NODE_LIMIT,
+        batch: outcome.ok ? outcome.snapshot : null,
+        batchFailure: outcome.ok ? null : JSON.stringify(outcome.degradation),
       };
     });
     return resolved;
