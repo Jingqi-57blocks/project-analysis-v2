@@ -4,6 +4,11 @@
  * Examples:
  *   pnpm report -- --project --module leave --module worklog
  *   pnpm report -- --module leave --db .analysis/kb.sqlite --out /tmp/leave-report
+ *   pnpm report -- --project --executor claude-code
+ *
+ * `--executor` selects the authoring backend: `codex` (default, the Codex CLI) or
+ * `claude-code` (the `claude` CLI). The engine is model-agnostic; this is the one
+ * place the shipped command binds a concrete author.
  *
  * Analysis is deliberately separate (`pnpm analyze`). This command never opens
  * source: classification, authoring and HTML export all consume the same frozen
@@ -26,6 +31,7 @@ import { DEFAULT_AUTHORING_CONCURRENCY, prepareBatchAuthor } from "../engine/rep
 import { deterministicContent, type DecisionIndex } from "../engine/report/deterministic-content.js";
 import { produceDualReport } from "../engine/report/dual-report.js";
 import { executeAuthoredTasks } from "../engine/report/execute.js";
+import { EXECUTORS, isExecutorId, resolveExecutor, type ExecutorId } from "../engine/report/executor.js";
 import {
   classifyReportModules,
   findReportModule,
@@ -62,6 +68,7 @@ interface Args {
   readonly reasoning: JsonAgentIdentity["reasoningEffort"];
   readonly classifierReasoning: JsonAgentIdentity["reasoningEffort"];
   readonly concurrency: number;
+  readonly executor: ExecutorId;
 }
 
 function values(argv: readonly string[], flag: string): readonly string[] {
@@ -97,6 +104,10 @@ function parseArgs(argv: readonly string[]): Args {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16) {
     throw new Error("--concurrency must be an integer from 1 to 16");
   }
+  const executor = value(argv, "--executor") ?? "codex";
+  if (!isExecutorId(executor)) {
+    throw new Error(`--executor must be one of ${EXECUTORS.join(", ")}; got ${executor}`);
+  }
   const optional = (flag: string): string | undefined => value(argv, flag);
   const runId = optional("--run");
   const workspacePath = optional("--workspace");
@@ -115,6 +126,7 @@ function parseArgs(argv: readonly string[]): Args {
     reasoning: reasoning as JsonAgentIdentity["reasoningEffort"],
     classifierReasoning: classifierReasoning as JsonAgentIdentity["reasoningEffort"],
     concurrency,
+    executor,
   };
 }
 
@@ -161,8 +173,9 @@ async function run(argv: readonly string[]): Promise<number> {
     mkdirSync(workDir, { recursive: true });
     console.log(`Reading published snapshot ${kb.snapshot.identity.slice(0, 20)}…`);
 
+    const executor = resolveExecutor(args.executor);
     const agent: JsonAgentIdentity = {
-      executor: "codex-cli",
+      executor: executor.executorKind,
       model: args.model,
       reasoningEffort: args.reasoning,
     };
@@ -175,6 +188,7 @@ async function run(argv: readonly string[]): Promise<number> {
       runDir: resolve(workDir, "module-catalog"),
       language: args.language,
       agent: classifierAgent,
+      ...(executor.run ? { run: executor.run } : {}),
     });
     const classificationMs = Math.round((performance.now() - classificationStarted) * 100) / 100;
     const productModules = productReportModules(classified.artifact, classified.input);
@@ -245,6 +259,7 @@ async function run(argv: readonly string[]): Promise<number> {
       agent,
       cacheDir: resolve(workDir, "authored"),
       concurrency: args.concurrency,
+      ...(executor.run ? { run: executor.run, repairRun: executor.run, lifecycleRepairRun: executor.run } : {}),
     });
     const proseStore: ProseStore = new Map();
     const host = authoringHost({ readers, decisions, contractsByBlockId: contracts(), author: prepared.author, proseStore });
@@ -322,6 +337,7 @@ async function run(argv: readonly string[]): Promise<number> {
     console.log(`  snapshot: ${kb.snapshot.identity}`);
     console.log(`  product modules in overview: ${modules.length}`);
     console.log(`  module detail pages: ${distinctSelected.map((module) => module.displayName).join(", ") || "none"}`);
+    console.log(`  executor: ${executor.executorKind}`);
     console.log(`  AI calls: ${prepared.agentCalls + classified.classifierCalls} (${prepared.cacheHits + (classified.reused ? 1 : 0)} cache hit(s))`);
     console.log(`  report: ${resolve(outDir, "index.html")}`);
     console.log(`  manifest: ${site.manifestPath}`);
