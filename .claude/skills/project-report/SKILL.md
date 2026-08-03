@@ -25,13 +25,22 @@ You are given, in the invocation:
 
 | Input | Meaning |
 | -- | -- |
-| `packPath` | JSON fact pack — the whole of what is knowable here |
+| `phase` | `claims` or `chapter` — which half of the work this call performs |
+| `packPath` | JSON fact pack index — the whole of what is knowable here |
 | `specId` | Which output spec governs this report |
 | `language` | The target language of the view |
-| `claimsPath` | Where to write the claim set |
-| `viewPath` | Where to write the view |
+| `claimsPath` | The claim set: written in the `claims` phase, read in the `chapter` phase |
+
+A `chapter` call additionally carries `chapterNumber`, `chapterTitle`,
+`chapterOutputPath`, and that chapter's own part of the spec inline.
 
 If any is missing, stop and say which. Do not guess a default.
+
+**Do exactly your phase's work and nothing else.** A `claims` call writes the claim
+set and stops. A `chapter` call writes one chapter and stops. Chapters are
+authored concurrently by separate calls; writing a neighbour's chapter, or the
+assembled report, would collide with another call in flight. The engine
+assembles the chapters in spec order.
 
 ## NOW — load exactly four things
 
@@ -69,7 +78,7 @@ scope is a fact about the project and **MUST** be reported as such.
 
 ## ACT — produce claims, then the view
 
-### Step 1 — claims
+### Phase `claims` — the claim set
 
 Every conclusion becomes one claim:
 
@@ -84,6 +93,9 @@ Every conclusion becomes one claim:
 
 * **MUST NOT** emit a claim with no `factIds`. That is the only thing separating
   a claim from a sentence you made up.
+* **MUST NOT** write a `claimId`. Identity is a function of the predicate and the
+  subject, and the engine computes it — writing one out only creates a second
+  version that can disagree with the first.
 * `predicate` **MUST** be a lowercase token (`table-written-by-multiple-services`),
   never a sentence. It is language-independent; the view is where language enters.
 * `subject` **MUST** come from the pack's `subjects` list. Facts of a
@@ -100,11 +112,16 @@ Every conclusion becomes one claim:
 
 Write the claim set to `claimsPath` as `{"claims":[…]}`.
 
-### Step 2 — the view
+### Phase `chapter` — one chapter
 
-Write the report to `viewPath`, in `language`, following the spec's chapter list
-and the shared contract's rules. Every statement traces to a claim; every claim
-traces to fact ids.
+Read the claim set at `claimsPath`, then write **only your chapter** to
+`chapterOutputPath`, in `language`, following the part of the spec given inline
+and the shared contract's rules. Open with the chapter's own `##` heading.
+
+Every statement traces to a claim; every claim traces to fact ids. Draw only on
+the claim set — the pack is available if you need to check a fact's wording, but
+a conclusion that is not already a claim does not belong in a chapter, because
+the other chapters cannot see it and consistency rests on the shared set.
 
 The rules you will most easily break, restated:
 

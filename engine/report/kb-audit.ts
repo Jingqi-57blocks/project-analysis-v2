@@ -24,14 +24,27 @@ export type FindingCode =
   | "kind-never-used"
   | "chapter-without-its-kind";
 
+/**
+ * Whether a finding stops delivery.
+ *
+ * A fabricated citation or an arithmetic error means the report says something
+ * untrue, and it is not a deliverable. An unread fact kind is worth telling the
+ * reader about, but it is not untruth — and the contract explicitly directs the
+ * author to read the derived layer first, so leaving raw kinds unread is the
+ * documented behaviour, not a defect.
+ */
+export type FindingSeverity = "blocking" | "notice";
+
 export interface AuditFinding {
   readonly code: FindingCode;
+  readonly severity: FindingSeverity;
   readonly detail: string;
   /** What in the report triggered it. */
   readonly evidence: string;
 }
 
 export interface AuditResult {
+  /** True when nothing blocking was found. Notices do not stop delivery. */
   readonly passed: boolean;
   readonly findings: readonly AuditFinding[];
   /** Kinds in the pack, and how many of their rows the report cited. */
@@ -180,6 +193,15 @@ export interface AuditInput {
   /** The pack the report was written from, when there is one. */
   readonly pack?: FactPack;
   /**
+   * The claim set the report was written from.
+   *
+   * Usage is measured through claims, not through paths in the prose. Derived
+   * kinds — the coverage ledger, the computed findings — carry no file path at
+   * all, so a path-based measure marks them unused however carefully they were
+   * read, and buries the real finding under noise on every correct report.
+   */
+  readonly claims?: readonly { readonly factIds: readonly string[] }[];
+  /**
    * Kinds whose chapter the report demonstrably wrote — supplied by the caller,
    * since which chapter exists is a property of the spec, not of this module.
    */
@@ -202,6 +224,7 @@ export function auditReport(input: AuditInput): AuditResult {
     if (extension.length > 0 && SOURCE_EXTENSIONS.has(extension) && !inventory.extensions.has(extension)) {
       findings.push({
         code: "cited-extension-absent",
+      severity: "blocking",
         detail: `cites a .${extension} file, but the workspace contains no .${extension} file at all`,
         evidence: cited,
       });
@@ -212,15 +235,32 @@ export function auditReport(input: AuditInput): AuditResult {
     if (!cited.includes("/")) continue;
     findings.push({
       code: "cited-path-not-in-workspace",
+      severity: "blocking",
       detail: "cited path is not among the files that were read",
       evidence: cited,
     });
   }
 
+  // A scoped report cites quantities from its own pack, not from the whole
+  // snapshot: "13 of 25" is about the 25 rows in this module, and checking it
+  // against workspace-wide totals rejects a correct statement.
+  const denominators = new Set(inventory.denominators);
+  if (pack !== undefined) {
+    for (const entry of pack.coverage) {
+      denominators.add(entry.inScope);
+      denominators.add(entry.inSnapshot);
+    }
+    for (const kind of new Set(pack.rows.map((row) => row.kind))) {
+      denominators.add(pack.rows.filter((row) => row.kind === kind).length);
+    }
+    denominators.add(pack.rows.length);
+    denominators.add(pack.subjects.length);
+  }
   for (const pair of citedProportions(report)) {
-    if (!inventory.denominators.has(pair.denominator)) {
+    if (!denominators.has(pair.denominator)) {
       findings.push({
         code: "proportion-denominator-unknown",
+      severity: "blocking",
         detail: `cites ${pair.numerator}/${pair.denominator}, but no quantity in the store equals ${pair.denominator}`,
         evidence: `${pair.percent}% (${pair.numerator}/${pair.denominator})`,
       });
@@ -230,6 +270,7 @@ export function auditReport(input: AuditInput): AuditResult {
     if (Math.abs(actual - pair.percent) > 1) {
       findings.push({
         code: "proportion-mismatch",
+      severity: "blocking",
         detail: `states ${pair.percent}% but ${pair.numerator}/${pair.denominator} is ${actual}%`,
         evidence: `${pair.percent}% (${pair.numerator}/${pair.denominator})`,
       });
@@ -237,11 +278,11 @@ export function auditReport(input: AuditInput): AuditResult {
   }
 
   const kindUsage: { kind: string; available: number; cited: number }[] = [];
-  if (pack !== undefined) {
-    const citedKeys = new Set(citedPaths(report));
+  if (pack !== undefined && input.claims !== undefined) {
+    const citedFactIds = new Set(input.claims.flatMap((claim) => claim.factIds));
     for (const kind of [...new Set(pack.rows.map((row) => row.kind))].sort()) {
       const rows = pack.rows.filter((row) => row.kind === kind);
-      const cited = rows.filter((row) => row.relPath !== null && citedKeys.has(row.relPath)).length;
+      const cited = rows.filter((row) => citedFactIds.has(row.key)).length;
       kindUsage.push({ kind, available: rows.length, cited });
     }
     for (const kind of pack.requires) {
@@ -250,12 +291,14 @@ export function auditReport(input: AuditInput): AuditResult {
       if (usage.cited > 0) continue;
       findings.push({
         code: "kind-never-used",
+      severity: "notice",
         detail: `${usage.available} "${kind}" rows were available and none is cited`,
         evidence: kind,
       });
       if ((input.chaptersWritten ?? []).includes(kind)) {
         findings.push({
           code: "chapter-without-its-kind",
+      severity: "blocking",
           detail: `the chapter fed by "${kind}" was written without citing any of its ${usage.available} rows`,
           evidence: kind,
         });
@@ -263,12 +306,13 @@ export function auditReport(input: AuditInput): AuditResult {
     }
   }
 
-  return { passed: findings.length === 0, findings, kindUsage };
+  return { passed: findings.every((finding) => finding.severity !== "blocking"), findings, kindUsage };
 }
 
 /** A short, ordered account of why an audit failed. */
 export function explainAudit(result: AuditResult): string {
-  if (result.passed) return "audit passed";
+  if (result.passed && result.findings.length === 0) return "audit passed";
+  if (result.passed) return `audit passed with ${result.findings.length} notice(s)`;
   const byCode = new Map<FindingCode, AuditFinding[]>();
   for (const finding of result.findings) {
     byCode.set(finding.code, [...(byCode.get(finding.code) ?? []), finding]);
