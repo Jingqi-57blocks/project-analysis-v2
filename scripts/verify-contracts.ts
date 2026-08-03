@@ -16,8 +16,10 @@ import {
   DOCUMENT_PRESETS,
   ILLEGAL_REQUEST_EXAMPLES,
   LEGAL_COMBINATION_EXAMPLES,
+  loadSpecRegistry,
   validatePreset,
   validateRequest,
+  validateSpecRegistry,
 } from "../engine/contracts/report/index.js";
 import { INVALID_PROVENANCE_EXAMPLES, validateProvenance } from "../engine/contracts/shared-fact/index.js";
 import { loadTargetManifest, validateManifest } from "../engine/contracts/targets/index.js";
@@ -52,6 +54,8 @@ for (const preset of DOCUMENT_PRESETS) {
   const v = validatePreset(preset);
   check(`report preset ${preset.id}`, v.ok, v.ok ? "" : v.reason);
 }
+const specs = validateSpecRegistry(loadSpecRegistry());
+check("output specs", specs.ok, specs.ok ? "" : specs.reasons.join("; "));
 
 // 3. Positive / negative fixtures behave as specified.
 for (const ex of LEGAL_COMBINATION_EXAMPLES) check(`legal combination ${ex.name}`, validateRequest(ex.request).ok);

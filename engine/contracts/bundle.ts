@@ -18,6 +18,7 @@ import { loadAngelsPizzaSentinels } from "./truth/sentinel.js";
 import { loadLeaveTruthLedger } from "./truth/leave.js";
 import { DOCUMENT_PRESETS } from "./report/presets.js";
 import { SECTION_CATALOG } from "./report/catalog.js";
+import { loadSpecRegistry } from "./report/specs.js";
 import { REPORT_CONTRACT_ID, REPORT_CONTRACT_VERSION } from "./report/version.js";
 import { COVERAGE_STATES } from "./shared-fact/applicability.js";
 import { FACT_FAMILIES } from "./shared-fact/families.js";
@@ -32,11 +33,17 @@ export interface ContractDescriptor {
   readonly snapshot: unknown;
 }
 
+/** Digest of a contract written as prose, whose text is itself load-bearing. */
+function digestText(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
 /** Every M0 contract, with a canonical snapshot of its load-bearing shape. */
 export function contractDescriptors(): readonly ContractDescriptor[] {
   const leave = loadLeaveTruthLedger();
   const sentinels = loadAngelsPizzaSentinels();
   const targets = loadTargetManifest();
+  const specs = loadSpecRegistry();
   return [
     {
       id: SHARED_FACT_CONTRACT_ID,
@@ -53,6 +60,23 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
           optional: p.optionalSectionIds,
         })),
         sections: SECTION_CATALOG.map((s) => s.id),
+        // Specs are prose contracts, so their text is load-bearing: the digest
+        // makes an edit to any chapter fail the drift gate, not just an edit to
+        // the frontmatter.
+        writingContract: {
+          id: specs.contract.id,
+          version: specs.contract.version,
+          digest: digestText(specs.contract.body),
+        },
+        specs: specs.specs.map((s) => ({
+          id: s.id,
+          scope: s.scope,
+          audience: s.audience,
+          version: s.version,
+          inherits: s.inherits,
+          requires: s.requires,
+          digest: digestText(s.body),
+        })),
       },
     },
     {
