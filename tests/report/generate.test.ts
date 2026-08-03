@@ -56,25 +56,26 @@ function plan(targets: Parameters<typeof planReport>[0]["targets"]) {
  * testing the wrong thing.
  */
 const goodRunner: SkillRunner = async (invocation) => {
-  const claim = (predicate: string, type: string, ref: string, factIds: readonly string[]) => ({
-    claimId: `claim:${predicate}:${type}:${ref}`,
-    predicate,
-    subject: { type, ref },
-    qualifiers: {},
-    factIds,
-    usedBy: [],
-  });
-  writeFileSync(
-    invocation.claimsPath,
-    JSON.stringify({
-      claims: [
-        claim("route-declared", "route", "r1", ["r1"]),
-        claim("coverage-recorded", "workspace", ".", ["cn"]),
-        claim("snapshot-recorded", "workspace", "snapshot", ["rc"]),
-      ],
-    }),
-  );
-  writeFileSync(invocation.viewPath, "# 报告\n\n一条路由声明于 a.go。\n");
+  if (invocation.phase === "claims") {
+    const claim = (predicate: string, type: string, ref: string, factIds: readonly string[]) => ({
+      predicate,
+      subject: { type, ref },
+      qualifiers: {},
+      factIds,
+    });
+    writeFileSync(
+      invocation.claimsPath,
+      JSON.stringify({
+        claims: [
+          claim("route-declared", "route", "r1", ["r1"]),
+          claim("coverage-recorded", "workspace", ".", ["cn"]),
+          claim("snapshot-recorded", "workspace", "snapshot", ["rc"]),
+        ],
+      }),
+    );
+    return { modelTier: "sonnet" };
+  }
+  writeFileSync(invocation.chapter!.outputPath, `## ${invocation.chapter!.title}\n\n一条路由声明于 a.go。\n`);
   return { modelTier: "sonnet" };
 };
 
@@ -124,8 +125,11 @@ describe("running a plan", () => {
 
   it("fails the run when the report cites a file that was never read", async () => {
     const fabricating: SkillRunner = async (invocation) => {
-      writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
-      writeFileSync(invocation.viewPath, "已验证位置：holidays.py\n");
+      if (invocation.phase === "claims") {
+        writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
+        return { modelTier: "haiku" };
+      }
+      writeFileSync(invocation.chapter!.outputPath, "已验证位置：holidays.py\n");
       return { modelTier: "haiku" };
     };
     const result = await run([{ scope: "project", audience: "product" }], fabricating);
@@ -136,15 +140,14 @@ describe("running a plan", () => {
 
   it("fails the run when a claim has no supporting facts", async () => {
     const unsupported: SkillRunner = async (invocation) => {
-      writeFileSync(
-        invocation.claimsPath,
-        JSON.stringify({
-          claims: [
-            { claimId: "claim:p:entity:t", predicate: "p", subject: { type: "entity", ref: "t" }, qualifiers: {}, factIds: [], usedBy: [] },
-          ],
-        }),
-      );
-      writeFileSync(invocation.viewPath, "# 报告\n");
+      if (invocation.phase === "claims") {
+        writeFileSync(
+          invocation.claimsPath,
+          JSON.stringify({ claims: [{ predicate: "p", subject: { type: "entity", ref: "t" }, qualifiers: {}, factIds: [] }] }),
+        );
+        return { modelTier: "sonnet" };
+      }
+      writeFileSync(invocation.chapter!.outputPath, "## 章\n");
       return { modelTier: "sonnet" };
     };
     const result = await run([{ scope: "project", audience: "product" }], unsupported);
@@ -161,10 +164,13 @@ describe("running a plan", () => {
     expect(explainRun(result)).toContain("NOT PRODUCED");
   });
 
-  it("produces nothing when the skill writes no view", async () => {
-    const silent: SkillRunner = async () => ({ modelTier: "sonnet" });
+  it("produces nothing when a chapter is not written", async () => {
+    const silent: SkillRunner = async (invocation) => {
+      if (invocation.phase === "claims") writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [] }));
+      return { modelTier: "sonnet" };
+    };
     const result = await run([{ scope: "project", audience: "product" }], silent);
-    expect(result.outcomes[0]?.blocked).toBe("the skill wrote no view");
+    expect(result.outcomes[0]?.blocked).toContain("chapters not written");
   });
 
   it("never reuses a run directory", async () => {
@@ -188,7 +194,7 @@ describe("running a plan", () => {
 describe("the skill prompt", () => {
   it("names the inputs and defers everything else to SKILL.md", () => {
     const prompt = buildSkillPrompt({
-      packDir: "/p", specId: "project-product", language: "zh-CN",
+      phase: "claims", packDir: "/p", specId: "project-product", language: "zh-CN",
       claimsPath: "/c.json", viewPath: "/v.md", repoRoot: "/repo",
     });
     for (const line of ["packPath: /p/index.json", "specId: project-product", "language: zh-CN"]) {
@@ -205,15 +211,14 @@ describe("kind usage is measured through claims, not through prose", () => {
     // The fabricating run in the trial never queried the coverage ledger or the
     // computed findings, and still wrote the chapters they feed.
     const skipsLedger: SkillRunner = async (invocation) => {
-      writeFileSync(
-        invocation.claimsPath,
-        JSON.stringify({
-          claims: [
-            { claimId: "claim:route-declared:route:r1", predicate: "route-declared", subject: { type: "route", ref: "r1" }, qualifiers: {}, factIds: ["r1"], usedBy: [] },
-          ],
-        }),
-      );
-      writeFileSync(invocation.viewPath, "# 报告\n\n覆盖率良好，未发现问题。\n");
+      if (invocation.phase === "claims") {
+        writeFileSync(
+          invocation.claimsPath,
+          JSON.stringify({ claims: [{ predicate: "route-declared", subject: { type: "route", ref: "r1" }, qualifiers: {}, factIds: ["r1"] }] }),
+        );
+        return { modelTier: "haiku" };
+      }
+      writeFileSync(invocation.chapter!.outputPath, "## 章\n\n覆盖率良好，未发现问题。\n");
       return { modelTier: "haiku" };
     };
     const result = await run([{ scope: "project", audience: "product" }], skipsLedger);
@@ -229,7 +234,6 @@ describe("kind usage is measured through claims, not through prose", () => {
 
 describe("cross-document claim consistency", () => {
   const claim = (verdict: string, at?: string) => ({
-    claimId: "claim:rule-present:rule-subject:client-delete-guard",
     predicate: "rule-present",
     subject: { type: "rule-subject", ref: "client-delete-guard" },
     qualifiers: at === undefined ? { verdict } : { verdict, at },
@@ -238,22 +242,23 @@ describe("cross-document claim consistency", () => {
   });
 
   const supporting = [
-    { claimId: "claim:coverage-recorded:workspace:.", predicate: "coverage-recorded", subject: { type: "workspace", ref: "." }, qualifiers: {}, factIds: ["cn"], usedBy: [] },
-    { claimId: "claim:snapshot-recorded:workspace:snapshot", predicate: "snapshot-recorded", subject: { type: "workspace", ref: "snapshot" }, qualifiers: {}, factIds: ["rc"], usedBy: [] },
+    { predicate: "coverage-recorded", subject: { type: "workspace", ref: "." }, qualifiers: {}, factIds: ["cn"] },
+    { predicate: "snapshot-recorded", subject: { type: "workspace", ref: "snapshot" }, qualifiers: {}, factIds: ["rc"] },
   ];
 
   it("reports two targets that describe one claim differently", async () => {
     // The archived trial's real disagreement, reproduced: one target judged the
     // guard unconfirmed, the other found it. Same predicate, same subject.
     const disagreeing: SkillRunner = async (invocation) => {
-      const overview = invocation.specId === "project-product";
-      writeFileSync(
-        invocation.claimsPath,
-        JSON.stringify({
-          claims: [overview ? claim("unconfirmed") : claim("hit", "svc/a.go:526"), ...supporting],
-        }),
-      );
-      writeFileSync(invocation.viewPath, "# 报告\n");
+      if (invocation.phase === "claims") {
+        const overview = invocation.specId === "project-product";
+        writeFileSync(
+          invocation.claimsPath,
+          JSON.stringify({ claims: [overview ? claim("unconfirmed") : claim("hit", "svc/a.go:526"), ...supporting] }),
+        );
+        return { modelTier: "sonnet" };
+      }
+      writeFileSync(invocation.chapter!.outputPath, "## 章\n");
       return { modelTier: "sonnet" };
     };
     const result = await run(
@@ -271,8 +276,11 @@ describe("cross-document claim consistency", () => {
 
   it("reports nothing when the two targets agree", async () => {
     const agreeing: SkillRunner = async (invocation) => {
-      writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [claim("hit", "svc/a.go:526"), ...supporting] }));
-      writeFileSync(invocation.viewPath, "# 报告\n");
+      if (invocation.phase === "claims") {
+        writeFileSync(invocation.claimsPath, JSON.stringify({ claims: [claim("hit", "svc/a.go:526"), ...supporting] }));
+        return { modelTier: "sonnet" };
+      }
+      writeFileSync(invocation.chapter!.outputPath, "## 章\n");
       return { modelTier: "sonnet" };
     };
     const result = await run(

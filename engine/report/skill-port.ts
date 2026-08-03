@@ -15,7 +15,32 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
+/**
+ * Which half of the work an invocation performs.
+ *
+ * `claims` runs once over the whole pack: two workers deriving conclusions
+ * separately would each invent a wording for the same finding, and the pack —
+ * not the chapter list — is the unit that keeps them consistent.
+ *
+ * `chapter` runs once per chapter, and they run concurrently. That is safe only
+ * because every chapter draws on the same claim set, so two chapters cannot
+ * contradict each other however independently they were written.
+ */
+export type SkillPhase = "claims" | "chapter";
+
+export interface ChapterAssignment {
+  readonly number: string;
+  readonly title: string;
+  readonly slug: string;
+  /** The chapter's own text from the spec — all a worker needs beyond the contract. */
+  readonly body: string;
+  readonly outputPath: string;
+}
+
 export interface SkillInvocation {
+  readonly phase: SkillPhase;
+  /** Present exactly when the phase is `chapter`. */
+  readonly chapter?: ChapterAssignment;
   /** Directory holding `index.json`, `kinds/*.jsonl` and `subjects.jsonl`. */
   readonly packDir: string;
   readonly specId: string;
@@ -68,16 +93,30 @@ export class SkillRunError extends Error {
  * `SKILL.md`.
  */
 export function buildSkillPrompt(invocation: SkillInvocation): string {
-  return [
+  const common = [
     "Use the project-report skill.",
     "",
+    `phase: ${invocation.phase}`,
     `packPath: ${invocation.packDir}/index.json`,
     `specId: ${invocation.specId}`,
     `language: ${invocation.language}`,
     `claimsPath: ${invocation.claimsPath}`,
-    `viewPath: ${invocation.viewPath}`,
+  ];
+  if (invocation.phase === "claims") {
+    return [...common, "", "Follow SKILL.md exactly. Write the claim set, then report its path."].join("\n");
+  }
+  const chapter = invocation.chapter;
+  return [
+    ...common,
+    `chapterNumber: ${chapter?.number ?? ""}`,
+    `chapterTitle: ${chapter?.title ?? ""}`,
+    `chapterOutputPath: ${chapter?.outputPath ?? ""}`,
     "",
-    "Follow SKILL.md exactly. Write both files, then report the two paths.",
+    "This chapter's part of the spec:",
+    "",
+    chapter?.body ?? "",
+    "",
+    "Follow SKILL.md exactly. Write this one chapter, then report its path.",
   ].join("\n");
 }
 
@@ -152,8 +191,10 @@ export function claudeSkillRunner(model = "default"): SkillRunner {
         "--verbose",
         "--permission-mode",
         "acceptEdits",
+        // `Skill` is not optional: without it the agent cannot invoke the very
+        // skill it was asked for, and the call stalls instead of failing loudly.
         "--allowedTools",
-        "Read,Grep,Glob,Write",
+        "Skill,Read,Grep,Glob,Write",
         ...(model === "default" ? [] : ["--model", model]),
       ];
       const child = spawn("claude", args, { cwd: invocation.repoRoot, stdio: ["pipe", "pipe", "pipe"] });

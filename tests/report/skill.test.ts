@@ -58,13 +58,18 @@ describe("the report skill", () => {
     for (const kind of ["condition", "guard", "call-edge", "value-set"]) expect(body).toContain(kind);
   });
 
+  it("confines a call to its own phase, since chapters run concurrently", () => {
+    expect(body).toMatch(/Do exactly your phase's work and nothing else/);
+    expect(body).toContain("concurrently");
+  });
+
   it("ends with a checklist the run can be held to", () => {
     const boxes = body.match(/^- \[ \] /gm) ?? [];
     expect(boxes.length).toBeGreaterThanOrEqual(8);
   });
 
   it("names every input it needs, so a missing one stops the run", () => {
-    for (const input of ["packPath", "specId", "language", "claimsPath", "viewPath"]) {
+    for (const input of ["phase", "packPath", "specId", "language", "claimsPath", "chapterOutputPath"]) {
       expect(body).toContain(input);
     }
   });

@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { writeFactPack, type FactPackIndex } from "../../engine/kb/fact-pack-io.js";
+import { pruneFactPackBulk, writeFactPack, type FactPackIndex } from "../../engine/kb/fact-pack-io.js";
 import type { FactPack } from "../../engine/kb/fact-pack.js";
 
 const pack: FactPack = {
@@ -64,5 +64,21 @@ describe("fact pack on disk", () => {
     const { index } = write();
     expect(index.snapshotIdentity).toBe("run-1");
     expect(index.scope).toBe("project");
+  });
+});
+
+describe("pruning a pack", () => {
+  it("drops the rows and keeps the index", () => {
+    // The rows are recomputable from the store; the index is what a later reader
+    // needs to interpret the run's coverage statements.
+    const { dir } = write();
+    pruneFactPackBulk(dir);
+    expect(existsSync(join(dir, "kinds"))).toBe(false);
+    expect(existsSync(join(dir, "subjects.jsonl"))).toBe(false);
+    expect(JSON.parse(readFileSync(join(dir, "index.json"), "utf8")).kinds).toHaveLength(2);
+  });
+
+  it("is safe to call on a directory that was never written", () => {
+    expect(() => pruneFactPackBulk(join(tmpdir(), "no-such-pack"))).not.toThrow();
   });
 });

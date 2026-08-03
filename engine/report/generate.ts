@@ -20,8 +20,9 @@ import {
   type Claim,
   type QualifierConflict,
 } from "../contracts/claim/index.js";
+import { authorableChapters } from "../contracts/report/chapters.js";
 import { buildFactPack, type FactPack } from "../kb/fact-pack.js";
-import { writeFactPack } from "../kb/fact-pack-io.js";
+import { pruneFactPackBulk, writeFactPack } from "../kb/fact-pack-io.js";
 import { evaluateGate, explainVerdict } from "../kb/generation-gate.js";
 import { auditReport, readInventory, type AuditResult } from "./kb-audit.js";
 import type { PlannedTarget, ReportPlan } from "./orchestrate.js";
@@ -49,6 +50,14 @@ export interface GenerateInput {
   readonly runSkill: SkillRunner;
   /** Called as each target progresses, so a long run is never a silent wait. */
   readonly onProgress?: (target: string, event: SkillProgress) => void;
+  /**
+   * How many chapters may be authored at once.
+   *
+   * Chapters are independent given the claim set, so this is a throughput knob
+   * rather than a correctness one — kept modest by default because the limit
+   * that bites first is the model's, not the machine's.
+   */
+  readonly chapterConcurrency?: number;
   /** Membership for each planned module, resolved by the caller. */
   readonly membership: ReadonlyMap<string, { files: ReadonlySet<string>; subjectKeys: ReadonlySet<string> }>;
 }
@@ -164,20 +173,48 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     const claimsPath = `${targetDir}/claims.json`;
     const viewPath = `${targetDir}/report.md`;
 
+    const chapterDir = `${targetDir}/chapters`;
+    mkdirSync(chapterDir, { recursive: true });
+    const chapters = authorableChapters(target.spec);
+    const progress =
+      input.onProgress === undefined
+        ? {}
+        : { onProgress: (event: SkillProgress) => input.onProgress?.(target.directory, event) };
+
     try {
-      const outcome = await input.runSkill({
+      // One pass over the whole pack. Splitting this would let two workers each
+      // invent a wording for the same finding; the pack, not the chapter list,
+      // is what keeps the conclusions one set.
+      const claimsOutcome = await input.runSkill({
+        phase: "claims",
         packDir,
         specId: target.spec.id,
         language: input.plan.language,
         claimsPath,
         viewPath,
         repoRoot: input.repoRoot,
-        transcriptPath: `${targetDir}/agent-stream.jsonl`,
-        ...(input.onProgress === undefined
-          ? {}
-          : { onProgress: (event: SkillProgress) => input.onProgress?.(target.directory, event) }),
+        transcriptPath: `${targetDir}/agent-stream-claims.jsonl`,
+        ...progress,
       });
-      modelTier = outcome.modelTier;
+      modelTier = claimsOutcome.modelTier;
+
+      // Chapters run concurrently. Safe only because they share one claim set,
+      // so two of them cannot contradict each other however independently
+      // they were written.
+      await inBatches(chapters, input.chapterConcurrency ?? 4, async (chapter) => {
+        await input.runSkill({
+          phase: "chapter",
+          chapter: { ...chapter, outputPath: `${chapterDir}/${chapter.slug}.md` },
+          packDir,
+          specId: target.spec.id,
+          language: input.plan.language,
+          claimsPath,
+          viewPath,
+          repoRoot: input.repoRoot,
+          transcriptPath: `${targetDir}/agent-stream-${chapter.slug}.jsonl`,
+          ...progress,
+        });
+      });
     } catch (error) {
       outcomes.push({
         target,
@@ -188,10 +225,22 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
       continue;
     }
 
-    if (!existsSync(viewPath)) {
-      outcomes.push({ target, record: record({}), audit: null, blocked: "the skill wrote no view" });
+    const missing = chapters.filter((chapter) => !existsSync(`${chapterDir}/${chapter.slug}.md`));
+    if (missing.length > 0) {
+      outcomes.push({
+        target,
+        record: record({}),
+        audit: null,
+        blocked: `chapters not written: ${missing.map((chapter) => chapter.number).join(", ")}`,
+      });
       continue;
     }
+    writeFileSync(
+      viewPath,
+      chapters
+        .map((chapter) => readFileSync(`${chapterDir}/${chapter.slug}.md`, "utf8").trim())
+        .join("\n\n"),
+    );
 
     const claims = readClaims(claimsPath);
     const { invalid } = indexClaims([...claims]);
@@ -204,6 +253,14 @@ export async function generateReports(input: GenerateInput): Promise<GenerateRes
     );
     claimsByTarget.set(target.directory, [...claims]);
     outcomes.push({ target, record: record({ auditPassed: passed }), audit, blocked: null });
+  }
+
+  // The packs have served their purpose once every target has been authored.
+  // A run that produced nothing keeps them, because that is when the rows are
+  // worth having; a run that succeeded keeps only the index, which is what a
+  // later reader needs to interpret the coverage statements.
+  if (outcomes.some((outcome) => outcome.blocked === null)) {
+    for (const directory of packDirs.values()) pruneFactPackBulk(directory);
   }
 
   const conflicts = crossTargetConflicts(claimsByTarget);
@@ -250,6 +307,20 @@ export function crossTargetConflicts(
     }
   }
   return conflicts;
+}
+
+/**
+ * Runs `work` over `items` with at most `limit` in flight.
+ *
+ * A plain `Promise.all` over thirteen chapters would open thirteen model calls
+ * at once; the limit that bites first is the model's, not the machine's.
+ */
+async function inBatches<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, queue.length)) }, async () => {
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) await work(next);
+  });
+  await Promise.all(workers);
 }
 
 /** A short account of what a run produced, and of what it refused to produce. */

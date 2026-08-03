@@ -11,7 +11,7 @@
  * the mandatory walk-every-kind step needs.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 
 import type { FactPack } from "./fact-pack.js";
 
@@ -37,6 +37,22 @@ export interface FactPackIndex {
   readonly subjectCount: number;
   /** Kinds the spec asked for that have no rows in scope — a fact to report. */
   readonly emptyKinds: readonly string[];
+}
+
+/**
+ * Discards a pack's bulk, keeping its index.
+ *
+ * The row files are an intermediate: every one of them can be recomputed from the
+ * knowledge base, and a project-scope pack is tens of megabytes that would
+ * otherwise sit in every run directory forever. The index stays, because reading
+ * a run's coverage statement later means knowing what was in scope.
+ *
+ * Only called once a run has produced its report — a failed run keeps everything,
+ * since that is exactly when the rows are worth having.
+ */
+export function pruneFactPackBulk(directory: string): void {
+  rmSync(`${directory}/kinds`, { recursive: true, force: true });
+  rmSync(`${directory}/subjects.jsonl`, { force: true });
 }
 
 /** Writes `index.json` and `kinds/<kind>.jsonl`, and returns the index. */
