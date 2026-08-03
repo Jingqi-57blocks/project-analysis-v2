@@ -51,11 +51,17 @@ assembles the chapters in spec order.
 
 ## NOW — load exactly four things
 
+The contracts live in the **repository**, not in this skill's directory. `repoRoot`
+is given in the invocation; every path below is relative to it, so resolve them
+against `repoRoot` rather than against wherever this file sits. A read that
+resolves under `.claude/skills/` has gone to the wrong place and will come back
+empty.
+
 **MUST** read, in this order:
 
-1. `engine/contracts/kb/kb-contract.md` — how to read the pack.
-2. `engine/contracts/report/specs/contract.md` — the shared writing contract.
-3. `engine/contracts/report/specs/<specId>.md` — the one spec that governs this report.
+1. `<repoRoot>/engine/contracts/kb/kb-contract.md` — how to read the pack.
+2. `<repoRoot>/engine/contracts/report/specs/contract.md` — the shared writing contract.
+3. `<repoRoot>/engine/contracts/report/specs/<specId>.md` — the one spec that governs this report.
 4. The pack at `packPath`.
 
 **MUST NOT** read the other specs. Four specs run to a thousand lines together;
@@ -125,10 +131,15 @@ Read the claim set at `claimsPath`, then write **only your chapter** to
 `chapterOutputPath`, in `language`, following the part of the spec given inline
 and the shared contract's rules. Open with the chapter's own `##` heading.
 
-Every statement traces to a claim; every claim traces to fact ids. Draw only on
-the claim set — the pack is available if you need to check a fact's wording, but
-a conclusion that is not already a claim does not belong in a chapter, because
-the other chapters cannot see it and consistency rests on the shared set.
+**Read the claim set. Do not open the pack.** The claims phase already walked it,
+once, so that this phase does not have to — twelve chapters each exploring the
+same pack would cost twelve times what walking it once cost, and the claim set
+exists precisely so that work is done and shared. If a claim's wording is
+unclear, write from what the claim says; do not go back to the facts behind it.
+
+Every statement traces to a claim; every claim traces to fact ids. A conclusion
+that is not already a claim does not belong in a chapter — the other chapters
+cannot see it, and consistency rests on the shared set.
 
 The rules you will most easily break, restated:
 
@@ -142,7 +153,8 @@ The rules you will most easily break, restated:
 * Every chapter closes with a summary that **generalizes** the chapter's own
   facts and introduces nothing new.
 * Every coverage number carries its denominator.
-* Diagrams are SVG; branch labels use the target language, never the code's enums.
+* Diagrams are Mermaid, in a fenced ` ```mermaid ` block — never hand-written SVG.
+  Branch labels use the target language, never the code's enums.
 
 ## Before you finish
 

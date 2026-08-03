@@ -91,6 +91,27 @@ export function allocateRunDirectory(root: string, label: string, instant: Date)
   throw new RunDirectoryExistsError(`${root}/${base}`);
 }
 
+/**
+ * Reopens an existing run to continue it.
+ *
+ * The no-overwrite rule exists so history is never lost, and resuming does not
+ * break it: a resumed run only fills in what is missing and never rewrites an
+ * artefact that is already there. It has to be asked for explicitly, so an
+ * ordinary invocation still cannot land on top of an earlier run by accident.
+ */
+export function openRunDirectory(root: string, runId: string): { runId: string; path: string } {
+  const path = `${root}/${runId}`;
+  if (!existsSync(path)) throw new UnknownRunError(path);
+  return { runId, path };
+}
+
+export class UnknownRunError extends Error {
+  constructor(readonly path: string) {
+    super(`no run to resume at ${path}`);
+    this.name = "UnknownRunError";
+  }
+}
+
 export interface TargetRecord {
   readonly scope: string;
   readonly audience: string;

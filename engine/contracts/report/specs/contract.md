@@ -1,7 +1,7 @@
 ---
 id: contract
 kind: shared-writing-contract
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Shared writing contract
@@ -122,8 +122,11 @@ Each entry **MUST** correspond to a statement that actually appears in this repo
 
 ## 10. Diagrams
 
-* Diagrams **MUST** be emitted as SVG. Mermaid renders in HTML but not in DOCX or PDF; keeping only Mermaid source means export silently loses the core content.
-* Mermaid source **MAY** be kept alongside the rendered SVG so diagrams stay editable.
+* Diagrams **MUST** be written as Mermaid, in a fenced ` ```mermaid ` block. It is
+  the form a reader can follow in the source, edit by hand, and diff between runs
+  — none of which holds for a wall of SVG path data.
+* Rendering to a portable format for DOCX and PDF is the engine's job, from that
+  Mermaid source. A spec **MUST NOT** ask the author to emit SVG.
 * Branch and state labels in diagrams **MUST** use the target language and **MUST NOT** expose the code's own enum spellings.
 
 ## 11. Structural requirements

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,7 +10,16 @@ import { loadSpecRegistry } from "../../engine/contracts/report/specs.js";
 import type { ModuleDirectory } from "../../engine/contracts/module/index.js";
 import { generateReports, explainRun } from "../../engine/report/generate.js";
 import { planReport } from "../../engine/report/orchestrate.js";
-import { buildSkillPrompt, progressFrom, type SkillRunner } from "../../engine/report/skill-port.js";
+import {
+  buildSkillPrompt,
+  failureReasonFrom,
+  isQuotaExhausted,
+  isTransientFailure,
+  progressFrom,
+  quotaResetFrom,
+  sessionIdFrom,
+  type SkillRunner,
+} from "../../engine/report/skill-port.js";
 
 const INSTANT = new Date("2026-08-03T06:22:00.000Z");
 let store: Store;
@@ -121,6 +130,49 @@ describe("running a plan", () => {
     );
     expect(result.outcomes).toHaveLength(2);
     expect(existsSync(join(result.runPath, "packs/module-mod_a/index.json"))).toBe(true);
+  });
+
+  it("cuts a shared pack once even when both targets reach it at the same moment", async () => {
+    // Targets run concurrently, so caching the resulting path would let both
+    // find nothing cached and both write the pack over each other. The cache
+    // holds the work, not the result.
+    let cuts = 0;
+    const counting: SkillRunner = async (invocation) => {
+      if (invocation.phase === "claims") cuts += 1;
+      return goodRunner(invocation);
+    };
+    const result = await run(
+      [
+        { scope: "module", audience: "product", module: "leave" },
+        { scope: "module", audience: "developer", module: "leave" },
+      ],
+      counting,
+    );
+    // Two targets, so two claim passes — but one pack directory between them.
+    expect(cuts).toBe(2);
+    expect(result.outcomes.every((outcome) => outcome.blocked === null)).toBe(true);
+  });
+
+  it("runs targets concurrently rather than queueing them", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const slow: SkillRunner = async (invocation) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return goodRunner(invocation);
+    };
+    await run(
+      [
+        { scope: "project", audience: "product" },
+        { scope: "module", audience: "product", module: "leave" },
+      ],
+      slow,
+    );
+    // Targets are independent by construction; making them queue only spends
+    // wall clock.
+    expect(peak).toBeGreaterThan(1);
   });
 
   it("fails the run when the report cites a file that was never read", async () => {
@@ -377,5 +429,175 @@ describe("the tier floor", () => {
     const result = await run([{ scope: "project", audience: "product" }], hostDefault);
     expect(result.belowTierFloor).toBe(false);
     expect(result.delivered).toBe(true);
+  });
+});
+
+describe("surviving an interruption", () => {
+  it("reads the session id from any stream line, so a drop can be continued", () => {
+    // A drop at minute twenty of a twenty-one-minute call cost $9 and all
+    // twenty minutes, because there was nothing to resume from.
+    const line = JSON.stringify({ type: "stream_event", session_id: "22d96b19-b9e1-4f88" });
+    expect(sessionIdFrom(line)).toBe("22d96b19-b9e1-4f88");
+    expect(sessionIdFrom("not json")).toBeNull();
+    expect(sessionIdFrom(JSON.stringify({ type: "system" }))).toBeNull();
+  });
+
+  it("finds the reason in the stream's own result event, not in stderr", () => {
+    // stderr came back empty on a quota exhaustion, so `exit 1` was all the
+    // caller was told about a stop it needed to understand.
+    const line = JSON.stringify({
+      type: "result",
+      is_error: true,
+      result: "You've hit your session limit · resets 10:40pm (Asia/Shanghai)",
+    });
+    expect(failureReasonFrom(line)).toContain("session limit");
+    expect(failureReasonFrom(JSON.stringify({ type: "result", is_error: false, result: "fine" }))).toBeNull();
+    expect(failureReasonFrom("garbage")).toBeNull();
+  });
+
+  it("separates a spent budget from a flaky connection", () => {
+    const quota = "You've hit your session limit · resets 10:40pm (Asia/Shanghai)";
+    const dropped = "API Error: Connection closed mid-response.";
+    expect(isQuotaExhausted(quota)).toBe(true);
+    expect(isQuotaExhausted(dropped)).toBe(false);
+    // Retrying a spent window in five seconds cannot help; retrying a drop can.
+    expect(isTransientFailure(quota)).toBe(false);
+    expect(isTransientFailure(dropped)).toBe(true);
+  });
+
+  it("keeps the stated reset time, so the caller can say when to resume", () => {
+    expect(quotaResetFrom("You've hit your session limit · resets 10:40pm (Asia/Shanghai)")).toBe(
+      "resets 10:40pm (Asia/Shanghai)".replace("resets ", ""),
+    );
+    expect(quotaResetFrom("something else")).toBeNull();
+  });
+});
+
+describe("resuming a run", () => {
+  it("keeps a claim set that already exists rather than paying for it again", async () => {
+    const first = await run([{ scope: "project", audience: "product" }], goodRunner);
+    let claimsPasses = 0;
+    const counting: SkillRunner = async (invocation) => {
+      if (invocation.phase === "claims") claimsPasses += 1;
+      return goodRunner(invocation);
+    };
+    await generateReports({
+      plan: plan([{ scope: "project", audience: "product" }]),
+      store,
+      snapshotId,
+      snapshotIdentity: "run-1",
+      outputRoot: join(first.runPath, ".."),
+      repoRoot: process.cwd(),
+      instant: INSTANT,
+      runSkill: counting,
+      membership: new Map(),
+      resumeRunId: first.runId,
+    });
+    // The claims pass is the most expensive call in the run, and redoing it
+    // would also change the claims the finished chapters were written against.
+    expect(claimsPasses).toBe(0);
+  });
+
+  it("writes only the chapters that are missing", async () => {
+    const first = await run([{ scope: "project", audience: "product" }], goodRunner);
+    // Drop one chapter and resume; only that one should be authored again.
+    const chapters = join(first.runPath, "project-product/chapters");
+    const dropped = readdirSync(chapters)[0]!;
+    rmSync(join(chapters, dropped));
+    let written = 0;
+    const counting: SkillRunner = async (invocation) => {
+      if (invocation.phase === "chapter") written += 1;
+      return goodRunner(invocation);
+    };
+    const resumed = await generateReports({
+      plan: plan([{ scope: "project", audience: "product" }]),
+      store,
+      snapshotId,
+      snapshotIdentity: "run-1",
+      outputRoot: join(first.runPath, ".."),
+      repoRoot: process.cwd(),
+      instant: INSTANT,
+      runSkill: counting,
+      membership: new Map(),
+      resumeRunId: first.runId,
+    });
+    expect(written).toBe(1);
+    expect(resumed.runId).toBe(first.runId);
+    expect(existsSync(join(chapters, dropped))).toBe(true);
+  });
+
+  it("refuses to resume a run that does not exist", async () => {
+    await expect(
+      generateReports({
+        plan: plan([{ scope: "project", audience: "product" }]),
+        store,
+        snapshotId,
+        snapshotIdentity: "run-1",
+        outputRoot: mkdtempSync(join(tmpdir(), "runs-")),
+        repoRoot: process.cwd(),
+        instant: INSTANT,
+        runSkill: goodRunner,
+        membership: new Map(),
+        resumeRunId: "08-03_00-00_nothing",
+      }),
+    ).rejects.toThrow(/no run to resume/);
+  });
+});
+
+describe("one target at a time", () => {
+  it("stops after a spent budget instead of emptying the remaining targets", async () => {
+    let started = 0;
+    const exhausting: SkillRunner = async () => {
+      started += 1;
+      throw new Error("quota exhausted while authoring x; resume this run after 10:40pm");
+    };
+    const result = await generateReports({
+      plan: plan([
+        { scope: "project", audience: "product" },
+        { scope: "module", audience: "product", module: "leave" },
+      ]),
+      store,
+      snapshotId,
+      snapshotIdentity: "run-1",
+      outputRoot: mkdtempSync(join(tmpdir(), "runs-")),
+      repoRoot: process.cwd(),
+      instant: INSTANT,
+      runSkill: exhausting,
+      membership: new Map([["mod_a", { files: new Set(["svc/a.go"]), subjectKeys: new Set(["mod_a"]) }]]),
+      targetConcurrency: 1,
+    });
+    // The budget will not refill within this run; continuing would only produce
+    // a second empty directory.
+    expect(started).toBe(1);
+    expect(result.outcomes).toHaveLength(1);
+  });
+
+  it("runs one at a time when asked, so a window finishes the first target", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const slow: SkillRunner = async (invocation) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return goodRunner(invocation);
+    };
+    await generateReports({
+      plan: plan([
+        { scope: "project", audience: "product" },
+        { scope: "module", audience: "product", module: "leave" },
+      ]),
+      store,
+      snapshotId,
+      snapshotIdentity: "run-1",
+      outputRoot: mkdtempSync(join(tmpdir(), "runs-")),
+      repoRoot: process.cwd(),
+      instant: INSTANT,
+      runSkill: slow,
+      membership: new Map([["mod_a", { files: new Set(["svc/a.go"]), subjectKeys: new Set(["mod_a"]) }]]),
+      targetConcurrency: 1,
+      chapterConcurrency: 1,
+    });
+    expect(peak).toBe(1);
   });
 });
