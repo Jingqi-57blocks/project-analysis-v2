@@ -12,8 +12,14 @@ specification — adding a report type is adding one Markdown file.
 
 ## Requirements
 
-Node 22 or later, pnpm 10, and **CodeGraph 1.5.0** for the call graph. The
-version is pinned rather than detected: the adapter reads CodeGraph's own index
+Node 22 or later, pnpm 10, and **CodeGraph 1.5.0**. It is the only source of
+symbols, imports and the call graph — an in-process ast-grep reader used to
+supply symbols for Go, TypeScript, JavaScript and TSX, and measurement on both
+real targets showed the index doing it better across more languages. ast-grep is
+still used for what CodeGraph does not model: conditions, guards, framework
+routes, entities and value sets.
+
+The version is pinned rather than detected: the adapter reads CodeGraph's own index
 database, because 1.5 has no batch edge export and the alternative is one
 subprocess per symbol. A different version, or an index schema other than the
 one this build reads, refuses the run — the fallback supplies symbols without

@@ -264,22 +264,26 @@ describe("batch relations", () => {
     truncation: { truncated: false, limit: null, reason: null },
   };
 
-  it("imports calls, instantiations and type relations with canonical in-process ids", () => {
+  it("imports calls, instantiations and type relations under the index's own symbol identity", () => {
     const result = batchRelations(
       snapshot,
       "/idx",
       ["/idx/svc-a"],
       { name: "svc-a", path: "/idx/svc-a", analyzedFiles: ["main.go", "service.go", "contracts.go"] },
-      { roots: ["/idx/svc-a"], skipSymbolsIn: () => true },
     );
 
+    // The endpoint carries the index's own signature. It used to be stripped
+    // wherever the in-process reader owned the file, so that an edge and the
+    // symbol it points at shared one identity. With one symbol source there is
+    // no second identity to match, and dropping the signature now would be the
+    // thing that made an edge point at a symbol the model does not hold.
     expect(result.callEdges).toHaveLength(1);
     expect(result.callEdges[0]!.callerId).toBe(nodeSymbolId("svc-a", node({
       kind: "function",
       name: "Entry",
       qualifiedName: "Entry",
       filePath: "main.go",
-      signature: null,
+      signature: "()",
     })));
     expect(result.references).toMatchObject([
       { kind: "instantiate", fromSymbolId: result.callEdges[0]!.callerId },

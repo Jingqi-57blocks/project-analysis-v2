@@ -9,8 +9,6 @@
 
 import { createManifestProvider } from "../providers/manifests/provider.js";
 import { createSourceFileProvider } from "../providers/sourcefiles/provider.js";
-import { createDeclarationProvider } from "../providers/symbols/provider.js";
-import { languageOf } from "../text/ast.js";
 import { createOutboundProvider } from "../providers/outbound/provider.js";
 import { createConventionsProvider } from "../providers/conventions/provider.js";
 import { createCodeGraphProvider } from "../providers/codegraph/provider.js";
@@ -53,9 +51,22 @@ export interface ReaderOptions {
 /**
  * Every reader, for a workspace with these roots.
  *
- * CodeGraph imports nodes and edges from one version-gated batch read. This
- * preserves the call graph needed by generic entry tracing without the former
- * one-subprocess-per-symbol cost.
+ * CodeGraph imports nodes, imports and edges from one version-gated batch read.
+ *
+ * It is the only source of symbols. There used to be a second — an in-process
+ * ast-grep reader — with the two partitioned by file: CodeGraph skipped
+ * everything the local grammars could parse. That was never a half-and-half
+ * split. On a Go/TypeScript project the local reader supplied every symbol and
+ * CodeGraph none, and the four languages it parsed were a strict subset of what
+ * the index already covered.
+ *
+ * The partition existed because two readers describing one function under
+ * different identities is not agreement — both records survive and the linking
+ * stage reads two symbols of one name as ambiguous. One reader has nothing to
+ * disagree with, which is the same problem solved from the other end. Measured
+ * on both real targets before the change: symbols up (10,284 → 11,982 and
+ * 6,245 → 6,321), handler resolution unchanged, entry traceability up, and
+ * fewer identity conflicts, not more.
  */
 export function defaultReaders(
   rootPaths: readonly string[],
@@ -67,10 +78,6 @@ export function defaultReaders(
         createCodeGraphProvider({
           callEdges: true,
           roots: [...rootPaths],
-          // The declaration reader has these already; it and CodeGraph
-          // describe one function differently, and both surviving makes the
-          // pair ambiguous rather than agreed.
-          skipSymbolsIn: (relPath) => languageOf(relPath) !== null,
           ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
           ...(options.allowDegraded === true ? { allowDegraded: true } : {}),
         }),
@@ -79,7 +86,6 @@ export function defaultReaders(
   return {
     structural: [
       createSourceFileProvider(),
-      createDeclarationProvider(),
       createManifestProvider(),
       createOutboundProvider(),
       createConventionsProvider(),
