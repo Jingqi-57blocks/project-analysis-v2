@@ -6,7 +6,6 @@
  * the ones a downstream verifier replays.
  */
 
-import type { EvidenceRecord } from "./evidence.js";
 import type { FactEnvelope } from "./envelope.js";
 import { factId } from "./identity.js";
 import { declared, lineRef, resolved } from "./provenance.js";
@@ -70,9 +69,3 @@ export const INVALID_PROVENANCE_EXAMPLES: readonly {
     value: { confidence: "high", source: lineRef("api", "leave/service.go", 42) },
   },
 ];
-
-/** One EvidenceRecord, exported for reuse by chain-traceability tests. */
-export const SINGLE_EVIDENCE_EXAMPLE: EvidenceRecord = {
-  attribution: { providerId: "logic", providerVersion: "1.0.0" },
-  provenance: resolved(lineRef("api", "leave/approve.go", 88), "medium"),
-};

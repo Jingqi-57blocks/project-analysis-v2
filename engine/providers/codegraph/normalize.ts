@@ -11,13 +11,12 @@ import { symbolId, type SymbolId } from "../../structural/identity.js";
 import { declared, fileRef, inferred, lineRef, unresolved, type Provenance } from "../../structural/provenance.js";
 import type {
   ImportRecord,
-  SourceFileRecord,
   SymbolKind,
   SymbolRecord,
   CallEdgeRecord,
 } from "../../structural/code.js";
 import type { RouteSurface, RouteRecord } from "../../structural/boundaries.js";
-import type { CodeGraphFile, CodeGraphNode, CodeGraphRelation } from "./cli.js";
+import type { CodeGraphNode, CodeGraphRelation } from "./cli.js";
 
 /**
  * Handled separately. Anything else — including a kind never seen before —
@@ -66,22 +65,6 @@ export function nodeSymbolId(rootName: string, node: CodeGraphNode): SymbolId {
     qualifiedName: node.qualifiedName ?? node.name,
     signature: node.signature ?? null,
   });
-}
-
-export function toSourceFile(rootName: string, file: CodeGraphFile): SourceFileRecord {
-  return {
-    rootName,
-    relPath: file.path,
-    language: file.language,
-    provenance: declared({
-      rootName,
-      relPath: file.path,
-      startLine: null,
-      endLine: null,
-      startColumn: null,
-      endColumn: null,
-    }),
-  };
 }
 
 export function isSymbolNode(node: CodeGraphNode): boolean {

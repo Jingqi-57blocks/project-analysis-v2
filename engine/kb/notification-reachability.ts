@@ -31,7 +31,6 @@ import type { CodeGraphSnapshot } from "../providers/codegraph/batch.js";
 import { importEdges } from "../providers/codegraph/importedges.js";
 import { importNodes, type ImportedNode } from "../providers/codegraph/importnodes.js";
 import { codeIndexDbPath, readBatchDb } from "../providers/codegraph/batchdb.js";
-import type { SnapshotOutcome } from "../providers/codegraph/batch.js";
 import { joinKey } from "../contracts/shared-fact/serialization.js";
 import { inferred, lineRef } from "../structural/provenance.js";
 import type { NotificationCallRecord } from "../structural/rules.js";
@@ -307,18 +306,6 @@ export function scopeSnapshotToRoot(
     metadata: { ...snapshot.metadata, nodeCount: nodes.length, edgeCount: edges.length },
     truncation: snapshot.truncation,
   };
-}
-
-/**
- * Read the batch index DB under `<codeIndexPath>/` and scope
- * it to one root. A missing or degraded index surfaces as the outcome's
- * degradation — the caller fails open, never inventing a graph it does not have.
- */
-export function loadRootSnapshot(codeIndexPath: string, rootPath: string): SnapshotOutcome {
-  const dbPath = codeIndexDbPath(codeIndexPath);
-  const outcome = readBatchDb(dbPath, codeIndexPath);
-  if (!outcome.ok) return outcome;
-  return { ok: true, snapshot: scopeSnapshotToRoot(outcome.snapshot, codeIndexPath, rootPath) };
 }
 
 export interface RootsReachabilityInput {

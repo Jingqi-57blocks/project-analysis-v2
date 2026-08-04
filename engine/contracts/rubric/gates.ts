@@ -71,30 +71,6 @@ export const GOLDEN_SLICE_THRESHOLDS: readonly GateThreshold[] = [
   { metric: "required_codegraph_lane_available", comparator: "==", value: 1 },
 ];
 
-/** Denominators the report-combination and dedup gates account against. */
-export const COMBINATION_DENOMINATORS: readonly string[] = [
-  "requested_target",
-  "generated_document",
-  "section",
-  "deterministic_block",
-  "authored_block",
-  "execution_bundle",
-  "slice_key",
-  "slice_materialization",
-  "block_attempt",
-  "adopted_attempt",
-];
-
-/** Invariants the M3/M6 combination gates reject, named for machine reference. */
-export const DEDUP_RULES: readonly string[] = [
-  "no unrequested document is generated (no plan/task/artifact; not counted as omitted)",
-  "each provider executes at most once per analysisRunId",
-  "each sliceKey is materialized at most once",
-  "module-only never secretly generates a project-level document",
-  "shared-claim identity does not drift across documents",
-  "a required authored block missing/failed/over-budget blocks completion",
-];
-
 export const GATES: readonly GateDefinition[] = [
   {
     id: "M1-structure-golden",
