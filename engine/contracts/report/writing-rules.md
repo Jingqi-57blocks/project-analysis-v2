@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Writing rules
@@ -57,13 +57,26 @@ calls".
 ## The visible report speaks business language
 
 Repository names, entry-point paths, class and function names, table names, source
-paths, enum members and role codes belong **only** in the collapsed evidence block —
-including in chapter titles and table headers — unless the technical name is itself
-what the business calls the thing.
+paths, enum members and role codes belong **only** in the collapsed evidence block,
+including in chapter titles and table headers.
 
 This is not a matter of taste. A reader who cannot tell what an identifier means
 cannot tell whether the sentence containing it is true, and a paragraph carrying
 three of them reads as machine output however carefully the sentence was written.
+
+**A name the business itself uses is not an identifier, and hiding it is the same
+mistake in the other direction.** The products and companies a system depends on —
+the ticket tracker, the mail service, the model provider, the bank whose rates it
+reads — **MUST** be named outright, by name, in the body. A reader who is told the
+system "integrates with a third-party push gateway" has been told nothing: they
+cannot ask what the contract costs, who to call when it breaks, or whether it can be
+replaced. Name the product; the address it is reached at is the identifier, and that
+goes in the evidence.
+
+The same holds for anything else the business says out loud — a product name, a
+team's name for a screen, a term of art the staff actually use. The test is not
+whether a word looks technical. It is whether a reader outside the code would
+recognise it.
 
 ---
 
@@ -80,6 +93,10 @@ three of them reads as machine output however carefully the sentence was written
 
 **These four and no others.** Every sentence either points at evidence or is marked
 `unavailable`.
+
+This file's own vocabulary never reaches the report either. `MUST`, `MUST NOT`,
+`SHOULD` and `MAY` are how a contract talks to the author; a report carrying them has
+handed the reader the instructions instead of the answer.
 
 The names above are structural tokens for this document, not words for the report.
 Every one of them **MUST** be rendered into the target language; a report carrying

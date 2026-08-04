@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 7.0.0
+version: 7.1.0
 title: Project overview, non-technical
 ---
 
@@ -171,11 +171,18 @@ Under lead-ins: **the roles the system defines**; **what each is mainly responsi
 for**; **the permission matrix** (role × capability × operation); **what data each
 can see**; **how the organisational units relate**.
 
-The matrix's rows are the capability groups named in chapter 3, and its columns a
-fixed business-level set: view, create, change, approve, export, administer. Fixing
-both is what lets two runs over one snapshot be compared at all.
+**The matrix's rows are the roles.** This chapter is about who can do what, and a
+matrix without roles in it does not answer that — it answers a question nobody asked.
+Columns are the capability groups named in chapter 3. Fixing both is what lets two
+runs over one snapshot be compared at all.
 
-**Every cell carries exactly one of these four values, and none is left blank:**
+A cell says which of a fixed set of operations — view, create, change, approve,
+export, administer — that role was found to have in that capability group, or carries
+one of the values below when none was established. A role for which nothing at all
+was found gets a line of prose rather than a row of empty cells.
+
+**Every cell carries either a list of confirmed operations or exactly one of these
+four values, and none is left blank:**
 
 | Value | Meaning |
 | -- | -- |
@@ -228,6 +235,11 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 
 | Service | What it is used for | Which capabilities depend on it | Sent and received | On failure |
 | -- | -- | -- | -- | -- |
+
+The first column carries **the product's name** — the ticket tracker, the model
+provider, the object store, the bank — not a description of its category. Where the
+name cannot be established from the base, say what was found and that the provider is
+`unavailable`; do not paraphrase a name that is right there.
 
 Then, under lead-ins: **what is sent and received**, and whether it includes personal
 or financial fields; **what the code does when a call fails**; **the expected effect
