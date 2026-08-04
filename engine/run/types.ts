@@ -23,8 +23,6 @@ export interface AnalyzeOptions {
   readonly noCodeIndex?: boolean;
   /** Accept a code index that cannot be read as verified, and the missing call graph with it. */
   readonly allowDegraded?: boolean;
-  /** Take symbols and imports from the code index alone, with no declaration reader. */
-  readonly codegraphSymbolsOnly?: boolean;
   /** Preflighted providers. Defaults to the readers above. */
   readonly providers?: readonly Provider[];
   /** Overrides the generated run id. For tests and for resuming a named run. */

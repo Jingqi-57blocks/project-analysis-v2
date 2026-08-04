@@ -72,16 +72,6 @@ export interface CodeGraphOptions {
    */
   readonly callEdges?: boolean;
 
-  /**
-   * Leave symbols in files another reader already parsed.
-   *
-   * Two providers describing one function under different identities is not a
-   * merge — the ids differ, so both records survive, and the linking stage
-   * then sees two symbols of one name and refuses the match as ambiguous.
-   * Measured on WCP-V2: handler resolution fell from 438 to 38. Partitioning
-   * by file is what lets both readers contribute without competing.
-   */
-  readonly skipSymbolsIn?: (relPath: string) => boolean;
 
   /**
    * Continue when the code index cannot be read as verified.
@@ -313,29 +303,13 @@ function scopedBatchNode(
   return null;
 }
 
-function canonicalNodeId(
-  scoped: ScopedBatchNode,
-  options: CodeGraphOptions,
-): SymbolId {
-  // The in-process declaration reader deliberately omits signatures. Where it
-  // owns a file, use that exact identity for batch edges too; otherwise the
-  // edge points at a second, signature-bearing id that is absent from the
-  // merged model and every trace silently stops.
-  const signature = options.skipSymbolsIn?.(scoped.node.filePath) === true
-    ? null
-    : (scoped.node.signature ?? null);
-  return nodeSymbolId(scoped.rootName, { ...scoped.node, signature });
-}
-
-/** Normalize every batch call edge for one root without an N+1 CLI loop. */
-export function batchCallEdges(
-  snapshot: CodeGraphSnapshot,
-  parent: string,
-  roots: readonly string[],
-  current: StructuralRootInput,
-  options: CodeGraphOptions,
-): readonly CallEdgeRecord[] {
-  return batchRelations(snapshot, parent, roots, current, options).callEdges;
+function canonicalNodeId(scoped: ScopedBatchNode): SymbolId {
+  // One symbol source, so an edge's endpoint identity is the same identity the
+  // symbol was recorded under. This used to depend on which reader owned the
+  // file: where the in-process one did, the signature had to be dropped or the
+  // edge pointed at a second id absent from the merged model and every trace
+  // stopped there silently.
+  return nodeSymbolId(scoped.rootName, { ...scoped.node, signature: scoped.node.signature ?? null });
 }
 
 export interface BatchRelations {
@@ -350,7 +324,6 @@ export function batchRelations(
   parent: string,
   roots: readonly string[],
   current: StructuralRootInput,
-  options: CodeGraphOptions,
 ): BatchRelations {
   const rawById = new Map(snapshot.nodes.map((node) => [node.nativeId, node] as const));
   const scopedById = new Map<string, ScopedBatchNode>();
@@ -383,8 +356,8 @@ export function batchRelations(
       ? fileRef(current.name, sourceRelPath)
       : lineRef(current.name, sourceRelPath, edge.startLine);
     const unresolvedName = unresolvedBySource.get(edge.fromNativeId)?.[0];
-    const callerId = canonicalNodeId(caller, options);
-    const targetId = resolvedTarget === null ? null : canonicalNodeId(resolvedTarget, options);
+    const callerId = canonicalNodeId(caller);
+    const targetId = resolvedTarget === null ? null : canonicalNodeId(resolvedTarget);
     if (edge.kind === "calls" || edge.kind === "call") {
       callEdges.push({
         callerId,
@@ -484,7 +457,7 @@ function extractFrom(
 
   const relations = shared.batch === null
     ? { callEdges: [], references: [], typeRelations: [] }
-    : batchRelations(shared.batch, shared.parent, options.roots ?? [], root, options);
+    : batchRelations(shared.batch, shared.parent, options.roots ?? [], root);
   const callEdges = options.callEdges === false ? [] : relations.callEdges;
   if (options.callEdges !== false && shared.batch === null) {
     failures.push({
@@ -502,10 +475,9 @@ function extractFrom(
       // different identities, and the linking stage reads two of one name as
       // ambiguous rather than as agreement.
       symbol: symbolNodes
-        .filter((node) => options.skipSymbolsIn?.(node.filePath) !== true)
         .map((node) => toSymbol(root.name, node)),
       import: usableNodes
-        .filter((n) => isKind(n, "import") && options.skipSymbolsIn?.(n.filePath) !== true)
+        .filter((n) => isKind(n, "import"))
         .map((n) => toImport(root.name, n)),
       route: usableNodes.filter((n) => isKind(n, "route")).map((n) => toRoute(root.name, n)),
       "call-edge": callEdges,

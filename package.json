@@ -20,7 +20,6 @@
     "kb:query": "tsx scripts/kb-query.ts",
     "kb:readiness": "tsx scripts/kb-readiness.ts",
     "compat:codegraph": "tsx scripts/codegraph-compat.ts",
-    "parity:symbols": "tsx scripts/symbols-parity.ts",
     "relock": "tsx scripts/relock.ts"
   },
   "devDependencies": {
