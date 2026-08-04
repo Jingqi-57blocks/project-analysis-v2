@@ -18,7 +18,7 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { resolveSnapshot } from "../engine/kb/query.js";
+import { resolveSnapshot } from "../engine/kb/resolve-snapshot.js";
 import { openStoreReadonly } from "../engine/store/open.js";
 import type { SqlValue } from "../engine/store/types.js";
 import { reportRefusals } from "./refusals.js";

@@ -7,7 +7,7 @@ import type { AuthAnnotationRecord, DataAccessRecord, TestRelationRecord } from 
 import type { BusinessRule } from "../../engine/semantics/rules.js";
 import type { ValueSet } from "../../engine/semantics/enums.js";
 import { validateBehaviorModel } from "../../engine/contracts/behavior/schema.js";
-import { gradeBehaviorTruth } from "../../engine/gates/behavior-truth.js";
+import { gradeBehaviorTruth } from "../support/gates/behavior-truth.js";
 import type { TruthItem } from "../../engine/contracts/truth/schema.js";
 import { type AssembleInput, assembleBehaviorModel } from "../../engine/kb/behavior-assemble.js";
 
