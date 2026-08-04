@@ -4,7 +4,7 @@
  *
  * CodeGraph 1.5 has no batch edge command — only per-symbol `callees`/`callers`
  * (the N+1) and interactive `explore`/`node`/`impact`. So, as PI-5's design
- * allows, this reads the isolated `.codegraph/codegraph.db` SQLite index
+ * allows, this reads the isolated CodeGraph index database
  * read-only: all nodes, all edges (every kind, not just calls) and all
  * unresolved references in three queries. The DB is CodeGraph's own format and
  * may change between versions, which is why the read is gated on the schema
@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { codeIndexDirName } from "../../artifacts.js";
 import type {
   BatchAdapter,
   CodeGraphEdgeRecord,
@@ -27,7 +28,17 @@ import type {
 /** The CodeGraph index-DB schema version this reader was verified against. */
 export const SUPPORTED_DB_SCHEMA = 8;
 
-const DB_RELATIVE_PATH = join(".codegraph", "codegraph.db");
+/**
+ * The index database under an index root.
+ *
+ * A function, and exported, because the directory it sits in is settled at read
+ * time by `CODEGRAPH_DIR`. Every caller goes through this: the path was built by
+ * hand in seven places, and any one of them left behind would look for a
+ * database CodeGraph is not writing.
+ */
+export function codeIndexDbPath(indexRoot: string): string {
+  return join(indexRoot, codeIndexDirName(), "codegraph.db");
+}
 
 interface NodeRow {
   readonly id: string;
@@ -174,5 +185,5 @@ export function readBatchDb(dbPath: string, indexRoot: string): SnapshotOutcome 
 }
 
 export function createBatchDbAdapter(): BatchAdapter {
-  return { read: (indexRoot: string) => readBatchDb(join(indexRoot, DB_RELATIVE_PATH), indexRoot) };
+  return { read: (indexRoot: string) => readBatchDb(codeIndexDbPath(indexRoot), indexRoot) };
 }

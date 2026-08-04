@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { ANALYSIS_ARTIFACT_DIRECTORIES } from "../artifacts.js";
+import { isAnalysisArtifactDirectory } from "../artifacts.js";
 
 /**
  * Entries never contributing to a content digest. Version-control internals and
@@ -11,12 +11,21 @@ export const IGNORED_ENTRIES: ReadonlySet<string> = new Set([
   ".git",
   "node_modules",
   ".DS_Store",
-  // Analysis output this tool writes into the root. Ignored here or indexing
-  // would change the digest mid-run and publishing would refuse with a drift
-  // error naming our own output. This narrows what counts as source; it does
-  // not weaken drift detection, which still fires on any real source change.
-  ...ANALYSIS_ARTIFACT_DIRECTORIES,
 ]);
+
+/**
+ * Whether an entry contributes nothing to a digest.
+ *
+ * The analysis's own index is excluded through a predicate rather than through
+ * the set above, because its directory name is settled at read time by
+ * `CODEGRAPH_DIR`. Ignoring it is what keeps indexing from changing the digest
+ * mid-run and publishing from refusing with a drift error naming our own
+ * output. This narrows what counts as source; it does not weaken drift
+ * detection, which still fires on any real source change.
+ */
+export function isIgnoredEntry(name: string): boolean {
+  return IGNORED_ENTRIES.has(name) || isAnalysisArtifactDirectory(name);
+}
 
 /** Files under `dir`, relative to it, sorted so hashing is order-independent. */
 export function listFiles(dir: string, base: string = dir): string[] {
@@ -24,7 +33,7 @@ export function listFiles(dir: string, base: string = dir): string[] {
 
   const found: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (IGNORED_ENTRIES.has(entry.name)) continue;
+    if (isIgnoredEntry(entry.name)) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       found.push(...listFiles(full, base));

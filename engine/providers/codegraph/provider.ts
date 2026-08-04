@@ -6,7 +6,7 @@
  * capability gap rather than discovered later by noticing a thin report.
  */
 
-import { basename, join, relative } from "node:path";
+import { basename, relative } from "node:path";
 
 import { emptyRecords, type StructuralRecords } from "../../structural/kinds.js";
 import {
@@ -33,7 +33,7 @@ import {
   withIndexLock,
   type CodeGraphNode,
 } from "./cli.js";
-import { readBatchDb } from "./batchdb.js";
+import { codeIndexDbPath, readBatchDb } from "./batchdb.js";
 import type { CodeGraphNodeRecord, CodeGraphSnapshot } from "./batch.js";
 import {
   isSymbolNode,
@@ -536,7 +536,7 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
     // reported as a codebase with no symbols rather than as a clash.
     resolved = withIndexLock(parent, () => {
       ensureIndexed(parent);
-      const outcome = readBatchDb(join(parent, ".codegraph", "codegraph.db"), parent);
+      const outcome = readBatchDb(codeIndexDbPath(parent), parent);
       if (!outcome.ok && options.allowDegraded !== true) {
         throw new CodeIndexDegradedError(JSON.stringify(outcome.degradation));
       }

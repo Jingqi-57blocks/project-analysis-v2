@@ -41,14 +41,14 @@ import { extname, join } from "node:path";
 import { positionAt, scanSource } from "../text/scan.js";
 import { type Confidence, inferred, lineRef, type SourceRef } from "../structural/provenance.js";
 import type { ExternalCallRecord } from "../structural/boundaries.js";
-import { readBatchDb } from "../providers/codegraph/batchdb.js";
+import { codeIndexDbPath, readBatchDb } from "../providers/codegraph/batchdb.js";
 import type { CodeGraphSnapshot } from "../providers/codegraph/batch.js";
 import { importEdges } from "../providers/codegraph/importedges.js";
 import { importNodes, type ImportedNode } from "../providers/codegraph/importnodes.js";
 import { scopeSnapshotToRoot } from "./notification-reachability.js";
 import type { RootFacts } from "./extract.js";
 
-const DB_RELATIVE_PATH = ".codegraph/codegraph.db";
+
 const CALLS_EDGE_KIND = "calls";
 const CALLABLE_RAW_KINDS: ReadonlySet<string> = new Set(["function", "method"]);
 
@@ -397,7 +397,7 @@ export interface OutboundIntegrationInput {
   readonly roots: readonly RootFacts[];
   /** rootName → absolute path, so a root's own files can be read. */
   readonly rootPaths?: ReadonlyMap<string, string>;
-  /** The index root — the batch DB lives at `<codeIndexPath>/.codegraph/codegraph.db`. */
+  /** The index root — the batch DB lives under `<codeIndexPath>/` in CodeGraph's index directory. */
   readonly codeIndexPath?: string | null;
   readonly maxHops?: number;
   readonly maxFanIn?: number;
@@ -447,7 +447,7 @@ export function observeOutboundIntegration(input: OutboundIntegrationInput): Out
   if (codeIndexPath == null || rootPaths === undefined || rootPaths.size === 0) {
     notes.push("outbound-integration: no code index available — no reverse-reachability attributed");
   } else {
-    const outcome = readBatchDb(`${codeIndexPath}/${DB_RELATIVE_PATH}`, codeIndexPath);
+    const outcome = readBatchDb(codeIndexDbPath(codeIndexPath), codeIndexPath);
     if (!outcome.ok) {
       notes.push(
         `outbound-integration: code index degraded (${outcome.degradation.kind}) — no reverse-reachability attributed`,

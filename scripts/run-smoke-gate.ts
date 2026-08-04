@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 import { loadAngelsPizzaSentinels } from "../engine/contracts/truth/sentinel.js";
 import { gradeSentinels } from "../engine/gates/sentinel-smoke.js";
-import { readBatchDb } from "../engine/providers/codegraph/batchdb.js";
+import { codeIndexDbPath, readBatchDb } from "../engine/providers/codegraph/batchdb.js";
 import { importEdges } from "../engine/providers/codegraph/importedges.js";
 import { importNodes } from "../engine/providers/codegraph/importnodes.js";
 
@@ -22,7 +22,7 @@ if (indexDir === undefined) {
   process.exit(2);
 }
 
-const outcome = readBatchDb(`${indexDir}/.codegraph/codegraph.db`, indexDir);
+const outcome = readBatchDb(codeIndexDbPath(indexDir), indexDir);
 if (!outcome.ok) {
   console.error("CodeGraph index read failed:", JSON.stringify(outcome.degradation));
   process.exit(1);

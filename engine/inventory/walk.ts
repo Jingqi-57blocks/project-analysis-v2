@@ -2,7 +2,7 @@ import { openSync, readSync, closeSync, readdirSync, statSync, type Dirent } fro
 import { join, relative } from "node:path";
 
 import { classifyPath, looksGenerated, DEPENDENCY_DIRECTORIES, type Classification } from "./classify.js";
-import { ANALYSIS_ARTIFACT_DIRECTORIES, ANALYSIS_ARTIFACT_REASON } from "../artifacts.js";
+import { ANALYSIS_ARTIFACT_REASON, isAnalysisArtifactDirectory } from "../artifacts.js";
 
 const DEPENDENCY_DIR_REASON = "dependency-manager-owned directory, not walked";
 const VCS_DIR_REASON = "version-control internals, not walked";
@@ -144,7 +144,7 @@ export function walkRoot(rootPath: string): WalkResult {
           excludeSubtree(full, relPath, VCS_DIR_REASON);
           continue;
         }
-        if (ANALYSIS_ARTIFACT_DIRECTORIES.has(entry.name)) {
+        if (isAnalysisArtifactDirectory(entry.name)) {
           excludeSubtree(full, relPath, ANALYSIS_ARTIFACT_REASON);
           continue;
         }

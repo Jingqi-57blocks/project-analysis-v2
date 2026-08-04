@@ -22,7 +22,7 @@ import { runAnalyze } from "../engine/run/analyze.js";
 import { openStore } from "../engine/store/open.js";
 import { openKnowledgeBase } from "../engine/kb/query.js";
 import { queryBehaviorFacts } from "../engine/kb/behavior-query.js";
-import { readBatchDb } from "../engine/providers/codegraph/batchdb.js";
+import { codeIndexDbPath, readBatchDb } from "../engine/providers/codegraph/batchdb.js";
 import { importNodes } from "../engine/providers/codegraph/importnodes.js";
 import { importEdges } from "../engine/providers/codegraph/importedges.js";
 import { loadAngelsPizzaSentinels, validateSentinelLedger } from "../engine/contracts/truth/sentinel.js";
@@ -93,7 +93,7 @@ for (const root of ROOTS) {
   const analysis = runAnalyze({ paths: [rootPath], indexRoot: rootPath, dbPath });
 
   // Code index for this root — the generic CodeGraph path the sentinels ride.
-  const indexOutcome = readBatchDb(resolve(rootPath, ".codegraph/codegraph.db"), rootPath);
+  const indexOutcome = readBatchDb(codeIndexDbPath(rootPath), rootPath);
   if (!indexOutcome.ok) {
     console.error(`[${root}] CodeGraph index read failed:`, JSON.stringify(indexOutcome.degradation));
     process.exit(1);

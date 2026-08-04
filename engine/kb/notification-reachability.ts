@@ -30,11 +30,12 @@ import { relative } from "node:path";
 import type { CodeGraphSnapshot } from "../providers/codegraph/batch.js";
 import { importEdges } from "../providers/codegraph/importedges.js";
 import { importNodes, type ImportedNode } from "../providers/codegraph/importnodes.js";
-import { readBatchDb } from "../providers/codegraph/batchdb.js";
+import { codeIndexDbPath, readBatchDb } from "../providers/codegraph/batchdb.js";
 import type { SnapshotOutcome } from "../providers/codegraph/batch.js";
 import { joinKey } from "../contracts/shared-fact/serialization.js";
 import { inferred, lineRef } from "../structural/provenance.js";
 import type { NotificationCallRecord } from "../structural/rules.js";
+
 
 /**
  * Reverse-reachability defaults.
@@ -57,7 +58,6 @@ export const DEFAULT_MAX_FAN_IN = 32;
 const CALLS_EDGE_KIND = "calls";
 const CALLABLE_RAW_KINDS: ReadonlySet<string> = new Set(["function", "method"]);
 
-const DB_RELATIVE_PATH = ".codegraph/codegraph.db";
 
 export interface NotificationReachabilityInput {
   readonly rootName: string;
@@ -310,19 +310,19 @@ export function scopeSnapshotToRoot(
 }
 
 /**
- * Read the batch index DB at `<codeIndexPath>/.codegraph/codegraph.db` and scope
+ * Read the batch index DB under `<codeIndexPath>/` and scope
  * it to one root. A missing or degraded index surfaces as the outcome's
  * degradation — the caller fails open, never inventing a graph it does not have.
  */
 export function loadRootSnapshot(codeIndexPath: string, rootPath: string): SnapshotOutcome {
-  const dbPath = `${codeIndexPath}/${DB_RELATIVE_PATH}`;
+  const dbPath = codeIndexDbPath(codeIndexPath);
   const outcome = readBatchDb(dbPath, codeIndexPath);
   if (!outcome.ok) return outcome;
   return { ok: true, snapshot: scopeSnapshotToRoot(outcome.snapshot, codeIndexPath, rootPath) };
 }
 
 export interface RootsReachabilityInput {
-  /** The index root — the batch DB lives at `<codeIndexPath>/.codegraph/codegraph.db`. */
+  /** The index root — the batch DB lives under `<codeIndexPath>/` in CodeGraph's index directory. */
   readonly codeIndexPath?: string | null;
   /** rootName → absolute root path, so a shared index can be scoped per root. */
   readonly rootPaths?: ReadonlyMap<string, string>;
@@ -343,7 +343,7 @@ export function deriveNotificationsForRoots(input: RootsReachabilityInput): Noti
   if (codeIndexPath == null || rootPaths === undefined || rootPaths.size === 0) {
     return { notifications: [], notes: ["notification-reachability: no code index available — no reverse-reachability attributed"] };
   }
-  const outcome = readBatchDb(`${codeIndexPath}/${DB_RELATIVE_PATH}`, codeIndexPath);
+  const outcome = readBatchDb(codeIndexDbPath(codeIndexPath), codeIndexPath);
   if (!outcome.ok) {
     return {
       notifications: [],

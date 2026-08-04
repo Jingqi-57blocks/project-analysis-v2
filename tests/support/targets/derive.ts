@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
-import { digestDirectory, IGNORED_ENTRIES } from "../../../engine/targets/digest.js";
+import { digestDirectory, isIgnoredEntry } from "../../../engine/targets/digest.js";
 import { TARGETS } from "./registry.js";
 import { expandPath } from "./resolve.js";
 
@@ -147,7 +147,7 @@ export function deriveVariant(options: DeriveOptions): DeriveResult {
   mkdirSync(dirname(outputDir), { recursive: true });
   cpSync(sourceRoot, outputDir, {
     recursive: true,
-    filter: (src) => !IGNORED_ENTRIES.has(basename(src)),
+    filter: (src) => !isIgnoredEntry(basename(src)),
   });
 
   const removed: string[] = [];

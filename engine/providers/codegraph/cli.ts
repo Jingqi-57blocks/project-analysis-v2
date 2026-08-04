@@ -15,11 +15,19 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
+import { codeIndexDirName } from "../../artifacts.js";
+
 /** The version this adapter was written and verified against. */
 export const VERIFIED_VERSION = "1.5.0";
 
-/** Where CodeGraph puts its index. Named here only to detect prior indexing — never opened here. */
-const INDEX_DIRECTORY = ".codegraph";
+/**
+ * Where CodeGraph puts its index — resolved, not assumed.
+ *
+ * `CODEGRAPH_DIR` renames it, and CodeGraph reads that variable live. Naming
+ * the default here would make this tool look for a database CodeGraph is not
+ * writing, on exactly the machines the variable exists for.
+ */
+const indexDirectory = (): string => codeIndexDirName();
 
 /** Declared as a capability limit, so hitting it reports truncation rather than a partial whole. */
 export const NODE_LIMIT = 100_000;
@@ -124,19 +132,20 @@ export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
 }
 
 export function isIndexed(rootPath: string): boolean {
-  return existsSync(join(rootPath, INDEX_DIRECTORY));
+  return existsSync(join(rootPath, indexDirectory()));
 }
 
 /**
- * Writes `.codegraph/` inside the directory it is pointed at, which CodeGraph
- * offers no flag to relocate. Callers point it at the directory *containing*
- * the analyzed roots for exactly that reason — see `sharedIndexRoot`.
+ * Writes its index directory inside the directory it is pointed at, which
+ * CodeGraph offers no flag to relocate. Callers point it at the directory
+ * *containing* the analyzed roots for exactly that reason — see
+ * `sharedIndexRoot`.
  */
 export function ensureIndexed(rootPath: string): void {
   run(isIndexed(rootPath) ? ["index", "-q", rootPath] : ["init", rootPath]);
 }
 
-const LOCK_DIRECTORY = ".codegraph.lock";
+const lockDirectory = (): string => `${codeIndexDirName()}.lock`;
 const LOCK_POLL_MS = 200;
 const LOCK_WAIT_MS = 180_000;
 /** Long enough that no live run holds a lock this old; short enough to recover. */
@@ -164,7 +173,7 @@ function lockAge(path: string): number {
  * run must not make the directory permanently unusable.
  */
 export function withIndexLock<T>(rootPath: string, work: () => T): T {
-  const lockPath = join(rootPath, LOCK_DIRECTORY);
+  const lockPath = join(rootPath, lockDirectory());
   const deadline = Date.now() + LOCK_WAIT_MS;
 
   for (;;) {
