@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Writing rules
@@ -96,26 +96,43 @@ Consequences are constrained rather than banned — see Part III, risk format.
 * **Quote the project's own words** where it has any — `readme-section` and
   `project-title` in `evidence_items`. Where it carries no description, say so; that
   is a fact about the project, and a substitute you invent is not.
-* **Every chapter closes with a short synthesis** that generalizes that chapter's own
-  facts into one or two sentences. It **MUST NOT** introduce a new conclusion. A
-  chapter that only lists facts is incomplete — this is a document with a thesis, not
-  a list of answers.
+* **Give each sub-question a bolded lead-in.** A chapter of undifferentiated
+  paragraphs forces the reader to read all of it or none. The lead-ins are what let
+  someone skim to the one thing they came for, and what stops the chapter drifting
+  into an essay.
+* **Every chapter closes with a synthesis, under its own lead-in.** Two or three
+  sentences saying what this chapter's facts mean **for reading the rest of the
+  report**: not a recap, and not a list. "Five repositories are not five businesses —
+  they are one front end, one shared database and four back ends, so the blast radius
+  of any change is never confined to the repository it lands in" is a synthesis. "The
+  project has five repositories" is a recap, and writing one is the same as writing
+  nothing.
+
+  The synthesis **MAY** state what follows for the reader from the facts in that
+  chapter. It **MUST NOT** recommend an action, predict an outcome, or reach for a
+  fact the chapter did not establish. The line is between "here is what this means"
+  and "here is what you should do".
 
 ## 4. Structure
 
 1. Evidence — paths, line numbers, identifiers — is collapsed by default and **MUST
-   NOT** sit in the reading flow.
-2. Every `unavailable` item **MUST** be stated explicitly, never silently dropped.
-3. Every coverage figure **MUST** carry its denominator. "Some call chains could not
+   NOT** sit in the reading flow. Where a marked statement needs its reasoning to be
+   checkable, put the marker and its grounds in one parenthesis at the end of the
+   sentence, rather than tagging the sentence and stranding the grounds elsewhere.
+2. **Punctuation follows the output language.** A report in Chinese uses full-width
+   punctuation throughout; one in English uses ASCII. Mixing them is the most visible
+   way a document reads as machine-written, and it costs nothing to get right.
+3. Every `unavailable` item **MUST** be stated explicitly, never silently dropped.
+4. Every coverage figure **MUST** carry its denominator. "Some call chains could not
    be resolved" is not acceptable; "18% (93/520) terminated early" is.
-4. A role is named once, readably. **MUST NOT** describe a role as "referenced in N
+5. A role is named once, readably. **MUST NOT** describe a role as "referenced in N
    permission checks" — that is a code statistic, not information.
-5. Diagrams **MUST** be Mermaid in a fenced ` ```mermaid ` block, never hand-written
+6. Diagrams **MUST** be Mermaid in a fenced ` ```mermaid ` block, never hand-written
    SVG. Branch and state labels use the target language and **MUST NOT** expose the
    code's enum spellings.
-6. The glossary carries three columns — code identifier, business name in the source
+7. The glossary carries three columns — code identifier, business name in the source
    language, target-language rendering — and every abbreviation its expansion.
-7. The coverage chapter describes **the boundary of the analysis**, not a problem
+8. The coverage chapter describes **the boundary of the analysis**, not a problem
    with the project. The two **MUST NOT** be mixed.
 
 ---
