@@ -1,26 +1,20 @@
 /**
- * The WCP-V2 behaviour truth gate (PI-67).
+ * Grades a behaviour model against a truth ledger.
  *
- * Grades the facet=M2 truth items against a derived behaviour model: for each
- * item, whether a behaviour fact of the kind its category implies was found at
- * the cited location, or is honestly not-found / unresolved / unsupported. The
- * behaviour lane covers PI-11's decision/rule/state/permission/validation/
- * exception/test facts and PI-12's side-effect facts (DB/transaction/HTTP/
- * message/notification); a `role` or `object` item belongs to the structural /
- * datamodel lanes and is marked unsupported with that attribution, not silently
- * failed. Every item lands in exactly one mutually-exclusive bucket and the total
- * is conserved. The golden-slice hard gate passes only when every behaviour-lane
- * must-find is found, no critical item is unfound, and PI-11/PI-12 ownership is
- * disjoint.
+ * A test helper, and only that. It was written for a manual gate script that no
+ * longer exists — nothing in `package.json`, the README or CI ever ran it, so
+ * "the behaviour gate" was a thing no one could say who ran or when. What
+ * survived the script is its usefulness as an assertion: three knowledge-base
+ * tests state their expectations as a ledger and grade the derived model
+ * against it, which reads better than asserting row by row.
  *
- * It grades a model, not source: the integrated WCP-V2 behaviour model is PI-13's
- * to assemble and feed here.
+ * It lives under `tests/` because that is now the whole of its audience.
  */
 
-import type { TruthItem } from "../contracts/truth/schema.js";
-import type { BehaviorFact, BehaviorModel } from "../contracts/behavior/schema.js";
-import { ownerOf, validateOwnership } from "../contracts/behavior/schema.js";
-import type { TestCoverage } from "../kb/test-derive.js";
+import type { TruthItem } from "../../../engine/contracts/truth/schema.js";
+import type { BehaviorFact, BehaviorModel } from "../../../engine/contracts/behavior/schema.js";
+import { ownerOf, validateOwnership } from "../../../engine/contracts/behavior/schema.js";
+import type { TestCoverage } from "../../../engine/kb/test-derive.js";
 
 export type TruthStatus = "found" | "not-found" | "unresolved" | "unsupported" | "failed" | "truncated";
 

@@ -12,7 +12,7 @@ import {
 } from "../../engine/contracts/behavior/schema.js";
 import { type SideEffectDeriveInput, deriveSideEffectBehavior } from "../../engine/kb/sideeffect-derive.js";
 import type { TruthItem } from "../../engine/contracts/truth/schema.js";
-import { gradeBehaviorTruth } from "../../engine/gates/behavior-truth.js";
+import { gradeBehaviorTruth } from "../support/gates/behavior-truth.js";
 
 const sym = symbolId({ rootName: "svc", relPath: "a.go", kind: "function", qualifiedName: "Handler", signature: null });
 const payloadOf = (f: { payload: unknown }) => f.payload as Record<string, unknown>;

@@ -24,7 +24,7 @@ import { auditReport, explainAudit, readInventory, resolveIdentities } from "../
 import { identityNamespaces } from "../engine/report/claims.js";
 import { reportReadiness } from "../engine/report/readiness.js";
 import { codegraphVersionOf, manifestDisagreements, parseManifest } from "../engine/report/manifest.js";
-import { resolveSnapshot } from "../engine/kb/query.js";
+import { resolveSnapshot } from "../engine/kb/resolve-snapshot.js";
 import { openStoreReadonly } from "../engine/store/open.js";
 import { reportRefusals } from "./refusals.js";
 

@@ -13,7 +13,7 @@
  * State transitions are observed generically from the source (PI-83): a value-set
  * member of a state-bearing set used in a write/value context is a change into
  * that state. Test relations (PI-84) are linked generically too: the reader in
- * engine/providers/tests takes the symbols and call edges the model already holds
+ * the test-relation deriver takes the symbols and call edges the model already holds
  * and ties each test to the production code it calls — no per-project whitelist.
  */
 
@@ -25,7 +25,7 @@ import { deriveNotificationsForRoots } from "./notification-reachability.js";
 import { observeOutboundIntegration } from "./outbound-integration-observe.js";
 import { observeStateChanges } from "./state-transition-observe.js";
 import { observeAuthorization, promoteGuardValidations } from "./boundary-observe.js";
-import { deriveTestRelations } from "../providers/tests/provider.js";
+import { deriveTestRelations } from "./test-relations.js";
 
 /** Lexicographic string order, for deterministic per-root iteration. */
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);

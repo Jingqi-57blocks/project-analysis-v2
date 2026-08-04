@@ -1,18 +1,17 @@
 /**
- * An in-memory structural provider.
+ * An in-memory structural provider, for tests.
  *
- * Not a test fixture — a deliverable. The later MVPs build reports on top of
- * the Structural Model, and they must be developable and runnable with no
- * vendor tool installed. Without this, work on reports would block on
- * CodeGraph being present, and the "providers are replaceable" claim would
- * never be exercised by anything other than CodeGraph itself.
+ * It supplies exactly what it is given and infers nothing, which is what makes
+ * it useful here: a test can state the structural facts it wants and nothing
+ * else appears. That same property is why it does not belong in the production
+ * tree — a provider that fabricates whatever it is handed has no business being
+ * importable from the analysis path.
  *
- * It supplies exactly what it is given. It infers nothing, so it can never
- * become an accidental second source of truth that quietly disagrees with a
- * real provider.
+ * It also keeps "providers are replaceable" exercised by something other than
+ * CodeGraph, which is a claim about the interface rather than about any run.
  */
 
-import { emptyRecords, type StructuralRecords } from "../../structural/kinds.js";
+import { emptyRecords, type StructuralRecords } from "../../../engine/structural/kinds.js";
 import {
   ANY_LANGUAGE,
   type CapabilityGap,
@@ -21,9 +20,9 @@ import {
   type StructuralContribution,
   type StructuralProvider,
   type StructuralRootInput,
-} from "../../structural/provider.js";
-import { declaredKinds } from "../../structural/provider.js";
-import type { PreflightResult } from "../types.js";
+} from "../../../engine/structural/provider.js";
+import { declaredKinds } from "../../../engine/structural/provider.js";
+import type { PreflightResult } from "../../../engine/providers/types.js";
 
 export interface FakeProviderOptions {
   readonly id?: string;

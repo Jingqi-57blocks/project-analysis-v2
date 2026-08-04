@@ -27,7 +27,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { codeIndexDbPath, readBatchDb, snapshotFromDb, SUPPORTED_DB_SCHEMA } from "../engine/providers/codegraph/batchdb.js";
 import { VERIFIED_VERSION, codegraphVersion, ensureIndexed } from "../engine/providers/codegraph/cli.js";
-import { resolveSnapshot } from "../engine/kb/query.js";
+import { resolveSnapshot } from "../engine/kb/resolve-snapshot.js";
 import { reportReadiness } from "../engine/report/readiness.js";
 import { runAnalyze } from "../engine/run/analyze.js";
 import { openStoreReadonly } from "../engine/store/open.js";

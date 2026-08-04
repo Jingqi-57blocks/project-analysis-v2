@@ -6,7 +6,7 @@ import type { AssembledRecord } from "../../engine/structural/assemble.js";
 import type { CallEdgeRecord, SymbolRecord } from "../../engine/structural/code.js";
 import { declared, lineRef } from "../../engine/structural/provenance.js";
 import { symbolId } from "../../engine/structural/identity.js";
-import { gradeBehaviorTruth } from "../../engine/gates/behavior-truth.js";
+import { gradeBehaviorTruth } from "../support/gates/behavior-truth.js";
 import type { BehaviorModel } from "../../engine/contracts/behavior/schema.js";
 import type { TruthItem } from "../../engine/contracts/truth/schema.js";
 import type { TestCoverage } from "../../engine/kb/test-derive.js";
