@@ -82,6 +82,34 @@ export interface CodeGraphOptions {
    * by file is what lets both readers contribute without competing.
    */
   readonly skipSymbolsIn?: (relPath: string) => boolean;
+
+  /**
+   * Continue when the code index cannot be read as verified.
+   *
+   * Off by default, and the default is the point. The batch read is pinned to
+   * one CodeGraph version and one index schema; when either differs, the
+   * fallback is the CLI, which supplies nodes and no edges. A run that took the
+   * fallback silently produced a knowledge base with symbols, routes and
+   * entities intact and not one call relationship — and a report written from
+   * it has every chapter, reads as complete, and is missing the thing that
+   * connects them. Refusing is legible; that is not.
+   *
+   * Set it to accept exactly that trade, having decided to.
+   */
+  readonly allowDegraded?: boolean;
+}
+
+/** Thrown when the code index cannot be read as verified and degrading was not allowed. */
+export class CodeIndexDegradedError extends Error {
+  constructor(readonly detail: string) {
+    super(
+      `The code index cannot be read as verified: ${detail}\n` +
+        `Reading it any other way supplies symbols without call relationships, and a report ` +
+        `written from that is complete in appearance only.\n` +
+        `Install CodeGraph ${VERIFIED_VERSION}, or pass --allow-degraded to accept a base with no call graph.`,
+    );
+    this.name = "CodeIndexDegradedError";
+  }
 }
 
 /**
@@ -509,6 +537,9 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
     resolved = withIndexLock(parent, () => {
       ensureIndexed(parent);
       const outcome = readBatchDb(join(parent, ".codegraph", "codegraph.db"), parent);
+      if (!outcome.ok && options.allowDegraded !== true) {
+        throw new CodeIndexDegradedError(JSON.stringify(outcome.degradation));
+      }
       const nodes = outcome.ok ? outcome.snapshot.nodes.map(batchNode) : queryNodes(parent);
       return {
         parent,
@@ -527,10 +558,28 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
 
     capabilities: () => declaredKinds(capabilities),
 
+    /**
+     * Pinned, not merely detected.
+     *
+     * This used to accept whatever was installed, which made the version check
+     * a formality: any CodeGraph passed, and a mismatched one then failed later
+     * at the index schema, where the failure was recoverable into a nodes-only
+     * read. So the run reported a healthy provider and produced a base with no
+     * call graph. Naming the mismatch here puts it in `provider_checks`, which
+     * is what the report's manifest reads.
+     */
     preflight: (): PreflightResult => {
       const installed = codegraphVersion();
       if (installed === null) {
         return { available: false, reason: "codegraph is not installed or not on PATH" };
+      }
+      if (installed !== VERIFIED_VERSION && options.allowDegraded !== true) {
+        return {
+          available: false,
+          reason:
+            `codegraph ${installed} is installed; this adapter reads the index of ${VERIFIED_VERSION}. ` +
+            `Install ${VERIFIED_VERSION}, or pass --allow-degraded to run without a call graph.`,
+        };
       }
       return { available: true, version: installed };
     },
@@ -540,10 +589,11 @@ export function createCodeGraphProvider(options: CodeGraphOptions = {}): Structu
     extract: (root: StructuralRootInput): StructuralContribution => {
       const installed = codegraphVersion();
 
-      // A version other than the verified one is reported as a gap rather than
-      // refused: the adapter probably still works, and refusing outright would
-      // block a run over a patch bump. Recording it means a surprising result
-      // can be traced back to a version nobody verified.
+      // Reaching here on an unverified version means the caller passed
+      // --allow-degraded; preflight refuses it otherwise. The gap is what makes
+      // that decision visible afterwards, in the coverage ledger and in the
+      // report written from it — a surprising result then has a version to
+      // trace it to, rather than looking like a property of the code.
       const versionGap: readonly CapabilityGap[] =
         installed !== null && installed !== VERIFIED_VERSION
           ? [

@@ -21,6 +21,8 @@ export interface AnalyzeOptions {
   /** Where the code index may be written, or that it may not be written at all. */
   readonly indexRoot?: string;
   readonly noCodeIndex?: boolean;
+  /** Accept a code index that cannot be read as verified, and the missing call graph with it. */
+  readonly allowDegraded?: boolean;
   /** Preflighted providers. Defaults to the readers above. */
   readonly providers?: readonly Provider[];
   /** Overrides the generated run id. For tests and for resuming a named run. */

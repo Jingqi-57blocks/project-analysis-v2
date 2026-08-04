@@ -10,6 +10,16 @@ Two report types exist today: a project overview and a per-capability detail
 report, both for a non-technical reader. They are the first version, not the
 specification — adding a report type is adding one Markdown file.
 
+## Requirements
+
+Node 22 or later, pnpm 10, and **CodeGraph 1.5.0** for the call graph. The
+version is pinned rather than detected: the adapter reads CodeGraph's own index
+database, because 1.5 has no batch edge export and the alternative is one
+subprocess per symbol. A different version, or an index schema other than the
+one this build reads, refuses the run — the fallback supplies symbols without
+call relationships, and a report written from that has every chapter and nothing
+connecting them. `--allow-degraded` accepts that trade explicitly.
+
 ## Status
 
 Under active development. The versioned product, fact and acceptance contracts

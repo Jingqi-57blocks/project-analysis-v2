@@ -2,9 +2,13 @@
  * The entire CodeGraph surface this tool touches. If `grep -r codegraph engine/`
  * hits anything outside this directory, the boundary has leaked.
  *
- * Queries go through the documented CLI. The index database inside
- * `.codegraph/` is never read — that store is theirs to change between
- * versions.
+ * Queries go through the documented CLI. Its index database is read too, by
+ * `batchdb.ts` beside this file — CodeGraph 1.5 has no batch edge export, and
+ * the alternative was one subprocess per symbol. That store is theirs to change
+ * between versions, so the read is pinned: `VERIFIED_VERSION` here and
+ * `SUPPORTED_DB_SCHEMA` there, and a run against anything else refuses rather
+ * than degrading. Silently falling back to the CLI produced a report with every
+ * chapter present and no call relationships in any of them.
  */
 
 import { execFileSync } from "node:child_process";
@@ -14,7 +18,7 @@ import { dirname, join, resolve, sep } from "node:path";
 /** The version this adapter was written and verified against. */
 export const VERIFIED_VERSION = "1.5.0";
 
-/** Where CodeGraph puts its index. Named here only to detect prior indexing — never opened. */
+/** Where CodeGraph puts its index. Named here only to detect prior indexing — never opened here. */
 const INDEX_DIRECTORY = ".codegraph";
 
 /** Declared as a capability limit, so hitting it reports truncation rather than a partial whole. */

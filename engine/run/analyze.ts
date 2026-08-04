@@ -158,6 +158,7 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
     const indexOptions = {
       ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
       ...(options.noCodeIndex === true ? { noCodeIndex: true } : {}),
+      ...(options.allowDegraded === true ? { allowDegraded: true } : {}),
     };
     const readers = options.readers ?? defaultReaders(roots.map((root) => root.path), indexOptions);
     const codeIndexPath =

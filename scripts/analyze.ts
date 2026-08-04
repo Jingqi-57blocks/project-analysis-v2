@@ -3,6 +3,7 @@
  *
  *   pnpm run analyze -- <path...> [--include a,b] [--exclude c,d] [--db path]
  *                                [--index-root dir] [--no-code-index]
+ *                                [--allow-degraded]
  *
  * The knowledge base defaults to `./.analysis/kb.sqlite`, gitignored — never
  * point `--db` inside an analyzed target; targets stay read-only.
@@ -12,6 +13,10 @@
  * pointed at and offers no flag to relocate it. `--index-root` chooses a
  * different directory, at the cost of indexing only what is under it;
  * `--no-code-index` skips it and declares the missing symbols as a gap.
+ *
+ * `--allow-degraded` accepts a code index this build cannot read as verified.
+ * Without it such a run refuses, because the fallback supplies symbols and no
+ * call relationships, and a report written from that reads as complete.
  */
 
 import { resolve } from "node:path";
@@ -27,6 +32,7 @@ interface Args {
   readonly exclude?: readonly string[];
   readonly indexRoot?: string;
   readonly noCodeIndex?: boolean;
+  readonly allowDegraded?: boolean;
   readonly dbPath: string;
 }
 
@@ -56,7 +62,7 @@ function parseArgs(argv: readonly string[]): Args {
   if (paths.length === 0) {
     throw new Error(
       "Usage: analyze <path...> [--include a,b] [--exclude c,d] [--db path] " +
-        "[--index-root dir] [--no-code-index]",
+        "[--index-root dir] [--no-code-index] [--allow-degraded]",
     );
   }
 
@@ -71,6 +77,7 @@ function parseArgs(argv: readonly string[]): Args {
     ...(exclude ? { exclude } : {}),
     ...(indexRoot ? { indexRoot: resolve(indexRoot) } : {}),
     ...(argv.includes("--no-code-index") ? { noCodeIndex: true } : {}),
+    ...(argv.includes("--allow-degraded") ? { allowDegraded: true } : {}),
     dbPath: resolve(value("--db") ?? DEFAULT_DB_PATH),
   };
 }
@@ -83,6 +90,7 @@ function main(argv: readonly string[]): number {
     ...(args.exclude ? { exclude: args.exclude } : {}),
     ...(args.indexRoot ? { indexRoot: args.indexRoot } : {}),
     ...(args.noCodeIndex ? { noCodeIndex: true } : {}),
+    ...(args.allowDegraded ? { allowDegraded: true } : {}),
     dbPath: args.dbPath,
   });
 
