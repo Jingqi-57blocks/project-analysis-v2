@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 2.1.0
+version: 3.0.0
 ---
 
 # Writing rules
@@ -17,6 +17,53 @@ while obeying it. Where they nonetheless appear to conflict, this file wins.
 This file is written in English so it does not bias the report toward any output
 language. The report is written in the requested target language; this file never is.
 Requirement levels follow RFC 2119.
+
+---
+
+# Part 0 — Evidence-safe language
+
+Static source review shows what the reviewed code contains and which paths appear
+possible. It does not by itself establish production usage, current configuration,
+runtime traffic, business ownership, or what actually happens when the system runs.
+
+Almost every wrong sentence in a report of this kind comes from crossing that line
+in one of a small number of ways. These rules close them:
+
+| The base holds | It does **not** hold |
+| -- | -- |
+| A count of observed call sites | Traffic, usage, or how often anything runs |
+| A registered entry point | That anyone calls it, or that it is live |
+| A registered scheduled job | That it currently runs, or succeeds |
+| A configuration switch in source | Its value in production |
+| Which parts read and write some data | Who owns it, or which copy is authoritative |
+| That data is available to a process | That it alone determines the result |
+| No caller found | That there is no caller — only that none is in the analysed scope |
+| No validation found | That the rule is absent — only that it is not in the reviewed paths |
+| No retry in application code | That nothing retries; SDKs, gateways and infrastructure are invisible here |
+| No organisation filter in reviewed paths | That the deployed system serves one organisation |
+
+**Verbs carry claims.** "Becomes", "determines", "always", "all", "only" and "every"
+assert exhaustiveness, and the base almost never proves it. Approved work records
+*may contribute to* a billing calculation; a performance process *may reference*
+project participation. Write the relationship the source supports, not a causal
+chain from one end of the business to the other. Reach for "may", "is likely to" or
+"the reviewed path suggests" whenever the consequence is inferred rather than read.
+
+**Counts are of what was observed.** Any number the report gives is a count of rows
+in the base. Where that number could be mistaken for a runtime quantity — calls,
+usage, volume — say what was counted: "309 call sites resolved to it", never "309
+calls".
+
+## The visible report speaks business language
+
+Repository names, entry-point paths, class and function names, table names, source
+paths, enum members and role codes belong **only** in the collapsed evidence block —
+including in chapter titles and table headers — unless the technical name is itself
+what the business calls the thing.
+
+This is not a matter of taste. A reader who cannot tell what an identifier means
+cannot tell whether the sentence containing it is true, and a paragraph carrying
+three of them reads as machine output however carefully the sentence was written.
 
 ---
 
@@ -165,10 +212,21 @@ from stating a hypothesis and searching for it.
 
 ## Checklist
 
-A floor, not a ceiling. Each item **MUST** appear in the report with exactly one
-verdict: **hit** / **searched, not found** (name the rows searched) / **cannot be
-determined here** (the kind is empty in this project). Items marked *multi-root* apply
-only when the workspace has more than one root.
+A floor, not a ceiling. Each item **MUST** carry exactly one verdict in
+`checklist.json`: **hit** / **searched, not found** (name the rows searched) /
+**cannot be determined here** (the kind is empty in this project). Items marked
+*multi-root* apply only when the workspace has more than one root, and are not
+required of a single-root project.
+
+Every item gets a verdict, including the dull ones. A dropped item and one that
+searched and found nothing are indistinguishable afterwards, which is the whole
+reason the file exists.
+
+**A `searched, not found` verdict is not a defect.** It says the rule was not found
+in the paths this analysis covers. The rule may live in a database constraint, a
+gateway, a framework default, a dependency, runtime configuration, or a call chain
+the analysis could not follow. Report it as a coverage gap or a question to settle,
+never as an established absence.
 
 | id | Hypothesis | Where to search |
 | -- | -- | -- |
@@ -217,6 +275,19 @@ incident will follow — **MUST NOT** be written.
 | -- | -- | -- |
 | **No protection currently present** | P0 | P1 |
 | **Some protection present** | P1 | P2 |
+
+**Confidence** — stated separately, and never folded into the priority:
+
+| Value | When |
+| -- | -- |
+| confirmed | The reviewed source establishes both the defect and a path that reaches it |
+| strongly supported | The defect is established; whether anything reaches it is not |
+| requires validation | Part of the finding rests on a path the analysis could not follow |
+
+A large potential impact does not by itself make something P0. `P0` requires a
+reachable path **and** a credible immediate effect. Where reachability is
+`unavailable`, say what would have to be true, and do not write the scenario as
+though it were established.
 
 **MUST NOT** propose remediation, acceptance criteria or action items. What to do
 about it is the reader's call.

@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 4.2.0
+version: 5.0.0
 title: Project overview, non-technical
 ---
 
@@ -49,10 +49,16 @@ deleting the evidence leaves a chapter that says nothing, it was answered, not
 written.
 
 Open with a paragraph naming **what kind of organisation runs this, what business it
-is in, and what the system connects to what**. "An HR platform" is a label, not a
-sentence: it fits a hundred systems. What makes a system legible is its shape — that
-work hours become both a client's invoice and an employee's performance record. Name
-the shape, and name the company or the kind of company if the evidence supports it.
+is in, and which parts of that business the system holds together**. "An HR platform"
+is a label, not a sentence: it fits a hundred systems. What makes a system legible is
+which activities it puts in one place and what they share.
+
+Describe the relationships the system supports; **MUST NOT** turn a data relationship
+into a mandatory causal chain. Approved work records may contribute to a billing
+calculation, and project participation may be referenced by a performance process —
+those are relationships the base can show. That every work record becomes an invoice,
+or becomes a performance record, is a transformation the base would have to prove
+exhaustively, and it does not.
 
 Then, each under its own bolded lead-in:
 
@@ -71,12 +77,13 @@ Numbers here **MUST** be ones a business reader can use: how many kinds of user,
 many areas of the business. Counts of code artifacts belong in chapter 10 if
 anywhere.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
-## 2. Systems and repositories
+## 2. The parts, and what each is responsible for
 
-| System | What it is for | Who uses it | What it carries | Notes |
+| Part | What it is for | Who uses it | What it carries | Notes |
 | -- | -- | -- | -- | -- |
 
 Then: **is any of them historical or being retired** — answered as `verified`, by
@@ -87,8 +94,9 @@ writes data, and whether scheduled work still runs in it.
 File counts, language breakdowns and line counts **MUST NOT** appear. Deployment and
 runtime environment are `unavailable`.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 3. Business domains and capability map
 
@@ -102,18 +110,22 @@ project
 Named in business terms. A directory name, route prefix or repository name appearing
 as a capability is a defect — resolve it to what a user can do, or leave it out.
 
-**Capability sources** **MUST** cover: end-user pages, admin console, mobile, API
-surface, import/export, notifications, third-party integrations, scheduled jobs.
+**Capability sources** **MUST** cover: what people use directly, what administrators
+use, mobile, access by other systems and by automation, import and export,
+notifications, third-party integrations, and work that runs on a schedule.
 
-**Capability status** — only four values, because only these are decidable from
-source:
+**Lifecycle markers** — the report names only the capabilities carrying one:
 
-| Status | Basis |
+| Marker | Basis |
 | -- | -- |
-| Behind a switch | Wrapped in a configuration-driven condition |
-| Unfinished | An unimplemented branch or an explicit note saying so |
-| Deprecated | An explicit deprecation marker |
-| Unconfirmed | None of the above holds |
+| Explicitly gated | Wrapped in a configuration-driven condition |
+| Explicitly unfinished | An unimplemented branch, or a note saying so |
+| Explicitly deprecated | An explicit deprecation marker |
+
+A capability with none of these is simply not listed here. **MUST NOT** label it
+"unconfirmed" or anything similar — that reads as "we are not sure this works", when
+all that was established is that the reviewed source carries no lifecycle marker for
+it. Say that once, in a sentence, for the group as a whole.
 
 "In normal use", "partially used" and "used by specific customers" need runtime and
 commercial information; they belong in chapter 10 and **MUST NOT** be status values.
@@ -123,8 +135,9 @@ which call each other and which span more than one repository; which share a bus
 object and which is read or written by more than one part; which one the most others
 depend on. Internal steps of any one flow belong to a capability report, not here.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 4. Roles, permissions and organization
 
@@ -132,26 +145,43 @@ Under lead-ins: **the roles the system defines**; **what each is mainly responsi
 for**; **the permission matrix** (role × capability × operation); **what data each
 can see**; **how the organisational units relate**.
 
-Where authorization is largely decided inside handler bodies rather than declared at
-the entry point, the report **MUST** say so under its own lead-in — otherwise a
-reader takes an absence in the matrix for an absence of control.
+**The matrix carries confirmed findings only**, in exactly these three values:
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+| Value | Meaning |
+| -- | -- |
+| Confirmed allowed | The reviewed source explicitly permits the operation |
+| Confirmed restricted | The reviewed source explicitly rejects or narrows it |
+| Not determined | This analysis cannot establish the result |
+
+**MUST NOT** infer permission from the existence of a page or an entry point, and
+**MUST NOT** infer denial from the absence of a confirmed permission. Much
+authorization is decided inside the code that handles a request rather than declared
+where the request arrives; the report **MUST** say so under its own lead-in, because
+a reader otherwise takes a blank cell for an absence of control.
+
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 5. Data landscape and movement
 
-Under lead-ins: **what the core data is**; **who creates it and which part owns it**;
-**how it moves between parts** (diagram); **what comes from outside**; **what is
-sensitive**; **whether it can be exported, deleted or archived**; **whether anything
-partitions it by organisation**.
+Under lead-ins: **what the core data is**; **who creates and changes it** — which
+user actions or automated processes do so; **which parts were observed reading and
+writing it**; **how it moves between parts** (diagram); **what comes from outside**;
+**what is sensitive**; **whether it can be exported, deleted or archived**;
+**whether anything partitions it by organisation**.
+
+**MUST NOT** infer ownership — business, team, or authoritative-copy — from read and
+write activity. Writing something most often is not owning it. Ownership is
+`unavailable` unless the source or its documentation declares it.
 
 Where the direction of some accesses could not be determined, the report **MUST**
-state that the ownership table is a lower bound, with the undetermined count and its
-denominator.
+state that the observed-access table is a lower bound, with the undetermined count
+and its denominator.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 6. External dependencies and integrations
 
@@ -159,17 +189,24 @@ mean for reading the rest of the report.
 | -- | -- | -- | -- | -- |
 
 Then, under lead-ins: **what is sent and received**, and whether it includes personal
-or financial fields; **what the code does when a call fails**; **which capabilities
-stop working** if a given dependency is down — the last one as `inferred`, from which
-capabilities the call sites sit in.
+or financial fields; **what the code does when a call fails**; **the expected effect
+of a failure**, as far as the call path supports — the user's action may fail; the
+action may succeed while its notification is delayed or lost; background data may go
+stale; an optional step may be unavailable.
+
+Use "may", "is likely to" or "the reviewed path suggests" for an inferred effect.
+Write "stops working" only where the source shows a hard synchronous dependency —
+and remember that a retry may live in a client library, a gateway or the
+infrastructure, none of which this analysis sees.
 
 Purpose **MUST** come from the call site's context. Where it cannot be read, mark it
 undetermined; **MUST NOT** speculate. Where the address is assembled at runtime, say
 the integration exists and its address is `unavailable`. Cost, quota, compliance
 conclusions and alternatives are `unavailable` — chapter 10.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 7. Operations and back-office capabilities
 
@@ -181,8 +218,9 @@ Hard limits — export caps, batch sizes, file-size limits, thresholds — have 
 operational value and **MUST** be listed with their locations. Runtime performance is
 `unavailable`.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 8. Risks and current state
 
@@ -193,23 +231,31 @@ Five numbered sub-sections, each marked with the evidence it rests on:
 
 * **8.1 Architectural risks** `fact` + `inferred` — findings that resolve to an exact
   location, and contradictions between parts
-* **8.2 Business rules that appear to be missing** `verified` — every checklist item
-  that ended `searched, not found`, with the rows searched
-* **8.3 Code nothing reaches** `fact` — the search scope for callers **MUST** be
-  stated; endpoints serving something outside the workspace **MUST** be separated out
+* **8.2 Expected rules not found in the reviewed paths** `verified` — every checklist
+  item that ended `searched, not found`, with the rows searched. Each entry is a gap
+  in coverage or a question to settle, **MUST NOT** be written as an established
+  defect: the rule may sit in a database constraint, a gateway, a framework default,
+  a dependency, or a path this analysis could not follow
+* **8.3 No caller found within the analysed scope** `fact` — the scope searched
+  **MUST** be stated, and the report **MUST** say that this does not establish the
+  capability is unused: an external client, another system, a manual tool or an older
+  client may call it. Entry points serving something outside the workspace **MUST**
+  be separated out
 * **8.4 Documentation contradicting code** `fact`
 * **8.5 Still to confirm** `unavailable`
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 9. Glossary
 
 Three columns, per `writing-rules.md`. Covers the project's internal business terms,
 abbreviations, status values and role codes.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 10. Coverage and source snapshot
 
@@ -226,8 +272,9 @@ the checklist ended as `cannot be determined here`. Each gets a reason.
 
 ---
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 

@@ -2,7 +2,7 @@
 id: feature-product
 scope: feature
 audience: product
-version: 2.2.0
+version: 3.0.0
 title: Feature detail, non-technical
 ---
 
@@ -90,8 +90,9 @@ Then, each under its own bolded lead-in:
 * **What this report covers** — the resolved boundary, per the section above: the ids
   it comprises, and what was deliberately left out and why.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 2. How a person uses it
 
@@ -106,8 +107,9 @@ evidenced and say the rest was not established. Writing around the gap is worse 
 the gap: "nothing beyond the entry point was established for these" is a good
 sentence.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 3. The rules it enforces
 
@@ -125,8 +127,9 @@ itself about is the most useful thing on the page.
 
 Each rule says where it is enforced. A rule stated without that is a guess.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 4. States and lifecycle
 
@@ -138,8 +141,9 @@ language.
 Where more than one part declares states for the same record, show both and say which
 declares more. A difference between them is a finding for chapter 10.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 5. Who can do what, and see what
 
@@ -163,8 +167,9 @@ condition inside a handler is invisible to it. So:
 State this limit plainly, under its own lead-in. It is the difference between a
 description and an accusation.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 6. Data and fields
 
@@ -179,8 +184,9 @@ data**.
 Business names in the body; raw identifiers in the evidence layer and the glossary.
 Retention is `unavailable` unless a scheduled cleanup declares it.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 7. What else happens when it runs
 
@@ -191,8 +197,9 @@ Recipients and message contents are runtime values and are `unavailable`; the ca
 site and its channel are `fact`. Say which is which, rather than implying the report
 knows who gets told.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 8. What happens when things go wrong
 
@@ -210,8 +217,9 @@ Network interruption, request timeout and external-service failure are answerabl
 only where the code declares handling for them. Where it does not, that is
 `unavailable` — never "unhandled".
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 9. Configuration and switches
 
@@ -219,8 +227,9 @@ Which configuration affects this capability, its default, whether behaviour diff
 by environment or customer, what a switch covers, and what the code does when it is
 off.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 10. What is wrong with it, and what a change would touch
 
@@ -229,22 +238,25 @@ Grouping, format and priority: `writing-rules.md`.
 Under lead-ins:
 
 * **Findings that resolve to an exact location** `fact` + `inferred`
-* **Rules that appear to be missing** `verified` — every checklist item that ended
-  `searched, not found`, with the rows searched
+* **Expected rules not found in the reviewed paths** `verified` — every checklist
+  item that ended `searched, not found`, with the rows searched. A gap in coverage or
+  a question to settle, **MUST NOT** be written as an established defect
 * **Still to confirm** `unavailable`
 * **What a change here would touch** — which entry points, records, scheduled work
   and other capabilities read or write what this one does. A reachability statement
   from the base, marked `fact`. It says what is connected, not what would break.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 11. Glossary
 
 Three columns, per `writing-rules.md`, limited to the terms this report uses.
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## 12. Coverage and what this report does not answer
 
@@ -258,8 +270,9 @@ item that ended `cannot be determined here`, each with its reason.
 
 ---
 
-**Close with the synthesis** — two or three sentences on what this chapter's facts
-mean for reading the rest of the report.
+**这意味着什么** / **What this means** — the synthesis: two or three sentences on
+what this chapter's facts mean for reading the rest of the report. Use exactly this
+lead-in, rendered in the target language, in every chapter.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 

@@ -32,7 +32,8 @@ export type FindingCode =
   | "cited-id-not-in-base"
   | "verdict-without-evidence"
   | "no-open-finding"
-  | "no-checkable-coverage-figure";
+  | "no-checkable-coverage-figure"
+  | "chapter-without-synthesis";
 
 /**
  * Whether a finding stops delivery.
@@ -377,6 +378,30 @@ export interface AuditInput {
  * A failing audit means the report **MUST NOT** be exported as a deliverable. It
  * may still be written out as a diagnostic artefact.
  */
+/**
+ * The synthesis lead-in, in each language the rules give a rendering for.
+ *
+ * A first attempt at this check inferred the synthesis from formatting, and could
+ * not: a chapter closing "**Project stage** — unavailable" is shaped exactly like
+ * one closing on a synthesis. Fixing the lead-in's wording is what makes it
+ * checkable — the same move the evidence markers already use.
+ */
+const SYNTHESIS_LEAD_INS: readonly string[] = ["这意味着什么", "What this means"];
+
+/** Chapters with no synthesis lead-in anywhere in them. */
+function chaptersWithoutSynthesis(report: string): readonly string[] {
+  const stripped = report.replace(/<details>[\s\S]*?<\/details>/g, "");
+  const missing: string[] = [];
+  for (const section of stripped.split(/^## /m).slice(1)) {
+    const lines = section.split("\n");
+    const title = (lines[0] ?? "").trim();
+    const body = lines.slice(1).join("\n");
+    if (body.trim().length === 0) continue;
+    if (!SYNTHESIS_LEAD_INS.some((lead) => body.includes(lead))) missing.push(title);
+  }
+  return missing;
+}
+
 export function auditReport(input: AuditInput): AuditResult {
   const findings: AuditFinding[] = [];
   const { report, inventory } = input;
@@ -401,6 +426,15 @@ export function auditReport(input: AuditInput): AuditResult {
       severity: "blocking",
       detail: "cited path is not among the files that were read",
       evidence: cited,
+    });
+  }
+
+  for (const title of chaptersWithoutSynthesis(report)) {
+    findings.push({
+      code: "chapter-without-synthesis",
+      severity: "notice",
+      detail: "the chapter has no synthesis saying what it means for reading the rest",
+      evidence: title,
     });
   }
 
