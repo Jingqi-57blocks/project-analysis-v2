@@ -275,3 +275,20 @@ describe("the checklist lives beside the report, not inside it", () => {
     expect(result.findings[0]?.evidence).toBe("checklist.json");
   });
 });
+
+describe("what the audit deliberately does not check", () => {
+  it("cannot tell a closing synthesis from a last labelled fact", () => {
+    // Both are a paragraph introduced in bold, and one artefact writes the
+    // synthesis as a heading instead. The property is real and required — it is
+    // what makes the document argue something rather than answer questions — but
+    // it is semantic, and an audit that guessed at it from formatting would pass
+    // a chapter ending "**Project stage** — unavailable" as though it had one.
+    // It is enforced by the spec's per-chapter structure instead.
+    const inventory = { paths: new Set(["a/b.go"]), extensions: new Set(["go"]), denominators: new Set([1]) };
+    const endsOnAFact = "# r\n\n## 一\n\n有五个仓库。\n\n**项目所处阶段**——不可得。\n";
+    const endsOnASynthesis = "# r\n\n## 一\n\n有五个仓库。\n\n**小结。** 五个仓库不是五套业务。\n";
+    for (const report of [endsOnAFact, endsOnASynthesis]) {
+      expect(auditReport({ report, inventory }).findings).toEqual([]);
+    }
+  });
+});

@@ -221,7 +221,26 @@ export function readInventory(store: Store, snapshotId: number): WorkspaceInvent
   const extensions = new Set([...paths].map(extensionOf).filter((ext) => ext.length > 0));
 
   const denominators = new Set<number>();
+  // `paths` is deduplicated because it is a lookup set, and two roots holding a
+  // README.md are one entry in it. The file *count* is not that number — on the
+  // reference snapshot 2128 files collapse to 2046 distinct paths — so a report
+  // correctly citing the file count was rejected for a denominator nothing
+  // matched. Count the rows, and count them the ways a report legitimately
+  // groups them.
+  denominators.add(files.length);
   denominators.add(paths.size);
+  for (const row of store.all(
+    `select f.disposition as k, count(*) as n from files f
+       join source_roots r on r.id = f.source_root_id
+      where r.snapshot_id = ? group by f.disposition
+     union all
+     select r.name as k, count(*) as n from files f
+       join source_roots r on r.id = f.source_root_id
+      where r.snapshot_id = ? group by r.name`,
+    [snapshotId, snapshotId],
+  ) as readonly { n: number }[]) {
+    denominators.add(row.n);
+  }
   const kindCounts = store.all(
     `select count(*) as n from structural_records where snapshot_id = ? group by kind
      union select count(*) as n from behavior_facts where snapshot_id = ? group by kind

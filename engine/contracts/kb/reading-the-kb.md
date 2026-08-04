@@ -59,8 +59,11 @@ carry escaped delimiters inside embedded expression text. Reconstructing one fro
 the fields you happened to project produces something that looks right and does not
 exist, and the audit rejects it.
 
-So when a query is exploring, project whatever is readable; when its rows are going
-to be cited, carry the identity column along:
+**Select it alone.** An identity may contain the same character the command-line
+client uses to separate columns, escaped — and the escape is invisible in that
+client's output, so an identity read out of a multi-column row is transcribed with
+its escaping stripped and no longer exists. Two queries, not one: explore with
+whatever columns are readable, then fetch the identities by themselves.
 
 ```sql
 select fact_id, json_extract(payload, '$.payload.test') from behavior_facts
@@ -140,14 +143,17 @@ test, group by it, and read the group for a member whose negation differs from i
 peers:
 
 ```sql
-select fact_id,
-       json_extract(payload,'$.payload.test')                            as test,
+-- exploring: read whatever is useful
+select json_extract(payload,'$.payload.test')                            as test,
        json_extract(payload,'$.evidence[0].provenance.source.relPath')   as path,
        json_extract(payload,'$.evidence[0].provenance.source.startLine') as line
   from behavior_facts
- where kind = 'guard'
-   and json_extract(payload,'$.payload.test') like '%' || ? || '%'
- order by 2;
+ where kind = 'guard' and json_extract(payload,'$.payload.test') like '%' || ? || '%'
+ order by 1;
+
+-- citing: one column, nothing else
+select fact_id from behavior_facts
+ where kind = 'guard' and json_extract(payload,'$.payload.test') like '%' || ? || '%';
 ```
 
 The odd one out is only visible side by side. Sites separated by a thousand lines in

@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 4.0.0
+version: 4.1.0
 title: Project overview, non-technical
 ---
 
@@ -20,10 +20,23 @@ This spec defines only the chapters and what belongs in each.
 Ten, in this order, numbered. No tier headings above them — the numbering is the
 only structure the reader needs.
 
-Every chapter is built the same way: a short paragraph that answers the chapter's
-question, then **bolded lead-ins** naming each sub-question below, then the chapter's
-closing synthesis. The lead-ins are what let a reader skim to the one thing they came
-for; a chapter of undifferentiated paragraphs makes them read all of it or none.
+Every chapter is built the same way:
+
+1. a short paragraph answering the chapter's question;
+2. **bolded lead-ins** naming each sub-question below it;
+3. **a last lead-in that is the chapter's synthesis** — two or three sentences on
+   what this chapter's facts mean for reading the rest of the report;
+4. the collapsed evidence block.
+
+Step 3 is a lead-in like the others, and it is listed below in every chapter's own
+list of lead-ins for that reason: as a general instruction it gets dropped. One run
+wrote it in nine chapters of eleven; the next, under the same general rule, wrote it
+in none. It is the difference between a document that argues something and one that
+answers questions, and nothing downstream can detect its absence — a chapter closing
+on "**Project stage** — unavailable" looks identical to one closing on a synthesis.
+
+The lead-ins are also what let a reader skim to the one thing they came for; a
+chapter of undifferentiated paragraphs makes them read all of it or none.
 
 ## 1. What this project is, and where its edges are
 
@@ -54,6 +67,7 @@ Then, each under its own bolded lead-in:
 * **External boundary** — what is somebody else's system, named as capabilities
   (sign-in, file storage, mail, chat, maps, AI) rather than as vendors alone.
 * **Project stage** — `unavailable`; one line, no elaboration.
+* **What to carry into the rest of the report** — the synthesis.
 
 Numbers here **MUST** be ones a business reader can use: how many kinds of user, how
 many areas of the business. Counts of code artifacts belong in chapter 10 if
