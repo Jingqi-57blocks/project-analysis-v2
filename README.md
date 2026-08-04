@@ -45,6 +45,8 @@ pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowl
                      [--no-code-index]           #   or skip it entirely
 pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
 pnpm kb:query --sql "select ..." [--run <runId>]  # read one snapshot, scoped to it
+pnpm kb:readiness --spec <specId> [--run <runId>] # can this base answer this report type
+
 pnpm audit:report <report.md> [--db kb.sqlite]    # check a written report against the base
 ```
 

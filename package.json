@@ -18,6 +18,7 @@
     "status": "tsx scripts/status.ts",
     "audit:report": "tsx scripts/audit-report.ts",
     "kb:query": "tsx scripts/kb-query.ts",
+    "kb:readiness": "tsx scripts/kb-readiness.ts",
     "relock": "tsx scripts/relock.ts"
   },
   "devDependencies": {

@@ -72,6 +72,18 @@ Before the census, write `manifest.json` in the run directory — the snapshot t
 report is about, in the shape `reading-the-kb.md` gives. The audit will not run
 without it.
 
+Then ask whether this base can answer this report at all:
+
+```
+pnpm kb:readiness --spec <specId> --run <runId> --db <kbPath>
+```
+
+If it says not ready, **stop and report that**. Do not write the report anyway.
+A base with no call graph — the indexer was missing, or its index unreadable —
+still yields a document with every chapter and real rows in each, describing a
+system in which nothing calls anything. The audit refuses such a report at the
+end; discovering it here costs nothing.
+
 ## 3 — Census, then investigate
 
 `pnpm kb:query --log <run directory>/scratch/queries.log` records each query as you

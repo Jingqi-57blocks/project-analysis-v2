@@ -25,13 +25,21 @@ command-layer code enumerates the combinations, and none should start to.
 3. **Add the self-checks.** The appendix lists the questions the report must be
    able to answer. It is an acceptance gate, not part of the report.
 
-4. **Decide whether a new deriver is needed.** If a chapter needs a fact the
+4. **Declare what it cannot be written without.** If the report type describes
+   how something moves through the system rather than what the system contains,
+   name the kinds it needs in `engine/report/readiness.ts`. A type with no entry
+   is one that stays truthful on a thin base, and that is a claim about the type
+   — make it deliberately. A capability report written from a base with no call
+   graph has every chapter, cites real rows in each, and describes a system in
+   which nothing calls anything.
+
+5. **Decide whether a new deriver is needed.** If a chapter needs a fact the
    knowledge base does not hold, the exit is a deriver in the analysis layer —
    never an ad-hoc source read at report time. Only consistency checks, whose
    criterion comes from the project contradicting itself, may become derivers;
    expectation checks stay in the author's hypothesis loop.
 
-5. **Regenerate the lock.** Instruction text is load-bearing and digested into
+6. **Regenerate the lock.** Instruction text is load-bearing and digested into
    `engine/contracts/lock.json`. Run `pnpm relock`, then confirm
    `pnpm verify:contracts` passes.
 

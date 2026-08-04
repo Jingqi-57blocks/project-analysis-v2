@@ -22,6 +22,7 @@ import { dirname, resolve } from "node:path";
 import { requiredChecklistIds } from "../engine/contracts/report/checklist.js";
 import { auditReport, explainAudit, readInventory, resolveIdentities } from "../engine/report/kb-audit.js";
 import { identityNamespaces } from "../engine/report/claims.js";
+import { reportReadiness } from "../engine/report/readiness.js";
 import { codegraphVersionOf, manifestDisagreements, parseManifest } from "../engine/report/manifest.js";
 import { resolveSnapshot } from "../engine/kb/query.js";
 import { openStoreReadonly } from "../engine/store/open.js";
@@ -119,6 +120,7 @@ const result = auditReport({
   ...(existsSync(claimsPath) ? { claims: readFileSync(claimsPath, "utf8") } : {}),
   ...(existsSync(logPath) ? { queriesLog: readFileSync(logPath, "utf8") } : {}),
   requireQueriesLog: true,
+  readiness: reportReadiness(store, snapshot.id, manifest.specId),
   namespaces: identityNamespaces(store, snapshot.id),
   resolveIds: (ids) => resolveIdentities(store, snapshot.id, ids),
 });

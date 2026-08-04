@@ -21,6 +21,7 @@
 
 import type { Store } from "../store/types.js";
 import { MARKERS, citedIdentitiesBySection, parseClaims, reportSections } from "./claims.js";
+import type { Readiness } from "./readiness.js";
 
 export type FindingCode =
   | "cited-path-not-in-workspace"
@@ -44,7 +45,8 @@ export type FindingCode =
   | "claim-evidence-not-in-its-section"
   | "body-id-not-declared"
   | "queries-log-missing"
-  | "query-not-scoped-to-snapshot";
+  | "query-not-scoped-to-snapshot"
+  | "snapshot-not-ready-for-spec";
 
 /**
  * Whether a finding stops delivery.
@@ -418,6 +420,14 @@ export interface AuditInput {
   readonly queriesLog?: string;
   /** Whether the run was required to keep a query log. */
   readonly requireQueriesLog?: boolean;
+  /**
+   * What the snapshot holds against what the report's type needs.
+   *
+   * Checked again here, having been checked before writing, because the earlier
+   * check is advice and this one decides delivery. A report written anyway from
+   * a base with no call graph is exactly the artefact that must not ship.
+   */
+  readonly readiness?: Readiness;
 }
 
 /**
@@ -628,6 +638,17 @@ export function auditReport(input: AuditInput): AuditResult {
 
   auditClaims(input, findings);
   auditQueryLog(input, findings);
+
+  if (input.readiness !== undefined && !input.readiness.ready) {
+    findings.push({
+      code: "snapshot-not-ready-for-spec",
+      severity: "blocking",
+      detail:
+        `a ${input.readiness.specId} report cannot be written from this snapshot: it holds no ` +
+        `${input.readiness.missing.join(", ")}`,
+      evidence: input.readiness.missing.join(", "),
+    });
+  }
 
   const required = input.requiredChecklistIds ?? [];
   const entries = readChecklistBlock(input.checklist ?? report);

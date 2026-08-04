@@ -9,6 +9,7 @@ import { walkRoot } from "../inventory/walk.js";
 import { recordInventory } from "../inventory/persist.js";
 import { runPreflight, requireAvailable, recordPreflight } from "../providers/index.js";
 import { codeIndexLocation, defaultReaders } from "../kb/build.js";
+import { PROVIDER_ID as CODEGRAPH_PROVIDER_ID } from "../providers/codegraph/provider.js";
 import { extractRoot, type RootFacts } from "../kb/extract.js";
 import { derive } from "../kb/derive.js";
 import { recordDerived } from "../kb/persist.js";
@@ -176,8 +177,20 @@ export function runAnalyze(options: AnalyzeOptions, now: string = new Date().toI
       (report) => ({ items: report.results.length }),
     );
     recordPreflight(store, handle.snapshotId, providerReport, now);
-    if (options.requiredProviderIds) {
-      requireAvailable(providerReport, options.requiredProviderIds);
+    // Required by default, not merely preflighted. The gate existed and nothing
+    // ever set it, so a run with no code indexer recorded the gap and published
+    // anyway — a knowledge base with symbols and no call graph, which reads
+    // downstream as a codebase where nothing calls anything.
+    // Only for the default reader set: a caller that named its own readers
+    // chose what takes part, and requiring one it deliberately left out would
+    // refuse the run it asked for.
+    const defaultRequired =
+      options.readers === undefined && options.noCodeIndex !== true && options.allowDegraded !== true
+        ? [CODEGRAPH_PROVIDER_ID]
+        : [];
+    const requiredProviderIds = options.requiredProviderIds ?? defaultRequired;
+    if (requiredProviderIds.length > 0) {
+      requireAvailable(providerReport, requiredProviderIds);
     }
 
     // Extraction, derivation and persistence — the three stages that used to
