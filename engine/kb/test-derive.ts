@@ -1,7 +1,7 @@
 /**
  * Associating tests with the behaviour they exercise (PI-40).
  *
- * The `engine/providers/tests` provider already reads test relations from the
+ * The test-relation deriver already reads test relations from the
  * assembled model — test files by convention, targets from the call edges the
  * model holds. This is the adapter that lifts its `TestRelationRecord`s into the
  * shared behaviour contract (PI-62), reusing that provider's output rather than

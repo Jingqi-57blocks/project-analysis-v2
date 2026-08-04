@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { declared, lineRef } from "../../../engine/structural/provenance.js";
-import { symbolId } from "../../../engine/structural/identity.js";
-import type { SymbolRecord } from "../../../engine/structural/code.js";
-import { deriveTestRelations, isTestPath } from "../../../engine/providers/tests/provider.js";
+import { declared, lineRef } from "../../engine/structural/provenance.js";
+import { symbolId } from "../../engine/structural/identity.js";
+import type { SymbolRecord } from "../../engine/structural/code.js";
+import { deriveTestRelations, isTestPath } from "../../engine/kb/test-relations.js";
 
 function symbol(name: string, relPath: string): SymbolRecord {
   return {

@@ -1,33 +1,24 @@
 /**
  * Connects tests to the production code they exercise.
  *
- * Test files are identified by convention and framework imports; targets come
- * from the call edges the model already holds, so this reads the assembled
- * model rather than re-parsing source.
+ * Test files are identified by convention; targets come from the call edges the
+ * assembled model already holds, so this reads the model rather than re-parsing
+ * source. That is what makes it a deriver over the behaviour model and not a
+ * provider: it reads no file and contributes no structural record of its own.
  *
- * CodeGraph declares no support for this kind, so it arrives as another
- * provider — the same composition rule used for manifests and outbound calls.
+ * It was written as a provider and never registered — `defaultReaders` does not
+ * include it, and its only caller is `behavior-input.ts`, which calls the
+ * derivation directly. The shell around it declared capabilities nothing read
+ * and a preflight nothing ran, which made it look like a reader that had been
+ * switched off rather than one that had never existed.
  */
 
-import { basename, extname } from "node:path";
+import { basename } from "node:path";
 
-import { emptyRecords } from "../../structural/kinds.js";
-import { resolved, unresolved } from "../../structural/provenance.js";
-import {
-  ANY_LANGUAGE,
-  declaredKinds,
-  type ProviderCapabilities,
-  type StructuralContribution,
-  type StructuralProvider,
-  type StructuralRootInput,
-} from "../../structural/provider.js";
-import type { PreflightResult } from "../types.js";
-import type { CallEdgeRecord, SymbolRecord } from "../../structural/code.js";
-import type { TestRelationRecord } from "../../structural/boundaries.js";
-import type { SymbolId } from "../../structural/identity.js";
-
-export const PROVIDER_ID = "test-relations";
-export const PROVIDER_VERSION = "1.0.0";
+import { resolved, unresolved } from "../structural/provenance.js";
+import type { CallEdgeRecord, SymbolRecord } from "../structural/code.js";
+import type { TestRelationRecord } from "../structural/boundaries.js";
+import type { SymbolId } from "../structural/identity.js";
 
 /**
  * Naming conventions across languages. Open-ended by design: a project using
@@ -59,23 +50,6 @@ export function isTestPath(relPath: string): boolean {
 export interface ModelView {
   readonly symbols: readonly SymbolRecord[];
   readonly callEdges: readonly CallEdgeRecord[];
-}
-
-export function testCapabilities(): ProviderCapabilities {
-  return {
-    declarations: [
-      {
-        kind: "test-relation",
-        language: ANY_LANGUAGE,
-        support: "partial",
-        limits: [
-          "test files are identified by path and filename convention only",
-          "relations follow existing call edges, so a test exercising code indirectly may be missed",
-          "a project using an unrecognized test convention yields no relations rather than wrong ones",
-        ],
-      },
-    ],
-  };
 }
 
 /**
@@ -142,49 +116,4 @@ export function deriveTestRelations(rootName: string, model: ModelView): readonl
   }
 
   return relations;
-}
-
-/**
- * Files that look like tests, independent of any symbol extraction.
- *
- * Useful on its own: a project whose language no provider indexes still gets
- * an honest answer to "is there a test suite here at all".
- */
-export function testFiles(root: StructuralRootInput): readonly string[] {
-  return root.analyzedFiles.filter((relPath) => isTestPath(relPath) && extname(relPath) !== "");
-}
-
-export function createTestRelationProvider(model: ModelView): StructuralProvider {
-  const capabilities = testCapabilities();
-
-  return {
-    id: PROVIDER_ID,
-    version: PROVIDER_VERSION,
-    capabilities: () => declaredKinds(capabilities),
-    preflight: (): PreflightResult => ({ available: true, version: PROVIDER_VERSION }),
-    structuralCapabilities: () => capabilities,
-
-    extract: (root: StructuralRootInput): StructuralContribution => {
-      const relations = deriveTestRelations(root.name, model);
-      const files = testFiles(root);
-
-      return {
-        providerId: PROVIDER_ID,
-        providerVersion: PROVIDER_VERSION,
-        rootName: root.name,
-        records: { ...emptyRecords(), "test-relation": relations },
-        gaps:
-          files.length > 0 && relations.length === 0
-            ? [
-                {
-                  kind: "test-relation",
-                  language: ANY_LANGUAGE,
-                  reason: `${files.length} test files were found but no call edges reach them, so no relation could be derived`,
-                },
-              ]
-            : [],
-        failures: [],
-      };
-    },
-  };
 }
