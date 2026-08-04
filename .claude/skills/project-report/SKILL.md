@@ -1,121 +1,83 @@
 ---
 name: project-report
-description: Write a source-understanding report from a bounded fact pack. Use when asked to generate a project overview or module detail report from an analysis snapshot. Never reads the analysed project's source.
+description: Write a source-understanding report from an analysis knowledge base. Use when asked to generate a project overview or a feature detail report from an analysis snapshot. Never reads the analysed project's source.
 ---
 
 # Project report
 
-You turn a **bounded fact pack** into one report: read the pack, write the
-document the spec describes.
-
-Slicing, auditing and rendering happen outside you. You do not choose what to
-read, you do not decide whether the report ships, and you do not produce HTML.
+You turn one knowledge base into one report. Auditing and rendering happen outside
+you: you do not decide whether the report ships, and you do not produce HTML.
 
 ## ACTION REQUIRED
 
-Reading this file is not the task. **Begin at step 1 now.** Do not reply with a
-summary of what you are about to do; produce the artefacts.
+Reading this file is not the task. **Begin at step 1 now.** Do not reply with a plan;
+produce the report.
 
 You are given, in the invocation:
 
 | Input | Meaning |
 | -- | -- |
-| `packDb` | The fact pack, as a SQLite database — the whole of what is knowable here |
-| `packIndex` | Its index: what is in scope and how much of it |
+| `kbPath` | The knowledge base — the whole of what is knowable here |
 | `specId` | Which output spec governs this report |
 | `language` | The target language of the report |
+| `subject` | The capability this report is about (feature reports only) |
 | `reportPath` | Where to write the finished report |
 | `scratchPath` | Where every intermediate file goes |
+| `repoRoot` | Root the contract paths below resolve against |
 
-If any is missing, stop and say which. Do not guess a default.
+If one is missing, stop and say which. Do not guess a default. Everything you write
+that is not the report goes under `scratchPath` — a run that scatters intermediates
+leaves them behind forever, because nobody knows which files were yours.
 
-**Every file you write that is not an output goes under `scratchPath`.** Helper
-scripts, partial results, notes — all of it, and nothing outside it. A run that
-scatters intermediates leaves them behind forever, because nobody knows which
-files were yours. The engine deletes `scratchPath` once the run has produced its
-report, and keeps it when the run fails, so a failed run stays diagnosable.
+## 1 — Read three files, then the base
 
-## NOW — load exactly four things
+The contracts live in the **repository**, not in this skill's directory. Resolve every
+path against `repoRoot`; a read that lands under `.claude/skills/` has gone to the
+wrong place and comes back empty.
 
-The contracts live in the **repository**, not in this skill's directory. `repoRoot`
-is given in the invocation; every path below is relative to it, so resolve them
-against `repoRoot` rather than against wherever this file sits. A read that
-resolves under `.claude/skills/` has gone to the wrong place and will come back
-empty.
+1. `<repoRoot>/engine/contracts/kb/reading-the-kb.md` — how to read the base.
+2. `<repoRoot>/engine/contracts/report/writing-rules.md` — how to write and how to
+   investigate, including the checklist and the closing block.
+3. `<repoRoot>/engine/contracts/report/specs/<specId>.md` — the chapters this report
+   has, and what belongs in each.
 
-**MUST** read, in this order:
+**MUST NOT** read the other specs. **MUST NOT** read the analysed project's source,
+under any circumstance — this is the one rule whose violation invalidates the whole
+run, because a report that sometimes reads source is no longer reproducible, no
+longer auditable, and no longer cheaper than reading the code.
 
-1. `<repoRoot>/engine/contracts/kb/kb-contract.md` — how to read the pack.
-2. `<repoRoot>/engine/contracts/report/specs/contract.md` — the shared writing contract.
-3. `<repoRoot>/engine/contracts/report/specs/<specId>.md` — the one spec that governs this report.
-4. The pack at `packDb` — query it with SQL, do not scan files.
+Then query the base at `kbPath`, read-only, with SQL.
 
-**MUST NOT** read the other specs. Four specs run to a thousand lines together;
-loading all of them crowds out the facts, and writing a non-technical overview
-never needs the technical module spec.
+## 2 — Census, then investigate
 
-**MUST NOT** read the analysed project's source, under any circumstance. The pack
-is the whole of what is knowable. A gap in it is reported as a gap — it is not a
-reason to go looking. This is the single rule whose violation invalidates the
-entire run, because a report that sometimes reads source is no longer
-reproducible, no longer auditable, and no longer cheaper than reading the code.
+Both passes are defined in `reading-the-kb.md`. Do them in order and do not skip the
+second: the census gives you the shape, the investigation gives you the findings. A
+report built from the census alone is a table of contents with numbers in it.
 
-## NEXT — walk every kind before writing anything
+Work the checklist item by item. Each ends in one of three verdicts — hit,
+searched-and-not-found, or cannot-be-determined-here — and **every item MUST appear
+in the report with its verdict**, including the ones that found nothing.
 
-**MUST** open every kind listed in the pack's `requires`, in the order
-`kb-contract.md` gives: `run-context`, `coverage-note`, `health-signal`,
-`structural-finding`, then the computed shape, then raw facts.
+## 3 — Write the report
 
-This is not advice. In the trial that produced a fabricated report, the run
-issued 13 queries, never touched `structural-finding`, `health-signal` or
-`coverage-note`, and then filled in the architecture-risk and coverage chapters
-those kinds feed. It read well. It was invented. Walking the kinds first is what
-stops that.
+Write it to `reportPath`, in `language`, covering every chapter the spec numbers, in
+its order. `writing-rules.md` governs how; the spec governs what. Neither is restated
+here — read them.
 
-For each kind, note: how many rows, and what they say. A kind with zero rows in
-scope is a fact about the project and **MUST** be reported as such.
-
-## ACT — write the report
-
-Write it to `reportPath`, in `language`, following the spec's chapter list and the
-shared contract's rules. Cover every chapter the spec numbers, in its order.
-
-Every statement rests on facts you read from the pack, and cites them. The rules
-you will most easily break, restated:
-
-* Evidence markers are `fact`, `verified`, `inferred`, `unavailable`. Render each
-  in the target language.
-* **Say what the system does.** "Twenty-five endpoints write to four tables" is
-  true and useless alone; the reader needs "this module handles leave requests
-  from submission through multi-level approval". Mark that `inferred` and name the
-  facts it reads. A report that refuses to say what a system does has not done its
-  job.
-* The line is between **what this is** and **what to do about it**. **MUST NOT**
-  write design intent, motive, consequences, solutions, or evaluation without
-  evidence. A precise fact carries its own weight; appending what it might cause
-  crosses the line.
-* Translating a term is not inference — a report that prints raw table and
-  function names is not acceptable.
-* Every chapter closes with a summary that **generalizes** the chapter's own
-  facts and introduces nothing new.
-* Every coverage number carries its denominator.
-* Diagrams are Mermaid, in a fenced ` ```mermaid ` block — never hand-written SVG.
-  Branch labels use the target language, never the code's enums.
+End the report with the machine-readable block `writing-rules.md` specifies: each checklist
+item's id, its verdict, and the fact ids or record keys behind it. The audit reads
+that block and checks every id against the base, so an id you did not actually read
+will be caught.
 
 ## Before you finish
 
-Check each, and fix what fails:
-
-- [ ] Every kind in `requires` was opened, and every zero-row kind is reported.
 - [ ] Every chapter the spec numbers is present, in the spec's order.
+- [ ] Every checklist item appears with one of the three verdicts.
 - [ ] Every `unavailable` item is stated, not silently dropped.
-- [ ] No design intent, motive, consequence, solution, or unevidenced evaluation.
-- [ ] Every chapter has a generalizing summary.
-- [ ] Every coverage figure has its denominator.
-- [ ] No untranslated table names, enum values or code spellings in the body.
-- [ ] The glossary has all three columns, and every abbreviation its expansion.
+- [ ] Every coverage figure carries its denominator.
+- [ ] No table name, enum value or code spelling left untranslated in the body.
+- [ ] The closing block lists an id for every non-empty verdict.
 - [ ] You did not read the analysed project's source.
 
-Then report the two paths you wrote and stop. The engine audits the result; a
-failing audit means the report is not a deliverable, and that verdict is not
-yours to make.
+Then report the path you wrote and stop. The engine audits the result; a failing
+audit means the report is not a deliverable, and that verdict is not yours to make.
