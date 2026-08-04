@@ -34,8 +34,18 @@ pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowl
                      [--index-root dir]          #   put the code index elsewhere
                      [--no-code-index]           #   or skip it entirely
 pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
-pnpm audit:report -- <report.md> [--db kb.sqlite] # check a written report against the base
+pnpm kb:query --sql "select ..." [--run <runId>]  # read one snapshot, scoped to it
+pnpm audit:report <report.md> [--db kb.sqlite]    # check a written report against the base
 ```
+
+A knowledge base is append-only: one file can hold several workspaces, several
+runs, and snapshots left inert by runs that failed before publishing. So both
+readers work on one named snapshot rather than on the file. `kb:query` binds
+`:snapshot` and refuses a query that reads a snapshot-scoped table without it;
+`audit:report` reads the `manifest.json` beside the report and refuses if the
+snapshot it names is not the one the base resolves. Neither can create or migrate
+a database — a reader that creates answers a mistyped `--db` with an empty base
+instead of an error.
 
 `analyze` is the only command that touches the project, and it reads
 everything except one thing: the code indexer writes a cache into the

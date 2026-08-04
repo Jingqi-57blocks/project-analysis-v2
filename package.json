@@ -17,6 +17,7 @@
     "analyze": "tsx scripts/analyze.ts",
     "status": "tsx scripts/status.ts",
     "audit:report": "tsx scripts/audit-report.ts",
+    "kb:query": "tsx scripts/kb-query.ts",
     "relock": "tsx scripts/relock.ts"
   },
   "devDependencies": {

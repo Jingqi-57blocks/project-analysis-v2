@@ -22,9 +22,14 @@ Inputs, from the invocation or from what you were asked:
 | `subject` | required by `feature-product`, in the reader's words; none for an overview |
 | `language` | `zh-CN` |
 | `kbPath` | `.analysis/kb.sqlite` |
+| `runId` | the sole published run in the base |
 
 If `feature-product` was asked for with no subject, stop and ask which capability.
 Do not pick one.
+
+If the base holds more than one workspace and no `runId` was given, stop and ask
+which run. A report about the wrong project is indistinguishable from a report
+about the right one.
 
 ## 1 — Make the run directory
 
@@ -58,15 +63,20 @@ under any circumstance — this is the one rule whose violation invalidates the 
 run, because a report that sometimes reads source is no longer reproducible, no
 longer auditable, and no longer cheaper than reading the code.
 
-Then query the base with `sqlite3 -readonly <kbPath>`. Never open it for writing:
-it is the one artefact everything here depends on, and rebuilding it costs a full
-analysis run.
+Then query the base with `pnpm kb:query`, as `reading-the-kb.md` shows. It opens the
+base read-only, binds every query to one published snapshot, and logs what you asked.
+Never open the base for writing: it is the one artefact everything here depends on,
+and rebuilding it costs a full analysis run.
+
+Before the census, write `manifest.json` in the run directory — the snapshot this
+report is about, in the shape `reading-the-kb.md` gives. The audit will not run
+without it.
 
 ## 3 — Census, then investigate
 
-Append every query you run to `scratch/queries.log`, one per line, as you run it.
-Reconstructing the count afterwards is guesswork, and the count is how anyone later
-tells an investigation from a census.
+`pnpm kb:query --log <run directory>/scratch/queries.log` records each query as you
+run it. The count is how anyone later tells an investigation from a census, and
+reconstructing it afterwards is guesswork.
 
 Both passes are defined in `reading-the-kb.md`. Do them in order and do not skip
 the second: the census gives you the shape, the investigation gives you the
@@ -99,9 +109,10 @@ about this deliverable. Write the file with a shell heredoc instead and carry on
 pnpm audit:report <run directory>/report.md --db <kbPath>
 ```
 
-The audit checks every identity the closing block names against the base, every
-cited path against the files that were read, and every proportion against a
-quantity the base can justify. It writes `audit.json` beside the report.
+It reads `manifest.json`, re-resolves that snapshot from the base and refuses if
+the two disagree. Then it checks every identity the closing block names against
+the base, every cited path against the files that were read, and every proportion
+against a quantity the base can justify. It writes `audit.json` beside the report.
 
 **A report with no passing `audit.json` beside it is not a deliverable**, whatever
 the report says about itself. If the audit fails, report what it found and what

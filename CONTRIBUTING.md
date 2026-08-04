@@ -51,8 +51,12 @@ item reads exactly like one that searched and found nothing.
 ## Accepting a run
 
 A report is a deliverable only with a passing `audit.json` beside it. When a run
-is accepted, commit its artefacts — the report, the agent transcript and the audit
-verdict — under `truth-set/`.
+is accepted, commit its artefacts — the report, its `manifest.json`, the agent
+transcript and the audit verdict — under `truth-set/`.
+
+The manifest is what makes the rest re-checkable: it names the snapshot, and
+without it the report can only be re-audited against whatever the base happens to
+hold later.
 
 This is part of accepting it, not an optional extra. The fixtures the audit
 regresses against are the committed ones; a run left only in `.analysis/` is

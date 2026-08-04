@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { MIGRATIONS, SUPPORTED_SCHEMA_VERSION } from "./migrations.js";
@@ -151,6 +151,48 @@ export function openStore(path: string, options: OpenOptions = {}): Store {
   try {
     const version = migrate(db, options.now ?? new Date().toISOString());
     return new SqliteStore(db, version);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+/** Thrown when a reader is pointed at a path that holds no knowledge base. */
+export class NoSuchStoreError extends Error {
+  constructor(readonly path: string) {
+    super(`No knowledge base at ${path}. Run \`analyze\` first, or correct --db.`);
+    this.name = "NoSuchStoreError";
+  }
+}
+
+/**
+ * Opens an existing knowledge base without the power to change it.
+ *
+ * `openStore` creates and migrates, which is right for the analysis that owns
+ * the base and wrong for everything downstream. A reader that creates is a
+ * reader that answers a mistyped `--db` with an empty database instead of an
+ * error, and a reader that migrates rewrites the very artefact it was asked to
+ * read — under a schema the run that produced the data never saw.
+ *
+ * So this refuses a missing file, opens read-only, and does not migrate. An
+ * older base is readable as it stands; a newer one is refused, because this
+ * build cannot know what the extra migrations mean.
+ */
+export function openStoreReadonly(path: string): Store {
+  if (path === IN_MEMORY) throw new NoSuchStoreError(path);
+  if (!existsSync(path)) throw new NoSuchStoreError(path);
+
+  const db = new DatabaseSync(path, { readOnly: true });
+
+  try {
+    // Read directly rather than through `currentVersion`, which creates the
+    // table it reads — impossible here, and the attempt is the bug this guards.
+    const row = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get() as
+      | { v: number | null }
+      | undefined;
+    const found = row?.v ?? 0;
+    if (found > SUPPORTED_SCHEMA_VERSION) throw new SchemaTooNewError(found, SUPPORTED_SCHEMA_VERSION);
+    return new SqliteStore(db, found);
   } catch (error) {
     db.close();
     throw error;

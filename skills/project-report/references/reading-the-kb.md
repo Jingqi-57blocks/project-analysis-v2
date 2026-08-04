@@ -5,11 +5,64 @@ about a codebase. It is the whole of what is knowable here. You **MUST NOT** rea
 the analysed project's source — a gap in this database is reported as a gap, not
 as a reason to go looking.
 
-Open it read-only. Never write to it:
+## One snapshot, named before anything else
+
+A knowledge base is append-only. One file can hold analyses of several projects,
+several runs over the same project, and snapshots left behind by runs that failed
+before publishing. Almost every table is scoped by `snapshot_id`, so a query that
+omits it counts across all of them and returns a larger number that looks exactly
+like the right one.
+
+So the snapshot is chosen once, up front, and every query is bound to it:
 
 ```
-sqlite3 -readonly <kbPath> "select kind, count(*) from derived_records group by 1 order by 2 desc"
+pnpm kb:query --db <kbPath> --run <runId> --sql "select kind, count(*) from derived_records
+  where snapshot_id = :snapshot group by 1 order by 2 desc" --log <run directory>/scratch/queries.log
 ```
+
+`:snapshot` is bound for you. The command resolves `--run` against published
+snapshots only, refuses a query that reads a snapshot-scoped table without
+mentioning `:snapshot`, and appends what you asked to the log. Without `--run` it
+uses the single published snapshot, and refuses if the base holds more than one
+workspace.
+
+`files` carries no `snapshot_id` of its own — reach it through `source_roots`:
+
+```sql
+select count(*) from files f
+  join source_roots r on r.id = f.source_root_id
+ where r.snapshot_id = :snapshot;
+```
+
+Record what you read, beside the report, as `manifest.json`. This is what binds
+the report to one analysis; the audit re-resolves it from the base and refuses if
+the two disagree.
+
+```json
+{
+  "workspacePath": "/abs/path/to/analysed/workspace",
+  "runId": "run-20260803T002407Z-5ffd51",
+  "snapshotId": 1,
+  "identity": "083e2b7d…",
+  "publishedAt": "2026-08-03T00:24:06.878Z",
+  "specId": "project-product",
+  "language": "zh-CN",
+  "codegraphVersion": "1.5.0"
+}
+```
+
+Every field comes from the base, not from you. One query gives you all but the
+last two, which you were given:
+
+```sql
+select s.id, s.run_id, s.identity, s.published_at, w.path,
+       (select version from provider_checks
+         where snapshot_id = s.id and provider_id = 'codegraph' and available = 1)
+  from snapshots s join workspaces w on w.id = s.workspace_id
+ where s.id = :snapshot;
+```
+
+`codegraphVersion` is `null` when no code index took part in that run.
 
 **Query, do not scan.** Aggregate in SQL and read back the answer, not the rows. A
 `count(*)` costs one line of output; pulling every row to count them yourself costs
