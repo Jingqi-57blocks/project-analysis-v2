@@ -16,6 +16,7 @@ const REFUSALS = new Set([
   "SnapshotNotFoundError",
   "AmbiguousWorkspaceError",
   "ManifestError",
+  "ClaimsError",
   "SchemaTooNewError",
 ]);
 

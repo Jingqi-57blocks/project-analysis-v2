@@ -21,6 +21,7 @@ import { dirname, resolve } from "node:path";
 
 import { requiredChecklistIds } from "../engine/contracts/report/checklist.js";
 import { auditReport, explainAudit, readInventory, resolveIdentities } from "../engine/report/kb-audit.js";
+import { identityNamespaces } from "../engine/report/claims.js";
 import { codegraphVersionOf, manifestDisagreements, parseManifest } from "../engine/report/manifest.js";
 import { resolveSnapshot } from "../engine/kb/query.js";
 import { openStoreReadonly } from "../engine/store/open.js";
@@ -108,11 +109,17 @@ const rootCount =
   store.get<{ n: number }>("select count(*) as n from source_roots where snapshot_id = ?", [snapshot.id])?.n ?? 1;
 const report = readFileSync(resolve(reportPath), "utf8");
 const checklistPath = `${runDir}/checklist.json`;
+const claimsPath = `${runDir}/claims.json`;
+const logPath = `${runDir}/queries.log`;
 const result = auditReport({
   report,
   inventory: readInventory(store, snapshot.id),
   requiredChecklistIds: requiredChecklistIds(rootCount),
   ...(existsSync(checklistPath) ? { checklist: readFileSync(checklistPath, "utf8") } : {}),
+  ...(existsSync(claimsPath) ? { claims: readFileSync(claimsPath, "utf8") } : {}),
+  ...(existsSync(logPath) ? { queriesLog: readFileSync(logPath, "utf8") } : {}),
+  requireQueriesLog: true,
+  namespaces: identityNamespaces(store, snapshot.id),
   resolveIds: (ids) => resolveIdentities(store, snapshot.id, ids),
 });
 

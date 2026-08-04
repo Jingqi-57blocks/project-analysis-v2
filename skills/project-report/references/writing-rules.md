@@ -392,3 +392,55 @@ produces a string the base does not contain.
 
 The findings themselves still belong in the report, in the risks chapter, written as
 prose for a reader. This file is the audit's input, not the reader's.
+
+## The claims file
+
+The checklist proves the investigation happened. It says nothing about the body,
+and for a while nothing did: the audit resolved the checklist's identities and no
+others, so a report whose chapters were invented outright and whose `checklist.json`
+was correct passed. That is the one shape of fabrication the audit exists to catch.
+
+So the body declares its evidence too, in `claims.json`, beside `report.md`:
+
+```json
+{
+  "claims": [
+    { "id": "claim-001", "section": 3, "marker": "fact",
+      "evidenceIds": ["<record_key>", "<fact id>"] },
+
+    { "id": "claim-004", "section": 5, "marker": "inferred",
+      "evidenceIds": ["<record_key>"] },
+
+    { "id": "claim-009", "section": 8, "marker": "unavailable",
+      "reason": "no runtime configuration is recorded for any root" }
+  ]
+}
+```
+
+| Field | Required when | What it holds |
+| -- | -- | -- |
+| `id` | always | any stable label; it appears in findings, so make it findable |
+| `section` | always | the chapter's **position** among the report's `##` headings, counting from 1 |
+| `marker` | always | one of the four evidence markers |
+| `evidenceIds` | marker is not `unavailable` | identities, copied from the base |
+| `reason` | marker is `unavailable` | why the base cannot answer |
+
+`section` is a position, not the number written in the heading. A report is written
+in whatever language was asked for and numbers its headings in that language's
+conventions; keying on the visible text would make the check depend on which
+language the run chose.
+
+The audit checks the declaration **both ways**:
+
+* Every id a claim declares exists in the snapshot, and appears in the chapter that
+  claims it. A claim citing a row its chapter never mentions is bookkeeping.
+* Every identity the body cites is declared by a claim for that chapter. This is the
+  direction that closes the hole — prose naming rows nothing accounts for.
+
+One claim per statement that needs one is unnecessary. Group a chapter's statements
+that rest on the same rows into one claim; write a separate claim wherever the
+marker differs, since the marker is what the reader is being told about the ground
+under a sentence.
+
+`unavailable` claims carry no ids by definition, and are still required. Silence
+about a chapter the base cannot answer is indistinguishable from an answer.

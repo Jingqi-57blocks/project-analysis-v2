@@ -70,16 +70,20 @@ a symlink to it rather than a copy, so there is one source of truth and nothing 
 keep in step.
 
 There is no pipeline around the skill, deliberately. The one thing an author
-cannot do is check itself, so that is the one thing the engine does:
-`pnpm audit:report` resolves every identity the report says it read against the
-base, checks every cited path against the files that were actually analysed, and
+cannot do is check itself, so that is the one thing the engine does.
+`pnpm audit:report` resolves every identity the report cites — in the body as
+well as in `checklist.json` and `claims.json` — against the snapshot the report
+names, checks every cited path against the files that were actually analysed, and
 checks every proportion against a quantity the base can justify. **A report
 without a passing `audit.json` beside it is not a deliverable.**
 
-That check is not a formality. In a three-model trial over one knowledge base,
-the three outputs were indistinguishable by appearance — the fabricated one was
-just as well formatted, just as complete, and the second longest. Only pulling
-each statement back to the base separated them.
+Be precise about what that does and does not settle. It settles whether the rows
+a statement rests on exist and were read; it does not settle whether the statement
+follows from them. Nothing mechanical can. What it removes is the case where the
+prose rests on nothing at all — which is not hypothetical: in a three-model trial
+over one knowledge base the three outputs were indistinguishable by appearance,
+and the fabricated one was just as well formatted, just as complete, and the
+second longest.
 
 ## Development
 

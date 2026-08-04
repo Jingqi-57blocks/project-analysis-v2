@@ -96,8 +96,9 @@ in its order. `writing-rules.md` governs how; the spec governs what. Neither is
 restated here — read them.
 
 The findings go in the report, as prose. The checklist's verdicts do not — write
-those to `checklist.json` beside it, in the shape `writing-rules.md` gives. That file
-is the audit's input; the report is the reader's.
+those to `checklist.json` beside it, in the shape `writing-rules.md` gives. Write
+`claims.json` beside it too: what each chapter's statements rest on. Both are the
+audit's input; the report is the reader's.
 
 Some hosts refuse the `Write` tool for a file they recognise as a report, with a
 message about returning findings as text. That guard is about a subagent's reply, not
