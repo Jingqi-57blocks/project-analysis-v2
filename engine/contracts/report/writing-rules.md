@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 1.2.0
+version: 2.0.0
 ---
 
 # Writing rules
@@ -115,10 +115,22 @@ Consequences are constrained rather than banned — see Part III, risk format.
 
 ## 4. Structure
 
-1. Evidence — paths, line numbers, identifiers — is collapsed by default and **MUST
-   NOT** sit in the reading flow. Where a marked statement needs its reasoning to be
-   checkable, put the marker and its grounds in one parenthesis at the end of the
-   sentence, rather than tagging the sentence and stranding the grounds elsewhere.
+1. **No code in the body. None.** File paths, line numbers, table names, function
+   names, enum members, entry-point paths and identity strings **MUST NOT** appear in
+   the reading flow — not in a sentence, not in a parenthesis, not in a table cell.
+   The reader cannot tell what they mean, and a paragraph carrying three of them
+   reads as machine output however good the sentence around them is.
+
+   All of it goes in a collapsed `<details>` block at the end of the section it
+   supports. Every section that makes an evidenced statement has one.
+
+   Where a marked statement needs its grounds visible, the parenthesis carries the
+   **reasoning, in words** — "推断，依据：评审服务的 README 自述，以及工时、账单、
+   绩效共用同一批员工与项目档案" — and the identifiers behind that reasoning sit in
+   the collapsed block. A parenthesis that has become a list of identity strings has
+   taken the evidence layer's job and put it in the reader's way.
+
+   The exception is the glossary, whose subject is the mapping itself.
 2. **Punctuation follows the output language.** A report in Chinese uses full-width
    punctuation throughout; one in English uses ASCII. Mixing them is the most visible
    way a document reads as machine-written, and it costs nothing to get right.
@@ -200,10 +212,13 @@ incident will follow — **MUST NOT** be written.
 **MUST NOT** propose remediation, acceptance criteria or action items. What to do
 about it is the reader's call.
 
-## The closing block
+## The checklist file
 
-The report ends with a fenced ` ```json ` block, after the last chapter, listing every
-checklist item:
+The checklist's verdicts are **not** part of the report. A business reader has no use
+for them, and a document that ends in a wall of machine identifiers reads as a data
+dump whatever the chapters before it say.
+
+Write them instead to `checklist.json`, beside `report.md` in the run directory:
 
 ```json
 {
@@ -221,3 +236,10 @@ the identity values as they appear in the base — `record_key` for
 `item_key` for `evidence_items`. Every id is checked against the base by the audit, so
 an id that was not actually read will be caught. Only `cannot-determine` may carry an
 empty list.
+
+An identity is **copied**, never retyped or tidied. Trailing empty segments are
+common and part of the value — `...|219|1|` ends in an empty segment and trimming it
+produces a string the base does not contain.
+
+The findings themselves still belong in the report, in the risks chapter, written as
+prose for a reader. This file is the audit's input, not the reader's.

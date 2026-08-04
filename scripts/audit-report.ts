@@ -13,7 +13,7 @@
  * a deliverable, whatever the report says about itself.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { CHECKLIST_IDS } from "../engine/contracts/report/checklist.js";
@@ -64,14 +64,17 @@ if (snapshot === undefined) {
 }
 
 const report = readFileSync(resolve(reportPath), "utf8");
+const runDir = dirname(resolve(reportPath));
+const checklistPath = `${runDir}/checklist.json`;
 const result = auditReport({
   report,
   inventory: readInventory(store, snapshot.id),
   requiredChecklistIds: CHECKLIST_IDS,
+  ...(existsSync(checklistPath) ? { checklist: readFileSync(checklistPath, "utf8") } : {}),
   resolveIds: (ids) => resolveIdentities(store, snapshot.id, ids),
 });
 
-const verdictPath = `${dirname(resolve(reportPath))}/audit.json`;
+const verdictPath = `${runDir}/audit.json`;
 writeFileSync(
   verdictPath,
   JSON.stringify(

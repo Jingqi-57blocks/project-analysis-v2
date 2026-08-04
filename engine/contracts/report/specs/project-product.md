@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 3.0.0
+version: 4.0.0
 title: Project overview, non-technical
 ---
 
@@ -17,7 +17,7 @@ This spec defines only the chapters and what belongs in each.
 
 # Chapters
 
-Eleven, in this order, numbered. No tier headings above them — the numbering is the
+Ten, in this order, numbered. No tier headings above them — the numbering is the
 only structure the reader needs.
 
 Every chapter is built the same way: a short paragraph that answers the chapter's
@@ -56,7 +56,7 @@ Then, each under its own bolded lead-in:
 * **Project stage** — `unavailable`; one line, no elaboration.
 
 Numbers here **MUST** be ones a business reader can use: how many kinds of user, how
-many areas of the business. Counts of code artifacts belong in chapter 11 if
+many areas of the business. Counts of code artifacts belong in chapter 10 if
 anywhere.
 
 ## 2. Systems and repositories
@@ -98,7 +98,7 @@ source:
 | Unconfirmed | None of the above holds |
 
 "In normal use", "partially used" and "used by specific customers" need runtime and
-commercial information; they belong in chapter 11 and **MUST NOT** be status values.
+commercial information; they belong in chapter 10 and **MUST NOT** be status values.
 
 **How the parts relate** — its own sub-section, with a diagram, under these lead-ins:
 which call each other and which span more than one repository; which share a business
@@ -115,17 +115,7 @@ Where authorization is largely decided inside handler bodies rather than declare
 the entry point, the report **MUST** say so under its own lead-in — otherwise a
 reader takes an absence in the matrix for an absence of control.
 
-## 5. Core business objects and lifecycles
-
-Under lead-ins: **the core objects**; **how they relate** (diagram); **a worked
-lifecycle** for the objects that have one (diagram, labelled in the target language);
-**which involve money, permissions or sensitive information**.
-
-Business names in the body; raw table names **MUST NOT** appear there. Read/write
-counts **MUST NOT** be an object's primary description. For sensitive fields, state
-the basis for the determination only; **MUST NOT** rate how sensitive they are.
-
-## 6. Data landscape and movement
+## 5. Data landscape and movement
 
 Under lead-ins: **what the core data is**; **who creates it and which part owns it**;
 **how it moves between parts** (diagram); **what comes from outside**; **what is
@@ -136,7 +126,7 @@ Where the direction of some accesses could not be determined, the report **MUST*
 state that the ownership table is a lower bound, with the undetermined count and its
 denominator.
 
-## 7. External dependencies and integrations
+## 6. External dependencies and integrations
 
 | Service | What it is used for | Which capabilities depend on it | Sent and received | On failure |
 | -- | -- | -- | -- | -- |
@@ -149,9 +139,9 @@ capabilities the call sites sit in.
 Purpose **MUST** come from the call site's context. Where it cannot be read, mark it
 undetermined; **MUST NOT** speculate. Where the address is assembled at runtime, say
 the integration exists and its address is `unavailable`. Cost, quota, compliance
-conclusions and alternatives are `unavailable` — chapter 11.
+conclusions and alternatives are `unavailable` — chapter 10.
 
-## 8. Operations and back-office capabilities
+## 7. Operations and back-office capabilities
 
 Under lead-ins: **which management capabilities exist and who uses them**; **which
 write production data directly**; **which leave an audit record**; **limits declared
@@ -161,29 +151,29 @@ Hard limits — export caps, batch sizes, file-size limits, thresholds — have 
 operational value and **MUST** be listed with their locations. Runtime performance is
 `unavailable`.
 
-## 9. Risks and current state
+## 8. Risks and current state
 
 Every entry rests on the project contradicting itself or lacking something.
 **MUST NOT** cite external best practice. The analyser's own coverage gaps belong in
-chapter 11, never here. Format and priority: `writing-rules.md`.
+chapter 10, never here. Format and priority: `writing-rules.md`.
 
 Five numbered sub-sections, each marked with the evidence it rests on:
 
-* **9.1 Architectural risks** `fact` + `inferred` — findings that resolve to an exact
+* **8.1 Architectural risks** `fact` + `inferred` — findings that resolve to an exact
   location, and contradictions between parts
-* **9.2 Business rules that appear to be missing** `verified` — every checklist item
+* **8.2 Business rules that appear to be missing** `verified` — every checklist item
   that ended `searched, not found`, with the rows searched
-* **9.3 Code nothing reaches** `fact` — the search scope for callers **MUST** be
+* **8.3 Code nothing reaches** `fact` — the search scope for callers **MUST** be
   stated; endpoints serving something outside the workspace **MUST** be separated out
-* **9.4 Documentation contradicting code** `fact`
-* **9.5 Still to confirm** `unavailable`
+* **8.4 Documentation contradicting code** `fact`
+* **8.5 Still to confirm** `unavailable`
 
-## 10. Glossary
+## 9. Glossary
 
 Three columns, per `writing-rules.md`. Covers the project's internal business terms,
 abbreviations, status values and role codes.
 
-## 11. Coverage and source snapshot
+## 10. Coverage and source snapshot
 
 Under lead-ins: **the snapshot analysed** — each root's revision and whether it
 carried uncommitted changes; **what was read** — files analysed and not analysed,
@@ -213,5 +203,5 @@ project. The two **MUST NOT** be mixed.
 * At least one finding came from `open` and is not a pre-computed
   `structural-finding` row.
 * Every coverage figure carries its denominator.
-* Every `unavailable` and `cannot-determine` item is named in chapter 11 with a
+* Every `unavailable` and `cannot-determine` item is named in chapter 10 with a
   reason.

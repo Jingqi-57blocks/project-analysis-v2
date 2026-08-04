@@ -139,17 +139,22 @@ export interface ChecklistEntry {
 }
 
 /**
- * The machine-readable block the report ends with.
+ * The checklist's verdicts.
  *
- * Last one wins: a report may quote the block's shape while explaining itself, and
- * the real one is the one it finishes on.
+ * Read from `checklist.json` beside the report. It used to be a fenced block at the
+ * end of the report itself, which put a wall of machine identifiers in front of a
+ * business reader — the audit needs them, and nobody else does.
+ *
+ * A fenced block is still accepted, so an older artefact still audits. Last one
+ * wins there: a report may quote the shape while explaining itself, and the real one
+ * is the one it finishes on.
  */
-export function readChecklistBlock(report: string): readonly ChecklistEntry[] | null {
-  const blocks = matches(report, /```json\s*([\s\S]*?)```/g);
-  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+export function readChecklistBlock(source: string): readonly ChecklistEntry[] | null {
+  const candidates = [...matches(source, /```json\s*([\s\S]*?)```/g).map((m) => m[1] ?? ""), source];
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
     let parsed: { checklist?: unknown };
     try {
-      parsed = JSON.parse(blocks[index]?.[1] ?? "") as typeof parsed;
+      parsed = JSON.parse(candidates[index] ?? "") as typeof parsed;
     } catch {
       continue;
     }
@@ -309,6 +314,8 @@ export interface AuditInput {
   readonly inventory: WorkspaceInventory;
   /** Checklist ids the governing rules require. Empty skips the completeness check. */
   readonly requiredChecklistIds?: readonly string[];
+  /** Contents of `checklist.json`; falls back to a fenced block in the report. */
+  readonly checklist?: string;
   /** Resolves cited identities against the base. Omitted in fixture replays. */
   readonly resolveIds?: (ids: readonly string[]) => ReadonlySet<string>;
 }
@@ -368,7 +375,7 @@ export function auditReport(input: AuditInput): AuditResult {
   }
 
   const required = input.requiredChecklistIds ?? [];
-  const entries = readChecklistBlock(report);
+  const entries = readChecklistBlock(input.checklist ?? report);
   const checklist: ChecklistAudit[] = [];
 
   if (entries === null) {
@@ -376,8 +383,8 @@ export function auditReport(input: AuditInput): AuditResult {
       findings.push({
         code: "checklist-block-missing",
         severity: "blocking",
-        detail: "the report ends with no machine-readable checklist block, so nothing it claims to have read can be checked",
-        evidence: "closing block",
+        detail: "no checklist.json beside the report, so nothing it claims to have read can be checked",
+        evidence: "checklist.json",
       });
     }
     return { passed: findings.every((f) => f.severity !== "blocking"), findings, checklist };

@@ -240,3 +240,38 @@ describe("the analysis's own artefacts are not project citations", () => {
     expect(auditReport({ report, inventory }).findings).toEqual([]);
   });
 });
+
+describe("the checklist lives beside the report, not inside it", () => {
+  const inventory = { paths: new Set(["a/b.go"]), extensions: new Set(["go"]), denominators: new Set([1]) };
+  const required = ["literal-secrets", "open"];
+  const entries = [
+    { id: "literal-secrets", verdict: "hit", evidence: ["real-id"] },
+    { id: "open", verdict: "hit", evidence: ["real-id"] },
+  ];
+  const resolveIds = (): ReadonlySet<string> => new Set(["real-id"]);
+
+  it("reads it from a separate file, leaving the report free of machine identifiers", () => {
+    // A business reader has no use for the verdicts, and a document ending in a
+    // wall of identity strings reads as a data dump whatever precedes it.
+    const result = auditReport({
+      report: "# 报告\n\n没有任何机器标识串。",
+      inventory,
+      requiredChecklistIds: required,
+      checklist: JSON.stringify({ checklist: entries }),
+      resolveIds,
+    });
+    expect(result.passed).toBe(true);
+    expect(result.checklist.map((c) => c.id)).toEqual(["literal-secrets", "open"]);
+  });
+
+  it("still accepts an older report that carries the block inline", () => {
+    const report = `# 报告\n\n\`\`\`json\n${JSON.stringify({ checklist: entries })}\n\`\`\`\n`;
+    expect(auditReport({ report, inventory, requiredChecklistIds: required, resolveIds }).passed).toBe(true);
+  });
+
+  it("fails when neither is present", () => {
+    const result = auditReport({ report: "# 报告", inventory, requiredChecklistIds: required });
+    expect(result.findings.map((f) => f.code)).toEqual(["checklist-block-missing"]);
+    expect(result.findings[0]?.evidence).toBe("checklist.json");
+  });
+});
