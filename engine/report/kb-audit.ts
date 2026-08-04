@@ -33,7 +33,10 @@ export type FindingCode =
   | "verdict-without-evidence"
   | "no-open-finding"
   | "no-checkable-coverage-figure"
-  | "chapter-without-synthesis";
+  | "chapter-without-synthesis"
+  | "verdict-missing-its-basis"
+  | "no-open-kb-finding"
+  | "nothing-validated-against-source";
 
 /**
  * Whether a finding stops delivery.
@@ -157,6 +160,16 @@ export interface ChecklistEntry {
   readonly id: string;
   readonly verdict: string;
   readonly evidence: readonly string[];
+  /** What was searched, required of `searched-not-found`. */
+  readonly scope?: string;
+  /** Why not, and what would settle it — required of `cannot-determine`. */
+  readonly reason?: string;
+  /** The coverage-chapter row this verdict joins. */
+  readonly exclusionGroup?: string;
+  /** `checklist` or `open-kb`. */
+  readonly origin?: string;
+  /** `source-excerpt` identities read to confirm a material finding. */
+  readonly validatedBy?: readonly string[];
 }
 
 /**
@@ -186,7 +199,20 @@ export function readChecklistBlock(source: string): readonly ChecklistEntry[] | 
       const evidence = Array.isArray(raw.evidence)
         ? (raw.evidence as readonly unknown[]).filter((value): value is string => typeof value === "string")
         : [];
-      entries.push({ id: raw.id, verdict: raw.verdict, evidence });
+      const text = (key: string): string | undefined =>
+        typeof raw[key] === "string" && (raw[key] as string).trim().length > 0 ? (raw[key] as string) : undefined;
+      const list = (key: string): readonly string[] =>
+        Array.isArray(raw[key]) ? (raw[key] as unknown[]).filter((v): v is string => typeof v === "string") : [];
+      entries.push({
+        id: raw.id,
+        verdict: raw.verdict,
+        evidence,
+        ...(text("scope") === undefined ? {} : { scope: text("scope") as string }),
+        ...(text("reason") === undefined ? {} : { reason: text("reason") as string }),
+        ...(text("exclusionGroup") === undefined ? {} : { exclusionGroup: text("exclusionGroup") as string }),
+        ...(text("origin") === undefined ? {} : { origin: text("origin") as string }),
+        ...(list("validatedBy").length === 0 ? {} : { validatedBy: list("validatedBy") }),
+      });
     }
     if (entries.length > 0) return entries;
   }
@@ -495,7 +521,8 @@ export function auditReport(input: AuditInput): AuditResult {
     });
   }
 
-  const resolved = input.resolveIds?.(entries.flatMap((entry) => entry.evidence)) ?? null;
+  const resolved =
+    input.resolveIds?.(entries.flatMap((entry) => [...entry.evidence, ...(entry.validatedBy ?? [])])) ?? null;
 
   for (const entry of entries) {
     if (!VERDICTS.has(entry.verdict)) {
@@ -517,7 +544,7 @@ export function auditReport(input: AuditInput): AuditResult {
     let resolvedCount = entry.evidence.length;
     if (resolved !== null) {
       resolvedCount = entry.evidence.filter((id) => resolved.has(id)).length;
-      for (const id of entry.evidence) {
+      for (const id of [...entry.evidence, ...(entry.validatedBy ?? [])]) {
         if (resolved.has(id)) continue;
         findings.push({
           code: "cited-id-not-in-base",
@@ -530,17 +557,45 @@ export function auditReport(input: AuditInput): AuditResult {
     checklist.push({ id: entry.id, verdict: entry.verdict, cited: entry.evidence.length, resolved: resolvedCount });
   }
 
-  // The open-ended item is the only one that tests whether the author
-  // investigated rather than executed a list. A run that closes it without a
-  // finding is worth accepting only deliberately.
-  const open = byId.get("open");
-  if (required.includes("open") && (open === undefined || open.verdict !== "hit")) {
+  // A verdict without its basis is unreadable afterwards: "searched and found
+  // nothing" means nothing without the scope searched, and "cannot determine"
+  // means nothing without what would settle it.
+  for (const entry of entries) {
+    const missing =
+      entry.verdict === "searched-not-found" && entry.scope === undefined
+        ? "scope"
+        : entry.verdict === "cannot-determine" && (entry.reason === undefined || entry.exclusionGroup === undefined)
+          ? "reason and exclusionGroup"
+          : null;
+    if (missing === null) continue;
     findings.push({
-      code: "no-open-finding",
-      severity: "notice",
-      detail: "no finding came from a hypothesis the checklist did not name; the author executed the list rather than investigating",
-      evidence: "open",
+      code: "verdict-missing-its-basis",
+      severity: "blocking",
+      detail: `a "${entry.verdict}" verdict records no ${missing}, so the reader cannot tell what it rests on`,
+      evidence: entry.id,
     });
+  }
+
+  if (required.length > 0) {
+    // Investigating is what separates a report from a census, and reading the
+    // surrounding code is what separates a finding from a row. Neither is
+    // detectable in the prose, so both are recorded and checked here.
+    if (!entries.some((entry) => entry.origin === "open-kb" && entry.verdict === "hit")) {
+      findings.push({
+        code: "no-open-kb-finding",
+        severity: "notice",
+        detail: "nothing was found by opening knowledge-base content the checklist did not point at; the list was executed rather than investigated",
+        evidence: "origin: open-kb",
+      });
+    }
+    if (!entries.some((entry) => (entry.validatedBy ?? []).length > 0)) {
+      findings.push({
+        code: "nothing-validated-against-source",
+        severity: "notice",
+        detail: "no finding was confirmed against a source excerpt in the base",
+        evidence: "validatedBy",
+      });
+    }
   }
 
   return { passed: findings.every((finding) => finding.severity !== "blocking"), findings, checklist };

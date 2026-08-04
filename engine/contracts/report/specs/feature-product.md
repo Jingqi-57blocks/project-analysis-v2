@@ -2,7 +2,7 @@
 id: feature-product
 scope: feature
 audience: product
-version: 4.0.0
+version: 5.0.0
 title: Feature detail, non-technical
 ---
 
@@ -283,9 +283,10 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 * Chapter 2's steps trace to flow evidence, not to entry-point names.
 * Chapter 5 states the declared-versus-inline limit under its own lead-in.
 * Every chapter has bolded lead-ins and closes with its synthesis.
-* Every checklist item carries exactly one verdict **in `checklist.json`**, and every
-  id it cites exists in the base.
-* At least one finding came from `open`, and at least one material finding was
-  checked against a `source-excerpt` in the base carrying enough surrounding context
-  to support it.
+* Every checklist item carries exactly one verdict **in `checklist.json`**, with the
+  fields its verdict requires, and every id it cites exists in the base.
+* At least one entry records `origin: open-kb`; at least one material entry records
+  `validatedBy`, resolving to `source-excerpt` rows in the base.
+* Every `cannot-determine` verdict carries an `exclusionGroup`, and every group
+  referenced appears once in chapter 12.
 * Every coverage figure carries its denominator.

@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 6.0.0
+version: 7.0.0
 title: Project overview, non-technical
 ---
 
@@ -75,7 +75,10 @@ Then, each under its own bolded lead-in:
 * **Project boundary** — what is inside.
 * **External boundary** — what is somebody else's system, named as capabilities
   (sign-in, file storage, mail, chat, maps, AI) rather than as vendors alone.
-* **Project stage** — `unavailable`; one line, no elaboration.
+* **Project stage** — `unavailable`, unless supplied project or business
+  documentation states it outright, in which case quote it. Repository age, version
+  numbers in names, and two implementations existing side by side are **not**
+  evidence of a stage. One line either way.
 
 Numbers here **MUST** be ones a business reader can use: how many kinds of user, how
 many areas of the business. Counts of code artifacts belong in chapter 10 if
@@ -87,7 +90,13 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 2. The parts, and what each is responsible for
 
-| Part | What it is for | Who uses it | What it carries | Notes |
+A **part** is an application people use, an independently operated service, or an
+independently operated background component with a business responsibility of its
+own. A repository is *evidence* for finding parts, never automatically a part: one
+part may span several repositories, and one repository may hold more than one. A
+report whose parts map one-to-one onto repositories has listed the repositories.
+
+| Part | What it is for | Who uses it | Business capabilities and records it handles | Notes |
 | -- | -- | -- | -- | -- |
 
 Then two questions that are often run together and **MUST NOT** be:
@@ -162,17 +171,25 @@ Under lead-ins: **the roles the system defines**; **what each is mainly responsi
 for**; **the permission matrix** (role × capability × operation); **what data each
 can see**; **how the organisational units relate**.
 
-**Every cell carries exactly one of these three values, and none is left blank:**
+The matrix's rows are the capability groups named in chapter 3, and its columns a
+fixed business-level set: view, create, change, approve, export, administer. Fixing
+both is what lets two runs over one snapshot be compared at all.
+
+**Every cell carries exactly one of these four values, and none is left blank:**
 
 | Value | Meaning |
 | -- | -- |
 | Confirmed allowed | The reviewed source explicitly permits the operation |
 | Confirmed restricted | The reviewed source explicitly rejects or narrows it |
 | Not determined | This analysis cannot establish the result |
+| Not applicable | The operation does not exist for this capability |
 
-Only the first two are findings. The third records a limit of the analysis, and it is
-the honest value for most cells in most projects — a blank cell is read as "no
-permission needed", which is a claim nobody made.
+Only the first two are findings. "Not determined" records a limit of the analysis,
+and is the honest value for most cells in most projects. "Not applicable" is a
+property of the capability — a read-only capability has nothing to approve — and is
+neither a finding nor a limit; writing it as "not determined" would report the
+analysis as weaker than it is. A blank cell is read as "no permission needed", which
+is a claim nobody made.
 
 **MUST NOT** infer permission from the existence of a page or an entry point, and
 **MUST NOT** infer denial from the absence of a confirmed permission. Much
@@ -188,7 +205,10 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 
 Under lead-ins: **what the core data is**; **who creates and changes it** — which
 user actions or automated processes do so; **which parts were observed reading and
-writing it**; **how it moves between parts** (diagram); **what comes from outside**;
+writing it**; **how it is shared, handed over or synchronised between parts**
+(diagram) — parts that read the same stored record are sharing it, not moving it, and
+a diagram of arrows between parts describes the wrong system; **what comes from
+outside**;
 **what is sensitive**; **whether it can be exported, deleted or archived**;
 **whether anything partitions it by organisation**.
 
@@ -233,7 +253,10 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 
 Under lead-ins: **which management capabilities exist and who uses them**; **which
 actions change live business records**; **which leave an audit trail**; **business
-limits the system enforces**; **what it handles automatically on a schedule**.
+limits the system enforces**; **what the code schedules to happen automatically** —
+phrased as what is arranged, not as what happens: a registered schedule is a
+declaration in the reviewed snapshot, and whether it is enabled, fires, or finishes
+is not visible here.
 
 "Production data" is not a thing the base can identify — it sees business records and
 cannot tell which deployment they belong to. Say business records.
@@ -318,16 +341,15 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 * Chapter 3's map names capabilities, not directory or repository names.
 * Every chapter has bolded lead-ins for its sub-questions, and closes with its
   synthesis.
-* Every checklist item carries exactly one verdict **in `checklist.json`**, and every
-  id it cites exists in the base. A `searched, not found` verdict records the scope
-  searched; a `cannot be determined` verdict records the reason and the data source
-  that would settle it.
-* At least one finding came from `open` — a hypothesis the checklist does not name —
-  and is not a pre-computed `structural-finding` row.
-* At least one material finding was checked against a `source-excerpt` in the base,
-  carrying enough surrounding context to support it. A matched token or a lone line
-  is not enough. (The excerpt is knowledge-base content; the report stage still
+* Every checklist item carries exactly one verdict **in `checklist.json`**, with the
+  fields its verdict requires, and every id it cites exists in the base.
+* At least one entry records `origin: open-kb` — a finding reached by opening
+  knowledge-base content no checklist hypothesis pointed at — and it is not a
+  pre-computed `structural-finding` row.
+* At least one material entry records `validatedBy`, resolving to `source-excerpt`
+  rows in the base. (Those are knowledge-base content; the report stage still
   **MUST NOT** open the analysed project's files.)
+* Every `cannot-determine` verdict carries an `exclusionGroup`, and every group
+  referenced appears once in chapter 10 with its reason and what would settle it.
+  Individual verdicts are **not** repeated in the report.
 * Every coverage figure carries its denominator.
-* Every `unavailable` and `cannot-determine` item is named in chapter 10 with a
-  reason.

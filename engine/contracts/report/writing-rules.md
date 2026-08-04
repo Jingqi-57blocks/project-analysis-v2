@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 3.1.0
+version: 4.0.0
 ---
 
 # Writing rules
@@ -221,6 +221,20 @@ Consequences are constrained rather than banned — see Part III, risk format.
 The census establishes the shape. It finds nothing. Every finding worth reading comes
 from stating a hypothesis and searching for it.
 
+## Two words this file uses precisely
+
+**Material.** An item is material when it changes a chapter's synthesis, changes a
+conclusion a business reader would act on, or produces a risk at `P0` or `P1`.
+Everything else is recorded and not narrated. Materiality is decided when the verdict
+is written and recorded with it — not while writing the prose, where the decision
+becomes "did this fit the paragraph".
+
+**Open.** The `open` checklist item means opening something in the **knowledge base**
+that no checklist hypothesis pointed at — following a number that looks wrong, a
+value set that names two different things, a rule that only appears once. It never
+means opening the analysed project's files; that remains forbidden at every point in
+this stage.
+
 ## Checklist
 
 A floor, not a ceiling. Each item **MUST** carry exactly one verdict in
@@ -314,12 +328,39 @@ Write them instead to `checklist.json`, beside `report.md` in the run directory:
 ```json
 {
   "checklist": [
-    { "id": "literal-secrets", "verdict": "hit", "evidence": ["<fact id>", "..."] },
-    { "id": "feature-switches", "verdict": "searched-not-found", "evidence": ["<fact id>"] },
-    { "id": "external-call-in-transaction", "verdict": "cannot-determine", "evidence": [] }
+    { "id": "literal-secrets", "verdict": "hit", "material": true,
+      "origin": "checklist",
+      "evidence": ["<fact id>", "..."],
+      "validatedBy": ["<item_key of a source-excerpt>"] },
+
+    { "id": "feature-switches", "verdict": "searched-not-found", "material": false,
+      "scope": "every config-key row, across all roots",
+      "evidence": ["<fact id>"] },
+
+    { "id": "external-call-in-transaction", "verdict": "cannot-determine",
+      "reason": "no transaction boundary is recorded for this language",
+      "settledBy": "a deriver for transaction boundaries in that language",
+      "exclusionGroup": "analysis-coverage",
+      "evidence": [] },
+
+    { "id": "open", "verdict": "hit", "material": true,
+      "origin": "open-kb",
+      "evidence": ["<fact id>"],
+      "validatedBy": ["<item_key of a source-excerpt>"] }
   ]
 }
 ```
+
+| Field | Required when | What it holds |
+| -- | -- | -- |
+| `verdict` | always | `hit`, `searched-not-found` or `cannot-determine` |
+| `evidence` | verdict is not `cannot-determine` | identities, copied from the base |
+| `material` | always | whether this item is narrated in the report, per the definition above |
+| `scope` | verdict is `searched-not-found` | what was searched, so the absence can be read |
+| `reason`, `settledBy` | verdict is `cannot-determine` | why, and what would answer it |
+| `exclusionGroup` | verdict is `cannot-determine` | the coverage-chapter row this joins; several items sharing one missing source share one group |
+| `origin` | at least one entry | `checklist` or `open-kb` |
+| `validatedBy` | at least one material entry | `item_key`s of `source-excerpt` rows read to confirm the finding, with enough surrounding context to support it — a matched token or a lone line is not enough |
 
 `verdict` is one of `hit`, `searched-not-found`, `cannot-determine`. `evidence` holds
 the identity values as they appear in the base — `record_key` for

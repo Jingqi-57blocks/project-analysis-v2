@@ -155,8 +155,8 @@ describe("the closing checklist block", () => {
     // Only cannot-determine may cite nothing: a search that hit or that searched
     // and found nothing both had rows in front of them.
     const report = block([
-      { id: "literal-secrets", verdict: "searched-not-found", evidence: [] },
-      { id: "open", verdict: "cannot-determine", evidence: [] },
+      { id: "literal-secrets", verdict: "searched-not-found", scope: "all value-set rows", evidence: [] },
+      { id: "open", verdict: "cannot-determine", reason: "nothing suggested itself", exclusionGroup: "none", evidence: [] },
     ]);
     const result = auditReport({ report, inventory, requiredChecklistIds: required });
     expect(result.findings.filter((f) => f.code === "verdict-without-evidence").map((f) => f.evidence)).toEqual([
@@ -184,12 +184,14 @@ describe("the closing checklist block", () => {
   });
 
   it("notices, without blocking, a run that only executed the list", () => {
-    // The open item is the one thing testing whether the author investigated. A
-    // small project may legitimately close it empty, so this is a reason to
-    // reject the run deliberately rather than an assertion of untruth.
+    // Investigating beyond the checklist, and confirming a finding against the
+    // surrounding code, are both invisible in the prose. Both are recorded and
+    // checked here — as notices, since a small project may legitimately have
+    // neither, which makes them a reason to reject a run deliberately rather than
+    // an assertion that anything is untrue.
     const report = block([
       { id: "literal-secrets", verdict: "hit", evidence: ["real-id"] },
-      { id: "open", verdict: "cannot-determine", evidence: [] },
+      { id: "open", verdict: "cannot-determine", reason: "nothing suggested itself", exclusionGroup: "none", evidence: [] },
     ]);
     const result = auditReport({
       report,
@@ -197,14 +199,31 @@ describe("the closing checklist block", () => {
       requiredChecklistIds: required,
       resolveIds: () => new Set(["real-id"]),
     });
-    expect(result.findings.map((f) => f.code)).toEqual(["no-open-finding"]);
+    expect(result.findings.map((f) => f.code)).toEqual(["no-open-kb-finding", "nothing-validated-against-source"]);
     expect(result.passed).toBe(true);
+  });
+
+  it("rejects a verdict that records no basis for itself", () => {
+    // "Searched and found nothing" says nothing without the scope searched, and
+    // "cannot determine" says nothing without what would settle it.
+    const report = block([
+      { id: "literal-secrets", verdict: "searched-not-found", evidence: ["real-id"] },
+      { id: "open", verdict: "hit", origin: "open-kb", evidence: ["real-id"], validatedBy: ["real-id"] },
+    ]);
+    const result = auditReport({
+      report,
+      inventory,
+      requiredChecklistIds: required,
+      resolveIds: () => new Set(["real-id"]),
+    });
+    expect(result.findings.map((f) => f.code)).toEqual(["verdict-missing-its-basis"]);
+    expect(result.passed).toBe(false);
   });
 
   it("accepts a complete block and reports how much of it resolved", () => {
     const report = block([
       { id: "literal-secrets", verdict: "hit", evidence: ["real-id"] },
-      { id: "open", verdict: "hit", evidence: ["real-id"] },
+      { id: "open", verdict: "hit", origin: "open-kb", evidence: ["real-id"], validatedBy: ["real-id"] },
     ]);
     const result = auditReport({
       report,
