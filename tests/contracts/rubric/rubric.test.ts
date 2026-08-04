@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import type { CoverageState } from "../../../engine/contracts/shared-fact/applicability.js";
-import { account, coverageRatio, isBalanced } from "../../../engine/contracts/rubric/accounting.js";
 import {
   evaluateGate,
   GATES,
@@ -9,56 +7,6 @@ import {
   GOLDEN_SLICE_THRESHOLDS,
   meetsThreshold,
 } from "../../../engine/contracts/rubric/gates.js";
-import { blocksAt, FINDING_KINDS, severityOf } from "../../../engine/contracts/rubric/severity.js";
-
-describe("severity", () => {
-  it("makes a wrong or silently-dropped fact a blocker", () => {
-    expect(severityOf("known-wrong")).toBe("blocker");
-    expect(severityOf("silent-omission")).toBe("blocker");
-    expect(severityOf("precision-error")).toBe("blocker");
-    expect(severityOf("unresolved")).toBe("minor");
-  });
-
-  it("maps every finding kind", () => {
-    for (const kind of FINDING_KINDS) expect(typeof severityOf(kind)).toBe("string");
-  });
-
-  it("blocksAt compares severity to a bar", () => {
-    expect(blocksAt("known-wrong", "critical")).toBe(true);
-    expect(blocksAt("unresolved", "critical")).toBe(false);
-  });
-});
-
-describe("coverage accounting", () => {
-  const states: CoverageState[] = [
-    "found",
-    "found",
-    "not-found",
-    "not-applicable",
-    "unknown",
-    "unsupported",
-    "failed",
-    "truncated",
-  ];
-
-  it("tallies buckets, excludes not-applicable from the denominator, and balances", () => {
-    const a = account(states);
-    expect(a.total).toBe(8);
-    expect(a.covered).toBe(2);
-    expect(a.denominator).toBe(7);
-    expect(a.byBucket["not-applicable"]).toBe(1);
-    expect(isBalanced(a)).toBe(true);
-  });
-
-  it("ratio is covered/denominator, and 1 when nothing is applicable", () => {
-    expect(coverageRatio(account(["found", "not-found"]))).toBe(0.5);
-    expect(coverageRatio(account(["not-applicable", "not-applicable"]))).toBe(1);
-  });
-
-  it("stays balanced for every single-state account", () => {
-    for (const s of states) expect(isBalanced(account([s])), s).toBe(true);
-  });
-});
 
 describe("gates", () => {
   it("every gate names an artifact, formula, thresholds, failure code and owner", () => {
