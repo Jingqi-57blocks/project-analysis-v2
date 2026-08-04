@@ -8,7 +8,7 @@ import { resolveTarget } from "../support/targets/resolve.js";
 import { runAnalyze } from "../../engine/run/analyze.js";
 import { getStatus } from "../../engine/run/status.js";
 import { openStore } from "../../engine/store/open.js";
-import { announceSkip } from "../support/targets.js";
+import { announceSkip, codeIndexAvailability } from "../support/targets.js";
 
 /**
  * One full end-to-end run against a single real root (wcp-auth), confirming
@@ -20,6 +20,11 @@ import { announceSkip } from "../support/targets.js";
 const wcpV2 = resolveTarget("wcp-v2");
 if (!wcpV2.ok) announceSkip("run on wcp-auth", wcpV2.unavailable.reason);
 
+const codeIndex = codeIndexAvailability();
+if (!codeIndex.available) announceSkip("run on wcp-auth", codeIndex.reason);
+
+const canRun = wcpV2.ok && codeIndex.available;
+
 let tmpRoot: string | undefined;
 
 afterEach(() => {
@@ -27,7 +32,7 @@ afterEach(() => {
   tmpRoot = undefined;
 });
 
-describe.skipIf(!wcpV2.ok)("runAnalyze on wcp-auth", () => {
+describe.skipIf(!canRun)("runAnalyze on wcp-auth", () => {
   it("analyzes wcp-auth end to end and leaves it unchanged on disk", { timeout: 600_000 }, () => {
     if (!wcpV2.ok) return;
     const authRoot = wcpV2.target.roots.find((r) => r.name === "wcp-auth");

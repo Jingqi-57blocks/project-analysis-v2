@@ -358,6 +358,13 @@ describe("runAnalyze — drift between capture and publish", () => {
   });
 });
 
+/**
+ * These are about where the index is put, not about what it contains, so they
+ * accept a run without one. Analysis requires the indexer by default — a base
+ * published with no call graph reads downstream as a codebase where nothing
+ * calls anything — and a machine without CodeGraph installed would otherwise
+ * fail here for a reason none of these tests is about.
+ */
 describe("where the code index goes", () => {
   it("says where it will write one, so nobody has to find it afterwards", () => {
     const result = runAnalyze({ paths: [alphaPath], dbPath, readers: NO_READERS });
@@ -391,14 +398,14 @@ describe("where the code index goes", () => {
   it("puts the index exactly where it was told, not one directory above", { timeout: 600_000 }, () => {
     const elsewhere = join(workDir, "index-here");
     mkdirSync(elsewhere, { recursive: true });
-    const result = runAnalyze({ paths: [alphaPath], dbPath, indexRoot: elsewhere });
+    const result = runAnalyze({ paths: [alphaPath], dbPath, indexRoot: elsewhere, allowDegraded: true });
     expect(result.codeIndexPath).toBe(elsewhere);
   });
 
   it("records the location in the knowledge base, not only in the terminal", { timeout: 600_000 }, () => {
     // A limitation visible only to whoever ran the command is one nobody
     // reading the report ever sees.
-    const result = runAnalyze({ paths: [alphaPath], dbPath });
+    const result = runAnalyze({ paths: [alphaPath], dbPath, allowDegraded: true });
 
     const store = openResultStore();
     try {

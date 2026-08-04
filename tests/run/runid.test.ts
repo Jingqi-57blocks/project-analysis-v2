@@ -111,7 +111,7 @@ describe("the command surface", () => {
   it("prints the run id, so a later report can name it", { timeout: 600_000 }, () => {
     const output = execFileSync(
       "pnpm",
-      ["exec", "tsx", "scripts/analyze.ts", join(workDir, "alpha"), "--db", dbPath],
+      ["exec", "tsx", "scripts/analyze.ts", join(workDir, "alpha"), "--db", dbPath, "--allow-degraded"],
       { cwd: process.cwd(), encoding: "utf8" },
     );
     expect(output).toMatch(/run run-\d{8}T\d{6}Z-[0-9a-f]{6}/);
