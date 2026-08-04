@@ -15,7 +15,6 @@ export * from "./activation.js";
 export * from "./applicability.js";
 export * from "./identity.js";
 export * from "./canonical.js";
-export * from "./module-identity.js";
 export * from "./entity-identity.js";
 export * from "./stability.js";
 export * from "./evidence.js";

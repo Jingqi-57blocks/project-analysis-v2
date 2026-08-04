@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "contracts": [
     {
       "id": "shared-fact",
@@ -32,15 +32,10 @@
       "digest": "0ceca88a31f5dc6dac0b338f072441e27b4f3f4a374fc3a2a84749fdf61b12e8"
     },
     {
-      "id": "module-identity",
-      "version": "1.0.0",
-      "digest": "513a81010cacdf67a04df224de72023177c7993d611357a363c6b873266fce8f"
-    },
-    {
       "id": "rubric",
       "version": "1.0.0",
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "a64b562bc7ba1f509840862390006544907df125403146037b459a3d2164a3e4"
+  "bundleDigest": "3a480bbfeb328cd55fd823bf5c53958709cfbb6d4f143d0d7ee14612442d5d94"
 }

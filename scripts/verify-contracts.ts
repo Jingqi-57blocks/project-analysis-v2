@@ -14,7 +14,6 @@ import { readFileSync } from "node:fs";
 import { computeLock, type ContractLock } from "../engine/contracts/bundle.js";
 import { CHECKLIST_IDS } from "../engine/contracts/report/checklist.js";
 import { validateKbContract } from "../engine/contracts/kb/index.js";
-import { MODULE_CATEGORIES, categorize } from "../engine/contracts/module/index.js";
 import { INVALID_PROVENANCE_EXAMPLES, validateProvenance } from "../engine/contracts/shared-fact/index.js";
 import { loadTargetManifest, validateManifest } from "../engine/contracts/targets/index.js";
 import { loadAngelsPizzaSentinels, validateSentinelLedger } from "../engine/contracts/truth/sentinel.js";
@@ -57,12 +56,6 @@ check(
 );
 const kb = validateKbContract();
 check("knowledge-base read contract", kb.ok, kb.ok ? "" : kb.reasons.join("; "));
-check(
-  "module categorization is total",
-  MODULE_CATEGORIES.includes(
-    categorize({ endpointCount: 0, dataEntityCount: 0, outboundTargetCount: 0, symbolCount: 0, dependentCount: 0 }),
-  ),
-);
 
 // 3. Positive / negative fixtures behave as specified.
 for (const ex of INVALID_PROVENANCE_EXAMPLES) {

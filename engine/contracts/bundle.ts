@@ -18,7 +18,6 @@ import { GATES, GOLDEN_SLICE_THRESHOLDS } from "./rubric/gates.js";
 import { loadAngelsPizzaSentinels } from "./truth/sentinel.js";
 import { loadLeaveTruthLedger } from "./truth/leave.js";
 import { CHECKLIST_IDS } from "./report/checklist.js";
-import { MODULE_CATEGORIES, MODULE_CONTRACT_ID, MODULE_CONTRACT_VERSION } from "./module/index.js";
 import {
   KB_CONTRACT_ID,
   KB_CONTRACT_VERSION,
@@ -130,19 +129,6 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
       },
     },
     {
-      id: MODULE_CONTRACT_ID,
-      version: MODULE_CONTRACT_VERSION,
-      snapshot: {
-        categories: MODULE_CATEGORIES,
-        invariants: [
-          "identity is structural; a display name is an attribute of it",
-          "changing language changes neither the module count nor the boundaries",
-          "an unresolved reference fails closed and never widens to the project",
-          "a glossary entry carries all three columns",
-        ],
-      },
-    },
-    {
       id: "rubric",
       version: "1.0.0",
       snapshot: { gates: GATES.map((g) => g.id), golden: GOLDEN_SLICE_THRESHOLDS },
@@ -178,5 +164,8 @@ export function computeLock(): ContractLock {
     hash.update(c.digest);
     hash.update("\0");
   }
-  return { version: "1.0.0", contracts, bundleDigest: hash.digest("hex") };
+  // 2.0.0: the module-identity contract was removed. Whoever reads this lock
+  // sees one fewer contract, which is a breaking change to the bundle's shape
+  // and not something a digest alone communicates.
+  return { version: "2.0.0", contracts, bundleDigest: hash.digest("hex") };
 }
