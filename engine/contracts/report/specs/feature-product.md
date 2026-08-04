@@ -2,7 +2,7 @@
 id: feature-product
 scope: feature
 audience: product
-version: 2.1.0
+version: 2.2.0
 title: Feature detail, non-technical
 ---
 
@@ -90,6 +90,9 @@ Then, each under its own bolded lead-in:
 * **What this report covers** — the resolved boundary, per the section above: the ids
   it comprises, and what was deliberately left out and why.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 2. How a person uses it
 
 The journey, in order: where they come in, what they do at each step, what choices
@@ -102,6 +105,9 @@ entry-point names alone. Where a trace stopped early, name the last step that is
 evidenced and say the rest was not established. Writing around the gap is worse than
 the gap: "nothing beyond the entry point was established for these" is a good
 sentence.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 3. The rules it enforces
 
@@ -119,6 +125,9 @@ itself about is the most useful thing on the page.
 
 Each rule says where it is enforced. A rule stated without that is a guess.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 4. States and lifecycle
 
 Every state, the initial and terminal ones, what moves a record between them, who
@@ -128,6 +137,9 @@ language.
 
 Where more than one part declares states for the same record, show both and say which
 declares more. A difference between them is a finding for chapter 10.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 5. Who can do what, and see what
 
@@ -151,6 +163,9 @@ condition inside a handler is invisible to it. So:
 State this limit plainly, under its own lead-in. It is the difference between a
 description and an accusation.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 6. Data and fields
 
 | Field | What it means | Where it comes from | Editable | Sensitive |
@@ -164,6 +179,9 @@ data**.
 Business names in the body; raw identifiers in the evidence layer and the glossary.
 Retention is `unavailable` unless a scheduled cleanup declares it.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 7. What else happens when it runs
 
 What one operation sets off: in-app messages, email, push, balance or billing
@@ -172,6 +190,9 @@ changes, permission changes, audit records, data synchronization, external calls
 Recipients and message contents are runtime values and are `unavailable`; the call
 site and its channel are `fact`. Say which is which, rather than implying the report
 knows who gets told.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 8. What happens when things go wrong
 
@@ -189,16 +210,21 @@ Network interruption, request timeout and external-service failure are answerabl
 only where the code declares handling for them. Where it does not, that is
 `unavailable` — never "unhandled".
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 9. Configuration and switches
 
 Which configuration affects this capability, its default, whether behaviour differs
 by environment or customer, what a switch covers, and what the code does when it is
 off.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 10. What is wrong with it, and what a change would touch
 
-Every entry rests on this capability contradicting itself or lacking something.
-**MUST NOT** cite external best practice. Format and priority: `writing-rules.md`.
+Grouping, format and priority: `writing-rules.md`.
 
 Under lead-ins:
 
@@ -210,9 +236,15 @@ Under lead-ins:
   and other capabilities read or write what this one does. A reachability statement
   from the base, marked `fact`. It says what is connected, not what would break.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 11. Glossary
 
 Three columns, per `writing-rules.md`, limited to the terms this report uses.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 12. Coverage and what this report does not answer
 
@@ -225,6 +257,9 @@ actual usage, retention and compliance requirements, ownership — and every che
 item that ended `cannot be determined here`, each with its reason.
 
 ---
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 

@@ -70,9 +70,27 @@ describe("regression over the archived trial artefacts", () => {
   });
 
   it("passes the two accurate reports with no false positives", () => {
+    // These fixtures exist to prove the audit separates the fabricated report from
+    // the accurate ones. They were written before the later style rules and are
+    // frozen, so a *notice* about, say, coverage figures not being in checkable
+    // shape is a true statement about them rather than a false positive — the opus
+    // artefact has ten percentages and none in the required form. What must never
+    // appear on them is anything that says the report is untrue.
+    const untruth = new Set([
+      "cited-path-not-in-workspace",
+      "cited-extension-absent",
+      "proportion-denominator-unknown",
+      "proportion-mismatch",
+      "cited-id-not-in-base",
+    ]);
     for (const model of ["sonnet", "opus"]) {
       const result = auditReport({ report: trialReport(model), inventory });
-      expect({ model, findings: result.findings }).toEqual({ model, findings: [] });
+      expect({ model, blocking: result.findings.filter((f) => f.severity === "blocking") }).toEqual({
+        model,
+        blocking: [],
+      });
+      expect({ model, untrue: result.findings.filter((f) => untruth.has(f.code)) }).toEqual({ model, untrue: [] });
+      expect({ model, passed: result.passed }).toEqual({ model, passed: true });
     }
   });
 });
@@ -290,5 +308,30 @@ describe("what the audit deliberately does not check", () => {
     for (const report of [endsOnAFact, endsOnASynthesis]) {
       expect(auditReport({ report, inventory }).findings).toEqual([]);
     }
+  });
+});
+
+describe("coverage figures the audit can actually check", () => {
+  const inventory = { paths: new Set(["a/b.go"]), extensions: new Set(["go"]), denominators: new Set([520]) };
+
+  it("notices a report whose percentages are all in an uncheckable shape", () => {
+    // "18% of traces (93/520)" — a noun between the sign and the bracket — matched
+    // nothing, so a report's entire coverage chapter passed unexamined while the
+    // audit reported no findings at all.
+    const result = auditReport({ report: "18%的行为追踪（93/520）未完成", inventory });
+    expect(result.findings.map((f) => f.code)).toEqual(["no-checkable-coverage-figure"]);
+    expect(result.passed).toBe(true);
+  });
+
+  it("says nothing when at least one figure is checkable", () => {
+    expect(auditReport({ report: "18%（93/520）的追踪未完成，其中 100% 属于同一根", inventory }).findings).toEqual([]);
+  });
+
+  it("does not flag a percentage that is a rule the code enforces", () => {
+    // A report may quote "the ratio must not exceed 100%". Nothing in the
+    // formatting separates that from a coverage figure, so per-percentage checking
+    // produces false positives on correct reports — this is the one claim the
+    // audit can stand behind.
+    expect(auditReport({ report: "折扣比例不得超过 100%，且 18%（93/520）的追踪未完成", inventory }).findings).toEqual([]);
   });
 });

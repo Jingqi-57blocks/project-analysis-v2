@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 4.1.0
+version: 4.2.0
 title: Project overview, non-technical
 ---
 
@@ -28,10 +28,9 @@ Every chapter is built the same way:
    what this chapter's facts mean for reading the rest of the report;
 4. the collapsed evidence block.
 
-Step 3 is a lead-in like the others, and it is listed below in every chapter's own
-list of lead-ins for that reason: as a general instruction it gets dropped. One run
-wrote it in nine chapters of eleven; the next, under the same general rule, wrote it
-in none. It is the difference between a document that argues something and one that
+Step 3 is a lead-in like the others, and it is repeated at the foot of every chapter
+below for that reason: as a general instruction it gets dropped. One run wrote it in
+nine chapters of eleven; the next, under the same general rule, wrote it in none. It is the difference between a document that argues something and one that
 answers questions, and nothing downstream can detect its absence — a chapter closing
 on "**Project stage** — unavailable" looks identical to one closing on a synthesis.
 
@@ -67,11 +66,13 @@ Then, each under its own bolded lead-in:
 * **External boundary** — what is somebody else's system, named as capabilities
   (sign-in, file storage, mail, chat, maps, AI) rather than as vendors alone.
 * **Project stage** — `unavailable`; one line, no elaboration.
-* **What to carry into the rest of the report** — the synthesis.
 
 Numbers here **MUST** be ones a business reader can use: how many kinds of user, how
 many areas of the business. Counts of code artifacts belong in chapter 10 if
 anywhere.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 2. Systems and repositories
 
@@ -85,6 +86,9 @@ writes data, and whether scheduled work still runs in it.
 
 File counts, language breakdowns and line counts **MUST NOT** appear. Deployment and
 runtime environment are `unavailable`.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 3. Business domains and capability map
 
@@ -119,6 +123,9 @@ which call each other and which span more than one repository; which share a bus
 object and which is read or written by more than one part; which one the most others
 depend on. Internal steps of any one flow belong to a capability report, not here.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 4. Roles, permissions and organization
 
 Under lead-ins: **the roles the system defines**; **what each is mainly responsible
@@ -128,6 +135,9 @@ can see**; **how the organisational units relate**.
 Where authorization is largely decided inside handler bodies rather than declared at
 the entry point, the report **MUST** say so under its own lead-in — otherwise a
 reader takes an absence in the matrix for an absence of control.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 5. Data landscape and movement
 
@@ -139,6 +149,9 @@ partitions it by organisation**.
 Where the direction of some accesses could not be determined, the report **MUST**
 state that the ownership table is a lower bound, with the undetermined count and its
 denominator.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 6. External dependencies and integrations
 
@@ -155,6 +168,9 @@ undetermined; **MUST NOT** speculate. Where the address is assembled at runtime,
 the integration exists and its address is `unavailable`. Cost, quota, compliance
 conclusions and alternatives are `unavailable` — chapter 10.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 7. Operations and back-office capabilities
 
 Under lead-ins: **which management capabilities exist and who uses them**; **which
@@ -165,11 +181,13 @@ Hard limits — export caps, batch sizes, file-size limits, thresholds — have 
 operational value and **MUST** be listed with their locations. Runtime performance is
 `unavailable`.
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 8. Risks and current state
 
-Every entry rests on the project contradicting itself or lacking something.
-**MUST NOT** cite external best practice. The analyser's own coverage gaps belong in
-chapter 10, never here. Format and priority: `writing-rules.md`.
+Grouping, format and priority: `writing-rules.md`. The analyser's own coverage gaps
+belong in chapter 10, never here.
 
 Five numbered sub-sections, each marked with the evidence it rests on:
 
@@ -182,10 +200,16 @@ Five numbered sub-sections, each marked with the evidence it rests on:
 * **8.4 Documentation contradicting code** `fact`
 * **8.5 Still to confirm** `unavailable`
 
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
+
 ## 9. Glossary
 
 Three columns, per `writing-rules.md`. Covers the project's internal business terms,
 abbreviations, status values and role codes.
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## 10. Coverage and source snapshot
 
@@ -200,10 +224,10 @@ and switch states, external service cost and quota, data retention and complianc
 recent incidents, ownership, the project's stage and business goals — plus anything
 the checklist ended as `cannot be determined here`. Each gets a reason.
 
-This chapter describes **the boundary of the analysis**, not a problem with the
-project. The two **MUST NOT** be mixed.
-
 ---
+
+**Close with the synthesis** — two or three sentences on what this chapter's facts
+mean for reading the rest of the report.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 

@@ -113,7 +113,7 @@ The census tells you what exists. It does not find anything. **Every conclusion
 worth reading came from stating a hypothesis and searching for it**, and a run that
 only tabulates kinds produces a census with chapter headings.
 
-Your spec carries the checklist. Each item is one loop:
+The checklist is in `writing-rules.md`. Each item is one loop:
 
 ```
 state the rule or defect you expect      ->  search for it in SQL  ->  let the code decide

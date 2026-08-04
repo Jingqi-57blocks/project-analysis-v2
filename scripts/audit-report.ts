@@ -16,7 +16,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { CHECKLIST_IDS } from "../engine/contracts/report/checklist.js";
+import { requiredChecklistIds } from "../engine/contracts/report/checklist.js";
 import { auditReport, explainAudit, readInventory, resolveIdentities } from "../engine/report/kb-audit.js";
 import { openStore } from "../engine/store/open.js";
 
@@ -63,13 +63,15 @@ if (snapshot === undefined) {
   process.exit(2);
 }
 
+const rootCount =
+  store.get<{ n: number }>("select count(*) as n from source_roots where snapshot_id = ?", [snapshot.id])?.n ?? 1;
 const report = readFileSync(resolve(reportPath), "utf8");
 const runDir = dirname(resolve(reportPath));
 const checklistPath = `${runDir}/checklist.json`;
 const result = auditReport({
   report,
   inventory: readInventory(store, snapshot.id),
-  requiredChecklistIds: CHECKLIST_IDS,
+  requiredChecklistIds: requiredChecklistIds(rootCount),
   ...(existsSync(checklistPath) ? { checklist: readFileSync(checklistPath, "utf8") } : {}),
   resolveIds: (ids) => resolveIdentities(store, snapshot.id, ids),
 });

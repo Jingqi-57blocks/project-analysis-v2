@@ -31,7 +31,8 @@ export type FindingCode =
   | "checklist-verdict-unknown"
   | "cited-id-not-in-base"
   | "verdict-without-evidence"
-  | "no-open-finding";
+  | "no-open-finding"
+  | "no-checkable-coverage-figure";
 
 /**
  * Whether a finding stops delivery.
@@ -120,6 +121,25 @@ export interface CitedProportion {
   readonly percent: number;
   readonly numerator: number;
   readonly denominator: number;
+}
+
+/**
+ * Whether the report wrote any coverage figure the audit could check at all.
+ *
+ * The arithmetic check only runs on figures written as `N% (n/d)`. One report put a
+ * noun between the sign and the bracket — "14% of outbound calls (66/474)" — and
+ * every coverage number in it went unexamined while the audit reported no findings.
+ * The machinery ran and found nothing to run on.
+ *
+ * This does not flag individual percentages. A percentage in a report may be a
+ * coverage figure, which must carry its fraction, or a limit the code enforces —
+ * "the ratio must not exceed 100%" — which must not be made to. Nothing in the
+ * formatting separates them, so the audit reports the one thing it can stand
+ * behind: this report used percentages, and not one of them was checkable.
+ */
+function hasUncheckableCoverageOnly(report: string): boolean {
+  const body = report.replace(/<details>[\s\S]*?<\/details>/g, "").replace(/```[\s\S]*?```/g, "");
+  return matches(body, /\d[\d.,]*\s*%/g).length > 0 && citedProportions(body).length === 0;
 }
 
 export function citedProportions(report: string): readonly CitedProportion[] {
@@ -230,22 +250,34 @@ export function readInventory(store: Store, snapshotId: number): WorkspaceInvent
   denominators.add(files.length);
   denominators.add(paths.size);
   for (const row of store.all(
-    `select f.disposition as k, count(*) as n from files f
+    `select count(*) as n from files f
        join source_roots r on r.id = f.source_root_id
       where r.snapshot_id = ? group by f.disposition
      union all
-     select r.name as k, count(*) as n from files f
+     select count(*) as n from files f
        join source_roots r on r.id = f.source_root_id
-      where r.snapshot_id = ? group by r.name`,
-    [snapshotId, snapshotId],
+      where r.snapshot_id = ? group by r.name
+     union all
+     select count(*) as n from files f
+       join source_roots r on r.id = f.source_root_id
+      where r.snapshot_id = ? group by r.name, f.disposition`,
+    [snapshotId, snapshotId, snapshotId],
   ) as readonly { n: number }[]) {
     denominators.add(row.n);
   }
+  // Per-kind counts from every table a report may cite, plus each table's total.
+  // `evidence_items` was missing, so a chapter counting documentation comments or
+  // interface strings had no denominator the audit would accept.
   const kindCounts = store.all(
     `select count(*) as n from structural_records where snapshot_id = ? group by kind
      union select count(*) as n from behavior_facts where snapshot_id = ? group by kind
-     union select count(*) as n from derived_records where snapshot_id = ? group by kind`,
-    [snapshotId, snapshotId, snapshotId],
+     union select count(*) as n from derived_records where snapshot_id = ? group by kind
+     union select count(*) as n from evidence_items where snapshot_id = ? group by kind
+     union select count(*) as n from structural_records where snapshot_id = ?
+     union select count(*) as n from behavior_facts where snapshot_id = ?
+     union select count(*) as n from derived_records where snapshot_id = ?
+     union select count(*) as n from evidence_items where snapshot_id = ?`,
+    Array.from({ length: 8 }, () => snapshotId),
   ) as readonly { n: number }[];
   for (const row of kindCounts) denominators.add(row.n);
 
@@ -369,6 +401,15 @@ export function auditReport(input: AuditInput): AuditResult {
       severity: "blocking",
       detail: "cited path is not among the files that were read",
       evidence: cited,
+    });
+  }
+
+  if (hasUncheckableCoverageOnly(report)) {
+    findings.push({
+      code: "no-checkable-coverage-figure",
+      severity: "notice",
+      detail: "the report uses percentages but none is written as N% (n/d), so no coverage figure could be checked",
+      evidence: "coverage figures",
     });
   }
 

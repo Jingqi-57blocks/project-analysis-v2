@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Writing rules
@@ -32,9 +32,13 @@ Requirement levels follow RFC 2119.
 | `unavailable` | Static analysis cannot answer it | Stated explicitly — never guessed, never blank |
 
 **These four and no others.** Every sentence either points at evidence or is marked
-`unavailable`. Markers are structural tokens; render each into the target language
-(`fact` → 事实 / Fact, `verified` → 验证 / Verified, `inferred` → 推断 / Inferred,
-`unavailable` → 不可得 / Unavailable).
+`unavailable`.
+
+The names above are structural tokens for this document, not words for the report.
+Every marker in the report **MUST** be rendered into the target language — 事实 /
+验证 / 推断 / 不可得 in Chinese, Fact / Verified / Inferred / Unavailable in English.
+A report in one language carrying the English tokens has left the contract's
+scaffolding in the reader's way.
 
 ## 2. Say what things are
 
@@ -135,8 +139,13 @@ Consequences are constrained rather than banned — see Part III, risk format.
    punctuation throughout; one in English uses ASCII. Mixing them is the most visible
    way a document reads as machine-written, and it costs nothing to get right.
 3. Every `unavailable` item **MUST** be stated explicitly, never silently dropped.
-4. Every coverage figure **MUST** carry its denominator. "Some call chains could not
-   be resolved" is not acceptable; "18% (93/520) terminated early" is.
+4. Every coverage figure **MUST** carry its denominator, written as `N% (n/d)` with
+   the percent sign immediately before the bracket. "Some call chains could not be
+   resolved" is not acceptable; "18% (93/520) terminated early" is; "18% of call
+   chains (93/520)" is **not** — a noun between the sign and the bracket makes the
+   figure unverifiable, and a report written that way had every one of its coverage
+   numbers pass unchecked. The denominator **MUST** be a quantity one aggregate over
+   the base produces, never a sum you computed.
 5. A role is named once, readably. **MUST NOT** describe a role as "referenced in N
    permission checks" — that is a code statistic, not information.
 6. Diagrams **MUST** be Mermaid in a fenced ` ```mermaid ` block, never hand-written

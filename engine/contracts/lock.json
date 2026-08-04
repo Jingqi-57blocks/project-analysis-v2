@@ -9,7 +9,7 @@
     {
       "id": "report-instructions",
       "version": "1.0.0",
-      "digest": "7f11d3c16929cb85fbd6c9129d9f4e7f03ef8b27069068793f2a5265c895b799"
+      "digest": "31a9123cf10bbf3dbf51f45120cd8c5a4fe6dc0f8100b19417cd11bbc541bdf1"
     },
     {
       "id": "truth-leave",
@@ -29,7 +29,7 @@
     {
       "id": "kb-read",
       "version": "2.0.0",
-      "digest": "4217b89c4365e96e02e593c442dffa1315a7ccfeb8600744ad846a7779d63eed"
+      "digest": "f4272057023cda8d58351bbba8ddfb9622a168b7d56bbb2c9411ec62ade3d1cb"
     },
     {
       "id": "module-identity",
@@ -42,5 +42,5 @@
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "8d353c84d186ab457b88d2e3ffe2406576f4b4ebeaa05df55ec4e73b2963fb09"
+  "bundleDigest": "a19e582a0c91926d809f9ad4dfdb57f90ef8f738143dd0647bf2a124ea01f671"
 }

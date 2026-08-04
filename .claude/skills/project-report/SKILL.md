@@ -117,7 +117,7 @@ separated them.
 
 - [ ] Every chapter the spec numbers is present, in the spec's order.
 - [ ] `checklist.json` sits beside the report, with all twelve verdicts.
-- [ ] No file path, table name, identifier or identity string is in the report body — all of it is inside collapsed evidence blocks.
+- [ ] No file path, table name, identifier or identity string is in the report body — all of it is inside collapsed evidence blocks. The glossary is the exception; its subject is the mapping.
 - [ ] Every `unavailable` item is stated, not silently dropped.
 - [ ] Every coverage figure carries its denominator.
 - [ ] No table name, enum value or code spelling left untranslated in the body.
