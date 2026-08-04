@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 3.0.0
+version: 3.1.0
 ---
 
 # Writing rules
@@ -82,10 +82,21 @@ three of them reads as machine output however carefully the sentence was written
 `unavailable`.
 
 The names above are structural tokens for this document, not words for the report.
-Every marker in the report **MUST** be rendered into the target language — 事实 /
-验证 / 推断 / 不可得 in Chinese, Fact / Verified / Inferred / Unavailable in English.
-A report in one language carrying the English tokens has left the contract's
-scaffolding in the reader's way.
+Every one of them **MUST** be rendered into the target language; a report carrying
+the token as written here has left this contract's scaffolding in the reader's way.
+
+The same applies to the one fixed lead-in the chapters share. Renderings:
+
+| Token | zh-CN | en |
+| -- | -- | -- |
+| `fact` | 事实 | Fact |
+| `verified` | 验证 | Verified |
+| `inferred` | 推断 | Inferred |
+| `unavailable` | 不可得 | Unavailable |
+| the synthesis lead-in | 这意味着什么 | What this means |
+
+A language not listed takes the reading that language's own business writing would
+use; the point is that the reader never meets a token from this file.
 
 ## 2. Say what things are
 

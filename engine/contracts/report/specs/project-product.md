@@ -77,9 +77,9 @@ Numbers here **MUST** be ones a business reader can use: how many kinds of user,
 many areas of the business. Counts of code artifacts belong in chapter 10 if
 anywhere.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 2. The parts, and what each is responsible for
 
@@ -94,9 +94,9 @@ writes data, and whether scheduled work still runs in it.
 File counts, language breakdowns and line counts **MUST NOT** appear. Deployment and
 runtime environment are `unavailable`.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 3. Business domains and capability map
 
@@ -135,9 +135,9 @@ which call each other and which span more than one repository; which share a bus
 object and which is read or written by more than one part; which one the most others
 depend on. Internal steps of any one flow belong to a capability report, not here.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 4. Roles, permissions and organization
 
@@ -159,9 +159,9 @@ authorization is decided inside the code that handles a request rather than decl
 where the request arrives; the report **MUST** say so under its own lead-in, because
 a reader otherwise takes a blank cell for an absence of control.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 5. Data landscape and movement
 
@@ -179,9 +179,9 @@ Where the direction of some accesses could not be determined, the report **MUST*
 state that the observed-access table is a lower bound, with the undetermined count
 and its denominator.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 6. External dependencies and integrations
 
@@ -204,9 +204,9 @@ undetermined; **MUST NOT** speculate. Where the address is assembled at runtime,
 the integration exists and its address is `unavailable`. Cost, quota, compliance
 conclusions and alternatives are `unavailable` — chapter 10.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 7. Operations and back-office capabilities
 
@@ -218,9 +218,9 @@ Hard limits — export caps, batch sizes, file-size limits, thresholds — have 
 operational value and **MUST** be listed with their locations. Runtime performance is
 `unavailable`.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 8. Risks and current state
 
@@ -244,18 +244,18 @@ Five numbered sub-sections, each marked with the evidence it rests on:
 * **8.4 Documentation contradicting code** `fact`
 * **8.5 Still to confirm** `unavailable`
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 9. Glossary
 
 Three columns, per `writing-rules.md`. Covers the project's internal business terms,
 abbreviations, status values and role codes.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 10. Coverage and source snapshot
 
@@ -272,9 +272,9 @@ the checklist ended as `cannot be determined here`. Each gets a reason.
 
 ---
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 

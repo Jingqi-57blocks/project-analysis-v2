@@ -90,9 +90,9 @@ Then, each under its own bolded lead-in:
 * **What this report covers** — the resolved boundary, per the section above: the ids
   it comprises, and what was deliberately left out and why.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 2. How a person uses it
 
@@ -107,9 +107,9 @@ evidenced and say the rest was not established. Writing around the gap is worse 
 the gap: "nothing beyond the entry point was established for these" is a good
 sentence.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 3. The rules it enforces
 
@@ -127,9 +127,9 @@ itself about is the most useful thing on the page.
 
 Each rule says where it is enforced. A rule stated without that is a guess.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 4. States and lifecycle
 
@@ -141,9 +141,9 @@ language.
 Where more than one part declares states for the same record, show both and say which
 declares more. A difference between them is a finding for chapter 10.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 5. Who can do what, and see what
 
@@ -167,9 +167,9 @@ condition inside a handler is invisible to it. So:
 State this limit plainly, under its own lead-in. It is the difference between a
 description and an accusation.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 6. Data and fields
 
@@ -184,9 +184,9 @@ data**.
 Business names in the body; raw identifiers in the evidence layer and the glossary.
 Retention is `unavailable` unless a scheduled cleanup declares it.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 7. What else happens when it runs
 
@@ -197,9 +197,9 @@ Recipients and message contents are runtime values and are `unavailable`; the ca
 site and its channel are `fact`. Say which is which, rather than implying the report
 knows who gets told.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 8. What happens when things go wrong
 
@@ -217,9 +217,9 @@ Network interruption, request timeout and external-service failure are answerabl
 only where the code declares handling for them. Where it does not, that is
 `unavailable` — never "unhandled".
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 9. Configuration and switches
 
@@ -227,9 +227,9 @@ Which configuration affects this capability, its default, whether behaviour diff
 by environment or customer, what a switch covers, and what the code does when it is
 off.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 10. What is wrong with it, and what a change would touch
 
@@ -246,17 +246,17 @@ Under lead-ins:
   and other capabilities read or write what this one does. A reachability statement
   from the base, marked `fact`. It says what is connected, not what would break.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 11. Glossary
 
 Three columns, per `writing-rules.md`, limited to the terms this report uses.
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## 12. Coverage and what this report does not answer
 
@@ -270,9 +270,9 @@ item that ended `cannot be determined here`, each with its reason.
 
 ---
 
-**这意味着什么** / **What this means** — the synthesis: two or three sentences on
-what this chapter's facts mean for reading the rest of the report. Use exactly this
-lead-in, rendered in the target language, in every chapter.
+**What this means** — the synthesis: two or three sentences on what this chapter's
+facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
+marker, rendered per `writing-rules.md`; every chapter carries it.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 
