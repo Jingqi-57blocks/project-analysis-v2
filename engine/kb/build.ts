@@ -48,6 +48,23 @@ export interface ReaderOptions {
   readonly noCodeIndex?: boolean;
   /** Accept a code index that cannot be read as verified, and the missing call graph with it. */
   readonly allowDegraded?: boolean;
+  /**
+   * Take symbols and imports from the code index alone.
+   *
+   * The default partitions them: CodeGraph skips every file the local AST can
+   * parse, and the declaration reader supplies those. That is not a small
+   * split — on a Go/TypeScript project the local reader supplies *every*
+   * symbol and import, and CodeGraph supplies none. The partition exists
+   * because two readers describing one function under different identities is
+   * not agreement: the ids differ, both records survive, and the linking stage
+   * reads two symbols of one name as ambiguous. Handler resolution measured
+   * 438 with the split and 38 without it.
+   *
+   * This removes the ambiguity from the other side — one reader, so nothing to
+   * disagree with. Whether that costs anything is what the parity harness
+   * measures; until it is answered, the default stands.
+   */
+  readonly codegraphSymbolsOnly?: boolean;
 }
 
 /**
@@ -69,8 +86,11 @@ export function defaultReaders(
           roots: [...rootPaths],
           // The declaration reader has these already; it and CodeGraph
           // describe one function differently, and both surviving makes the
-          // pair ambiguous rather than agreed.
-          skipSymbolsIn: (relPath) => languageOf(relPath) !== null,
+          // pair ambiguous rather than agreed. Unrestricted only when the
+          // declaration reader is not there to disagree with.
+          ...(options.codegraphSymbolsOnly === true
+            ? {}
+            : { skipSymbolsIn: (relPath: string) => languageOf(relPath) !== null }),
           ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
           ...(options.allowDegraded === true ? { allowDegraded: true } : {}),
         }),
@@ -79,7 +99,7 @@ export function defaultReaders(
   return {
     structural: [
       createSourceFileProvider(),
-      createDeclarationProvider(),
+      ...(options.codegraphSymbolsOnly === true ? [] : [createDeclarationProvider()]),
       createManifestProvider(),
       createOutboundProvider(),
       createConventionsProvider(),
