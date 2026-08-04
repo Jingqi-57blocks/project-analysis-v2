@@ -19,6 +19,7 @@
     "audit:report": "tsx scripts/audit-report.ts",
     "kb:query": "tsx scripts/kb-query.ts",
     "kb:readiness": "tsx scripts/kb-readiness.ts",
+    "compat:codegraph": "tsx scripts/codegraph-compat.ts",
     "relock": "tsx scripts/relock.ts"
   },
   "devDependencies": {

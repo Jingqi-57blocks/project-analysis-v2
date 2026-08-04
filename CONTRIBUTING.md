@@ -56,6 +56,19 @@ both, in the same order — `pnpm verify:contracts` compares them, because an it
 that drifts out of the enforced list is silently no longer required, and a dropped
 item reads exactly like one that searched and found nothing.
 
+## Changing the CodeGraph version
+
+`VERIFIED_VERSION` in `engine/providers/codegraph/cli.ts`, `SUPPORTED_DB_SCHEMA`
+in `batchdb.ts`, the version in `.github/workflows/ci.yml`, and the one named in
+the README are one decision written four times. Move them together, and let
+`pnpm compat:codegraph` decide whether the move holds — it indexes
+`tests/fixtures/codegraph-compat` and checks that nodes, call edges and the
+schema are all still what the adapter expects.
+
+That fixture is for this and nothing else. It carries no business truth and is
+not an acceptance target; a compatibility failure there means the external tool
+moved, not that a report is wrong.
+
 ## Accepting a run
 
 A report is a deliverable only with a passing `audit.json` beside it. When a run

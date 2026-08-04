@@ -23,3 +23,27 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm verify:contracts
       - run: pnpm test
+
+  # The adapter reads CodeGraph's own index database, pinned to one version and
+  # one schema. The job above never installs CodeGraph, and every test that
+  # needs a real index skips when there is none — so the one boundary that can
+  # break with no change to this repository was the one nothing checked.
+  #
+  # The version is pinned here and in `engine/providers/codegraph/cli.ts`. They
+  # move together: a bump that passes here is a bump the adapter has been shown
+  # to survive, and one that does not is the failure arriving where it is cheap.
+  codegraph-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: pnpm install --frozen-lockfile
+      - run: npm install --global @colbymchenry/codegraph@1.5.0
+      - run: pnpm compat:codegraph
