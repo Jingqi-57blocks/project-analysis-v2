@@ -2,7 +2,7 @@
  * The investigation checklist's identifiers.
  *
  * The checklist itself — what each item hypothesizes and where to search for it —
- * lives in `writing-rules.md`, because it is instruction for the author. What the
+ * lives in `skills/project-report/references/writing-rules.md`, because it is instruction for the author. What the
  * engine needs is only the set of ids, so that a report missing one is caught: a
  * checklist item silently dropped looks exactly like one that found nothing.
  *

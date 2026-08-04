@@ -20,7 +20,8 @@ live in `engine/contracts/`; verify them with `pnpm verify:contracts` (see
 
 ```
 engine/            deterministic analysis and the knowledge base
-engine/contracts/  versioned contracts, and the instructions a report is written from
+engine/contracts/  versioned contracts
+skills/            the report skill: SKILL.md plus the references it reads
 truth-set/         frozen acceptance truth, target manifest and accepted reports
 scripts/           development tooling
 tests/             unit, contract and real-target tests
@@ -49,10 +50,14 @@ Everything after that reads the knowledge base and needs no access to the source
 ### Reports
 
 A report is written by the `project-report` skill, which reads the knowledge base
-directly and writes one document. It is instructed by three files in
-`engine/contracts/`: how to read the base, how to write and how to investigate,
-and which chapters this report type has. Adding a report type is adding a spec
-file; `scope` and `audience` are open sets that no code enumerates.
+directly and writes one document. The skill is one folder — `skills/project-report/`,
+with `SKILL.md` and the three references it reads: how to read the base, how to write
+and how to investigate, and which chapters this report type has. Adding a report type
+is adding a reference file.
+
+The folder is the unit: hand it to another tool and it works. `.claude/skills/` holds
+a symlink to it rather than a copy, so there is one source of truth and nothing to
+keep in step.
 
 There is no pipeline around the skill, deliberately. The one thing an author
 cannot do is check itself, so that is the one thing the engine does:

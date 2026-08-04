@@ -3,7 +3,7 @@
 ## Adding a report type
 
 A report type is one self-describing Markdown file in
-`engine/contracts/report/specs/`. Adding one is adding a file — no engine or
+`skills/project-report/references/`. Adding one is adding a file — no engine or
 command-layer code enumerates the combinations, and none should start to.
 
 1. **Declare where it applies.** Frontmatter carries `id` (equal to the file's
@@ -12,7 +12,7 @@ command-layer code enumerates the combinations, and none should start to.
    NOT** claim the same `scope × audience`.
 
 2. **Write only what to write.** How to write and how to investigate are
-   inherited from `engine/contracts/report/writing-rules.md`: evidence markers,
+   inherited from `skills/project-report/references/writing-rules.md`: evidence markers,
    the prohibited categories, chapter summaries, the investigation checklist, the
    risk format, glossary format, coverage requirements, diagram format, and the
    closing block. A spec **MUST NOT** restate any of them.
@@ -41,7 +41,7 @@ output language biases the report toward it.
 
 ## Changing the investigation checklist
 
-The checklist lives in two places on purpose: `writing-rules.md` carries what each
+The checklist lives in two places on purpose: `references/writing-rules.md` carries what each
 item hypothesizes and where to search for it, and
 `engine/contracts/report/checklist.ts` carries the ids the audit enforces. Change
 both, in the same order — `pnpm verify:contracts` compares them, because an item

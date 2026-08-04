@@ -21,7 +21,7 @@ misbehaves fails the build.
 | id | source | data | what it fixes |
 |---|---|---|---|
 | `shared-fact` | `engine/contracts/shared-fact/` | — | fact identity, evidence, provenance, resolution; confidence/activation/gap/applicability; merge/conflict/schema-version |
-| `report-instructions` | `engine/contracts/report/`, `engine/contracts/kb/reading-the-kb.md` | — | the documents a report is written from, digested so an edit to any chapter is a contract change; plus the investigation checklist ids the audit enforces |
+| `report-instructions` | `skills/project-report/` | — | the documents a report is written from, digested so an edit to any chapter is a contract change; plus the investigation checklist ids the audit enforces |
 | `truth-leave` | `engine/contracts/truth/` | `truth-set/leave/ledger.json` | the WCP-V2 leave golden-slice truth set |
 | `sentinel-angels-pizza` | `engine/contracts/truth/sentinel.ts` | `truth-set/angels-pizza/sentinels.json` | the angels-pizza generalization sentinels |
 | `targets` | `engine/contracts/targets/` | `truth-set/targets.json` | the frozen acceptance targets and revisions |

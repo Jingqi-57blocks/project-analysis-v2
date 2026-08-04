@@ -12,7 +12,7 @@ title: Project overview, non-technical
 > Goal: without reading code, be able to say what this project is, what it can do,
 > how those capabilities relate, and what is wrong with it.
 
-How to write and how to investigate: `engine/contracts/report/writing-rules.md`.
+How to write and how to investigate: `references/writing-rules.md`.
 This spec defines only the chapters and what belongs in each.
 
 # Chapters
@@ -86,7 +86,7 @@ anywhere.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 2. The parts, and what each is responsible for
 
@@ -115,7 +115,7 @@ runtime environment are `unavailable`.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 3. Business domains and capability map
 
@@ -163,7 +163,7 @@ Internal steps of any one flow belong to a capability report, not here.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 4. Roles, permissions and organization
 
@@ -206,7 +206,7 @@ a reader otherwise takes a blank cell for an absence of control.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 5. Data landscape and movement
 
@@ -229,7 +229,7 @@ and its denominator.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 6. External dependencies and integrations
 
@@ -259,7 +259,7 @@ conclusions and alternatives are `unavailable` — chapter 10.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 7. Operations and back-office capabilities
 
@@ -280,11 +280,11 @@ performance is `unavailable`.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 8. Risks and current state
 
-Grouping, format and priority: `writing-rules.md`. The analyser's own coverage gaps
+Grouping, format and priority: `references/writing-rules.md`. The analyser's own coverage gaps
 belong in chapter 10, never here.
 
 Five numbered sub-sections, each marked with the evidence it rests on:
@@ -310,11 +310,11 @@ Five numbered sub-sections, each marked with the evidence it rests on:
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 9. Glossary
 
-Three columns, per `writing-rules.md`. Covers the project's internal business terms,
+Three columns, per `references/writing-rules.md`. Covers the project's internal business terms,
 abbreviations, status values and role names.
 
 An internal code — a numeric role id, an enum spelling — earns a row only where
@@ -323,7 +323,7 @@ supplied documentation refers to it. Otherwise it stays in the evidence.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 10. Coverage and source snapshot
 
@@ -344,7 +344,7 @@ per-item record lives in `checklist.json`. Each gets a reason.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 

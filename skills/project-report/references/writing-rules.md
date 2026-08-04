@@ -274,7 +274,7 @@ never as an established absence.
 | -- | -- | -- |
 | `literal-secrets` | Keys or credentials written as literals in source | `value-set`, `entity-field`, `config-key` |
 | `rule-boundary-differs` | The same rule enforced with different boundaries in different parts *(multi-root)* | `business-rule` grouped by subject across roots |
-| `guard-polarity` | Equivalent permission checks written inconsistently | `guard`, grouped by called predicate, negations compared — see `reading-the-kb.md` |
+| `guard-polarity` | Equivalent permission checks written inconsistently | `guard`, grouped by called predicate, negations compared — see `references/reading-the-kb.md` |
 | `literal-identifiers` | Business rules comparing against literal identifier constants | `business-rule` literals |
 | `discarded-errors` | Errors neither logged nor reported | `discarded-error` |
 | `uncalled-entries` | Entry points nothing in the workspace calls | `feature-finding`, `unlinked-call` |

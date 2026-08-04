@@ -36,14 +36,18 @@ import { stableStringify } from "./shared-fact/merge.js";
 import { SHARED_FACT_CONTRACT_ID, SHARED_FACT_CONTRACT_VERSION } from "./shared-fact/version.js";
 
 /**
- * Every document the report author reads. Prose, versioned by digest — an edit to
- * a chapter is a contract change and must fail the drift gate.
+ * The skill, entire. Prose, versioned by digest — an edit to any chapter is a
+ * contract change and must fail the drift gate.
+ *
+ * It lives under `skills/` rather than in a vendor directory so the whole folder can
+ * be handed to another tool; `.claude/skills/project-report` is a symlink to it.
  */
 const REPORT_INSTRUCTION_PATHS: readonly string[] = [
-  "engine/contracts/kb/reading-the-kb.md",
-  "engine/contracts/report/writing-rules.md",
-  "engine/contracts/report/specs/project-product.md",
-  "engine/contracts/report/specs/feature-product.md",
+  "skills/project-report/SKILL.md",
+  "skills/project-report/references/reading-the-kb.md",
+  "skills/project-report/references/writing-rules.md",
+  "skills/project-report/references/project-product.md",
+  "skills/project-report/references/feature-product.md",
 ];
 
 export interface ContractDescriptor {

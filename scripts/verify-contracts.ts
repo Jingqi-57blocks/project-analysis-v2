@@ -47,7 +47,7 @@ check("target manifest", targets.ok, targets.ok ? "" : targets.reasons.join("; "
 // The checklist ids the audit enforces must match the table the author reads.
 // They live in two places because one is instruction and the other is a check;
 // drifting apart would silently stop enforcing an item.
-const rules = readFileSync("engine/contracts/report/writing-rules.md", "utf8");
+const rules = readFileSync("skills/project-report/references/writing-rules.md", "utf8");
 const checklistSection = rules.split(/^## /m).find((s) => s.startsWith("Checklist")) ?? "";
 const documented = [...checklistSection.matchAll(/^\| `([a-z-]+)` \|/gm)].map((m) => m[1]);
 check(

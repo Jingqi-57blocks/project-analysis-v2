@@ -12,7 +12,7 @@ title: Feature detail, non-technical
 > Goal: explain one capability's normal behaviour, its exceptional behaviour, and
 > what changing it would affect — without reading code.
 
-How to write and how to investigate: `engine/contracts/report/writing-rules.md`.
+How to write and how to investigate: `references/writing-rules.md`.
 This spec defines only the subject, the chapters, and what belongs in each.
 
 ---
@@ -92,7 +92,7 @@ Then, each under its own bolded lead-in:
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 2. How a person uses it
 
@@ -109,7 +109,7 @@ sentence.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 3. The rules it enforces
 
@@ -129,7 +129,7 @@ Each rule says where it is enforced. A rule stated without that is a guess.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 4. States and lifecycle
 
@@ -143,7 +143,7 @@ declares more. A difference between them is a finding for chapter 10.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 5. Who can do what, and see what
 
@@ -169,7 +169,7 @@ description and an accusation.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 6. Data and fields
 
@@ -186,7 +186,7 @@ Retention is `unavailable` unless a scheduled cleanup declares it.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 7. What else happens when it runs
 
@@ -199,7 +199,7 @@ knows who gets told.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 8. What happens when things go wrong
 
@@ -219,7 +219,7 @@ only where the code declares handling for them. Where it does not, that is
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 9. Configuration and switches
 
@@ -229,11 +229,11 @@ off.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 10. What is wrong with it, and what a change would touch
 
-Grouping, format and priority: `writing-rules.md`.
+Grouping, format and priority: `references/writing-rules.md`.
 
 Under lead-ins:
 
@@ -249,15 +249,15 @@ Under lead-ins:
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 11. Glossary
 
-Three columns, per `writing-rules.md`, limited to the terms this report uses.
+Three columns, per `references/writing-rules.md`, limited to the terms this report uses.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## 12. Coverage and what this report does not answer
 
@@ -273,7 +273,7 @@ item that ended `cannot be determined here`, each with its reason.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
-marker, rendered per `writing-rules.md`; every chapter carries it.
+marker, rendered per `references/writing-rules.md`; every chapter carries it.
 
 ## Appendix: acceptance criteria (pipeline gate; not part of the report)
 

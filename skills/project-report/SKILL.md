@@ -45,13 +45,13 @@ report was reached.
 
 ## 2 — Read three files, then the base
 
-The contracts live in this repository. Read them at these paths, in this order:
+They sit beside this one, in `references/`, and are read in this order:
 
-1. `engine/contracts/kb/reading-the-kb.md` — how to read the base.
-2. `engine/contracts/report/writing-rules.md` — how to write and how to
-   investigate, including the checklist and the closing block.
-3. `engine/contracts/report/specs/<specId>.md` — the chapters this report has,
-   and what belongs in each.
+1. `references/reading-the-kb.md` — how to read the base.
+2. `references/writing-rules.md` — how to write and how to investigate, including
+   the checklist and the file of verdicts.
+3. `references/<specId>.md` — the chapters this report has, and what belongs in
+   each.
 
 **MUST NOT** read the other spec. **MUST NOT** read the analysed project's source,
 under any circumstance — this is the one rule whose violation invalidates the whole
