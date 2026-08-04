@@ -8,7 +8,7 @@ import { symbolId } from "../../engine/structural/identity.js";
 import { declared, inferred, lineRef } from "../../engine/structural/provenance.js";
 import { readConflicts, readRecords, recordAssembledModel } from "../../engine/structural/persist.js";
 import type { StructuralContribution } from "../../engine/structural/provider.js";
-import { createFakeProvider } from "../../engine/providers/fake/provider.js";
+import { createFakeProvider } from "../support/providers/fake.js";
 
 const handlerId = symbolId({
   rootName: "svc",
