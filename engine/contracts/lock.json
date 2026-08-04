@@ -9,7 +9,7 @@
     {
       "id": "report-instructions",
       "version": "1.0.0",
-      "digest": "5920ae5ff492e4591034fa4612fc1042efc7f9bcbd7274c66e06973c2a2d5925"
+      "digest": "7cb61a5a81b8e9c263412d71dea01adfda0c55d140db1616c178bfa25b78705c"
     },
     {
       "id": "truth-leave",
@@ -42,5 +42,5 @@
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "2d5e5ea04a15e80b1d4293891912f45a3a552019e267b5342bc441db36c06370"
+  "bundleDigest": "2fbcf2906c8875ba55a4388ec189a41d5ef339709673c992210dfe54f7b83130"
 }

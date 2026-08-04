@@ -2,7 +2,7 @@
 id: feature-product
 scope: feature
 audience: product
-version: 3.0.0
+version: 4.0.0
 title: Feature detail, non-technical
 ---
 
@@ -238,9 +238,10 @@ Grouping, format and priority: `writing-rules.md`.
 Under lead-ins:
 
 * **Findings that resolve to an exact location** `fact` + `inferred`
-* **Expected rules not found in the reviewed paths** `verified` — every checklist
-  item that ended `searched, not found`, with the rows searched. A gap in coverage or
-  a question to settle, **MUST NOT** be written as an established defect
+* **Expected rules not found in the reviewed paths** `verified` — the **material**
+  questions those verdicts raise, with the scope searched. Every item has its verdict
+  in `checklist.json`; the report does not reproduce the file. A gap in coverage or a
+  question to settle, **MUST NOT** be written as an established defect
 * **Still to confirm** `unavailable`
 * **What a change here would touch** — which entry points, records, scheduled work
   and other capabilities read or write what this one does. A reachability statement
@@ -282,8 +283,9 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 * Chapter 2's steps trace to flow evidence, not to entry-point names.
 * Chapter 5 states the declared-versus-inline limit under its own lead-in.
 * Every chapter has bolded lead-ins and closes with its synthesis.
-* Every checklist item appears with a verdict, and every non-empty verdict cites ids
-  that exist in the base.
-* At least one finding came from `open` and is not a pre-computed
-  `structural-finding` row.
+* Every checklist item carries exactly one verdict **in `checklist.json`**, and every
+  id it cites exists in the base.
+* At least one finding came from `open`, and at least one material finding was
+  checked against a `source-excerpt` in the base carrying enough surrounding context
+  to support it.
 * Every coverage figure carries its denominator.

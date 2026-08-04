@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 5.0.0
+version: 6.0.0
 title: Project overview, non-technical
 ---
 
@@ -29,10 +29,9 @@ Every chapter is built the same way:
 4. the collapsed evidence block.
 
 Step 3 is a lead-in like the others, and it is repeated at the foot of every chapter
-below for that reason: as a general instruction it gets dropped. One run wrote it in
-nine chapters of eleven; the next, under the same general rule, wrote it in none. It is the difference between a document that argues something and one that
-answers questions, and nothing downstream can detect its absence — a chapter closing
-on "**Project stage** — unavailable" looks identical to one closing on a synthesis.
+below for that reason: as a general instruction it was applied inconsistently from
+one run to the next, and in one run not at all. It is the difference between a
+document that argues something and one that answers questions.
 
 The lead-ins are also what let a reader skim to the one thing they came for; a
 chapter of undifferentiated paragraphs makes them read all of it or none.
@@ -48,17 +47,22 @@ never heard of the project, and they would come away knowing what it does. If
 deleting the evidence leaves a chapter that says nothing, it was answered, not
 written.
 
-Open with a paragraph naming **what kind of organisation runs this, what business it
-is in, and which parts of that business the system holds together**. "An HR platform"
-is a label, not a sentence: it fits a hundred systems. What makes a system legible is
-which activities it puts in one place and what they share.
+Open with the most specific description the evidence supports: **what kind of
+organisation appears to use this, which activities it puts in one place, and what
+those activities share**. "An HR platform" is a label, not a sentence: it fits a
+hundred systems. What makes a system legible is which activities sit together and
+what they have in common.
+
+Where the organisation or its business cannot be established from the base, describe
+what the system is for without guessing it. Module and table names are not evidence
+of an industry.
 
 Describe the relationships the system supports; **MUST NOT** turn a data relationship
-into a mandatory causal chain. Approved work records may contribute to a billing
-calculation, and project participation may be referenced by a performance process —
-those are relationships the base can show. That every work record becomes an invoice,
-or becomes a performance record, is a transformation the base would have to prove
-exhaustively, and it does not.
+into a mandatory causal chain. Where one record is used by several processes,
+describe those uses as separate supported relationships — this one *may contribute
+to* that calculation, that process *may reference* this record. That any record is
+universally transformed into some other outcome is a claim the base would have to
+prove exhaustively, and it will not.
 
 Then, each under its own bolded lead-in:
 
@@ -86,10 +90,16 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 | Part | What it is for | Who uses it | What it carries | Notes |
 | -- | -- | -- | -- | -- |
 
-Then: **is any of them historical or being retired** — answered as `verified`, by
-searching rather than by assuming from a name. A part named like an old version is a
-hypothesis, not a finding: check whether anything still calls it, whether it still
-writes data, and whether scheduled work still runs in it.
+Then two questions that are often run together and **MUST NOT** be:
+
+* **Does it still take part in this snapshot** — `verified`, by searching rather than
+  assuming from a name. A part named like an old version is a hypothesis: check
+  whether anything still calls it, whether it still changes data, and whether
+  scheduled work is still registered in it.
+* **Does the organisation intend to retire it** — `unavailable`, unless the source or
+  its documentation says so outright. Two implementations of one thing existing side
+  by side does not establish that a migration is under way, still less that anyone
+  plans to finish it.
 
 File counts, language breakdowns and line counts **MUST NOT** appear. Deployment and
 runtime environment are `unavailable`.
@@ -131,9 +141,16 @@ it. Say that once, in a sentence, for the group as a whole.
 commercial information; they belong in chapter 10 and **MUST NOT** be status values.
 
 **How the parts relate** — its own sub-section, with a diagram, under these lead-ins:
-which call each other and which span more than one repository; which share a business
-object and which is read or written by more than one part; which one the most others
-depend on. Internal steps of any one flow belong to a capability report, not here.
+which call each other and which span more than one part; which share a business
+object, and which objects more than one part reads or writes.
+
+**Which parts the most others reach** is three different questions, and they **MUST
+NOT** be merged into one ranking without naming which was counted: direct calls;
+shared reads and writes; shared business objects. "The employee record is read by
+four parts" and "the employee module is a single point of dependency" are different
+statements, and only the first is evidenced.
+
+Internal steps of any one flow belong to a capability report, not here.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
@@ -145,13 +162,17 @@ Under lead-ins: **the roles the system defines**; **what each is mainly responsi
 for**; **the permission matrix** (role × capability × operation); **what data each
 can see**; **how the organisational units relate**.
 
-**The matrix carries confirmed findings only**, in exactly these three values:
+**Every cell carries exactly one of these three values, and none is left blank:**
 
 | Value | Meaning |
 | -- | -- |
 | Confirmed allowed | The reviewed source explicitly permits the operation |
 | Confirmed restricted | The reviewed source explicitly rejects or narrows it |
 | Not determined | This analysis cannot establish the result |
+
+Only the first two are findings. The third records a limit of the analysis, and it is
+the honest value for most cells in most projects — a blank cell is read as "no
+permission needed", which is a claim nobody made.
 
 **MUST NOT** infer permission from the existence of a page or an entry point, and
 **MUST NOT** infer denial from the absence of a confirmed permission. Much
@@ -211,12 +232,16 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 ## 7. Operations and back-office capabilities
 
 Under lead-ins: **which management capabilities exist and who uses them**; **which
-write production data directly**; **which leave an audit record**; **limits declared
-in code**; **what runs on a schedule**.
+actions change live business records**; **which leave an audit trail**; **business
+limits the system enforces**; **what it handles automatically on a schedule**.
 
-Hard limits — export caps, batch sizes, file-size limits, thresholds — have direct
-operational value and **MUST** be listed with their locations. Runtime performance is
-`unavailable`.
+"Production data" is not a thing the base can identify — it sees business records and
+cannot tell which deployment they belong to. Say business records.
+
+Hard limits — export caps, batch sizes, file-size limits, thresholds — carry direct
+operational value and **MUST** be given: the limit, and what it does to someone who
+hits it. Where they are declared belongs in the collapsed evidence. Runtime
+performance is `unavailable`.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
@@ -230,12 +255,16 @@ belong in chapter 10, never here.
 Five numbered sub-sections, each marked with the evidence it rests on:
 
 * **8.1 Architectural risks** `fact` + `inferred` — findings that resolve to an exact
-  location, and contradictions between parts
-* **8.2 Expected rules not found in the reviewed paths** `verified` — every checklist
-  item that ended `searched, not found`, with the rows searched. Each entry is a gap
-  in coverage or a question to settle, **MUST NOT** be written as an established
-  defect: the rule may sit in a database constraint, a gateway, a framework default,
-  a dependency, or a path this analysis could not follow
+  location, and contradictions between parts. A difference between parts is a
+  contradiction only where they implement the same rule, act on the same shared
+  record, or are expected to hold to the same contract. Two parts doing different
+  things differently is not a finding
+* **8.2 Expected rules not found in the reviewed paths** `verified` — the **material**
+  questions that `searched, not found` verdicts raise, with the scope searched. Every
+  item has its verdict in `checklist.json`; the report does not reproduce the file.
+  Each entry is a gap in coverage or a question to settle, **MUST NOT** be written as
+  an established defect: the rule may sit in a database constraint, a gateway, a
+  framework default, a dependency, or a path this analysis could not follow
 * **8.3 No caller found within the analysed scope** `fact` — the scope searched
   **MUST** be stated, and the report **MUST** say that this does not establish the
   capability is unused: an external client, another system, a manual tool or an older
@@ -251,7 +280,11 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 ## 9. Glossary
 
 Three columns, per `writing-rules.md`. Covers the project's internal business terms,
-abbreviations, status values and role codes.
+abbreviations, status values and role names.
+
+An internal code — a numeric role id, an enum spelling — earns a row only where
+people actually use it: where an administrator types it, a screen shows it, or the
+supplied documentation refers to it. Otherwise it stays in the evidence.
 
 **What this means** — the synthesis: two or three sentences on what this chapter's
 facts mean for reading the rest of the report. It is a fixed lead-in like an evidence
@@ -267,8 +300,10 @@ denominator; **how well evidenced each chapter is**.
 Then **the exclusion table**: every question this report does not answer, with the
 data source to consult instead. Actual usage per capability, production configuration
 and switch states, external service cost and quota, data retention and compliance,
-recent incidents, ownership, the project's stage and business goals — plus anything
-the checklist ended as `cannot be determined here`. Each gets a reason.
+recent incidents, ownership, the project's stage and business goals — plus the
+material unanswered questions the `cannot be determined` verdicts represent. Entries
+sharing one missing source and one reason are grouped into a single row; the
+per-item record lives in `checklist.json`. Each gets a reason.
 
 ---
 
@@ -283,10 +318,16 @@ marker, rendered per `writing-rules.md`; every chapter carries it.
 * Chapter 3's map names capabilities, not directory or repository names.
 * Every chapter has bolded lead-ins for its sub-questions, and closes with its
   synthesis.
-* Every checklist item appears with a verdict, and every non-empty verdict cites ids
-  that exist in the base.
-* At least one finding came from `open` and is not a pre-computed
-  `structural-finding` row.
+* Every checklist item carries exactly one verdict **in `checklist.json`**, and every
+  id it cites exists in the base. A `searched, not found` verdict records the scope
+  searched; a `cannot be determined` verdict records the reason and the data source
+  that would settle it.
+* At least one finding came from `open` — a hypothesis the checklist does not name —
+  and is not a pre-computed `structural-finding` row.
+* At least one material finding was checked against a `source-excerpt` in the base,
+  carrying enough surrounding context to support it. A matched token or a lone line
+  is not enough. (The excerpt is knowledge-base content; the report stage still
+  **MUST NOT** open the analysed project's files.)
 * Every coverage figure carries its denominator.
 * Every `unavailable` and `cannot-determine` item is named in chapter 10 with a
   reason.
