@@ -21,7 +21,7 @@ misbehaves fails the build.
 | id | source | data | what it fixes |
 |---|---|---|---|
 | `shared-fact` | `engine/contracts/shared-fact/` | — | fact identity, evidence, provenance, resolution; confidence/activation/gap/applicability; merge/conflict/schema-version |
-| `report` | `engine/contracts/report/` | — | ReportTarget = Scope × Audience, module-only, snapshot reuse; the section catalog and four document presets |
+| `report-instructions` | `engine/contracts/report/`, `engine/contracts/kb/reading-the-kb.md` | — | the documents a report is written from, digested so an edit to any chapter is a contract change; plus the investigation checklist ids the audit enforces |
 | `truth-leave` | `engine/contracts/truth/` | `truth-set/leave/ledger.json` | the WCP-V2 leave golden-slice truth set |
 | `sentinel-angels-pizza` | `engine/contracts/truth/sentinel.ts` | `truth-set/angels-pizza/sentinels.json` | the angels-pizza generalization sentinels |
 | `targets` | `engine/contracts/targets/` | `truth-set/targets.json` | the frozen acceptance targets and revisions |
@@ -30,11 +30,9 @@ misbehaves fails the build.
 ## Changing a contract
 
 A contract's shape is digested in `engine/contracts/lock.json`. To change one: bump its
-version, regenerate the lock (`computeLock()` in `engine/contracts/bundle.ts`), and provide a
-migration where a consumer's data must change. Editing a contract without updating the lock
-fails `verify:contracts` — that is the drift gate, not a nuisance.
+version, run `pnpm relock`, and provide a migration where a consumer's data must change.
+Editing a contract without updating the lock fails `verify:contracts` — that is the drift
+gate, not a nuisance.
 
-## Progress authority
-
-Issue status flows from the linked PR; the repository does not mirror a hand-maintained
-status table. See `docs/integration-workflow.md`.
+Regenerating the lock is a deliberate act after a deliberate version bump. It is never the
+fix for a red build.

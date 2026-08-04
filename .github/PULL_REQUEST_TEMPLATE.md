@@ -1,19 +1,10 @@
-<!--
-PI V1 lands on the feat/project-intelligence-v1 integration branch.
-Base every PR on feat, never on main (the only exception is the final PI-33 release PR).
-Title and commits: `PI-XX: <summary>`.
--->
-
 ## Summary
 
-<!-- What this PR delivers for the issue, in one or two sentences. -->
-
-Linear: https://linear.app/57blocks-prd/issue/PI-XX
-Fixes PI-XX
+<!-- What this PR delivers, in one or two sentences. -->
 
 ## Acceptance disposition
 
-<!-- Every acceptance item from the issue, each with evidence or an explicit deferral. -->
+<!-- Each thing it set out to do, with evidence or an explicit deferral. -->
 -
 
 ## Non-goals
@@ -21,23 +12,23 @@ Fixes PI-XX
 <!-- What this PR deliberately does not do. -->
 -
 
-## Contract / schema / migration impact
+## Contract / schema impact
 
-<!-- Any M0 contract, schema, or migration touched — or "none". -->
+<!-- Any contract, schema or migration touched — or "none". A contract change
+     needs its version bumped and `pnpm relock` run. -->
 none
 
 ## Tests
 
-<!-- Commands run and their results. -->
 - `pnpm typecheck` —
+- `pnpm verify:contracts` —
 - `pnpm test` —
 
 ## Self-review
 
-<!-- P0/P1 disposition after reviewing the full diff against feat. P2/P3 are not fixed here. -->
+<!-- P0/P1 disposition after reading the full diff. P2/P3 are not fixed here. -->
 -
 
 ## Remaining / blockers
 
-<!-- Open items, or "none". -->
 none

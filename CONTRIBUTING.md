@@ -3,44 +3,58 @@
 ## Adding a report type
 
 A report type is one self-describing Markdown file in
-`engine/contracts/report/specs/`. Adding one is adding a file — no engine, skill
-or command-layer code enumerates the combinations, and none should start to.
-
-Checklist:
+`engine/contracts/report/specs/`. Adding one is adding a file — no engine or
+command-layer code enumerates the combinations, and none should start to.
 
 1. **Declare where it applies.** Frontmatter carries `id` (equal to the file's
-   basename), `scope`, `audience`, `inherits: contract.md`, `version` and
-   `title`. `scope` and `audience` are open sets; pick whatever names the report
-   type needs. Two specs **MUST NOT** claim the same `scope × audience`.
+   basename), `scope`, `audience`, `version` and `title`. `scope` and `audience`
+   are open sets; pick whatever names the report type needs. Two specs **MUST
+   NOT** claim the same `scope × audience`.
 
-2. **Declare the fact kinds it needs.** `requires` is not documentation — it is
-   the slicing input. The fact pack is cut to exactly these kinds, so a spec can
-   never ask for a chapter the pack has no facts for. Every entry **MUST** appear
-   in `REQUIRABLE_FACT_KINDS` (`engine/contracts/report/specs.ts`); if a kind is
-   genuinely missing from that list, the knowledge base has to supply it first —
-   see step 5.
+2. **Write only what to write.** How to write and how to investigate are
+   inherited from `engine/contracts/report/writing-rules.md`: evidence markers,
+   the prohibited categories, chapter summaries, the investigation checklist, the
+   risk format, glossary format, coverage requirements, diagram format, and the
+   closing block. A spec **MUST NOT** restate any of them.
 
-3. **Write only what to write.** How to write is inherited from `contract.md`:
-   evidence markers, the five prohibited categories, chapter summaries, the
-   hypothesize–search–decide loop, glossary format, coverage requirements,
-   diagram format (Mermaid) and claim constraints. A spec **MUST NOT** restate or vary any
-   of them — that is the drift the shared contract exists to prevent. Reference
-   them by section instead.
+   Restating is not a style preference. The previous arrangement had the shared
+   contract declare itself authoritative while a spec restated the same rules
+   with the opposite sense; the author read the spec last, so the restatement
+   won, and the contradiction was invisible to anyone reading either file alone.
 
-4. **Add the self-checks.** The appendix lists the questions the report must be
-   able to answer. It is a pipeline gate, not part of the report.
+3. **Add the self-checks.** The appendix lists the questions the report must be
+   able to answer. It is an acceptance gate, not part of the report.
 
-5. **Decide whether a new deriver is needed.** If a chapter needs a fact the
+4. **Decide whether a new deriver is needed.** If a chapter needs a fact the
    knowledge base does not hold, the exit is a deriver in the analysis layer —
    never an ad-hoc source read at report time. Only consistency checks, whose
    criterion comes from the project contradicting itself, may become derivers;
-   expectation checks stay in the model's hypothesis loop.
+   expectation checks stay in the author's hypothesis loop.
 
-6. **Regenerate the lock.** Spec text is load-bearing and digested into
-   `engine/contracts/lock.json`. Bump the report contract version in
-   `engine/contracts/report/version.ts`, regenerate the lock, and confirm
+5. **Regenerate the lock.** Instruction text is load-bearing and digested into
+   `engine/contracts/lock.json`. Run `pnpm relock`, then confirm
    `pnpm verify:contracts` passes.
 
-The English of the specs is deliberate: they are instructions to a model that
-writes in whatever language the caller asks for. Authoring them in one output
-language biases the report toward it.
+The English of these documents is deliberate: they are instructions to a model
+that writes in whatever language the caller asks for. Authoring them in one
+output language biases the report toward it.
+
+## Changing the investigation checklist
+
+The checklist lives in two places on purpose: `writing-rules.md` carries what each
+item hypothesizes and where to search for it, and
+`engine/contracts/report/checklist.ts` carries the ids the audit enforces. Change
+both, in the same order — `pnpm verify:contracts` compares them, because an item
+that drifts out of the enforced list is silently no longer required, and a dropped
+item reads exactly like one that searched and found nothing.
+
+## Accepting a run
+
+A report is a deliverable only with a passing `audit.json` beside it. When a run
+is accepted, commit its artefacts — the report, the agent transcript and the audit
+verdict — under `truth-set/`.
+
+This is part of accepting it, not an optional extra. The fixtures the audit
+regresses against are the committed ones; a run left only in `.analysis/` is
+gitignored, and the baseline it established disappears with the next cleanup. That
+has already happened once.
