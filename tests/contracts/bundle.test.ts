@@ -22,7 +22,7 @@ describe("M0 contract bundle", () => {
 
   it("digests every M0 contract family", () => {
     const ids = contractDescriptors().map((d) => d.id);
-    for (const id of ["shared-fact", "report", "truth-leave", "sentinel-angels-pizza", "targets", "rubric"]) {
+    for (const id of ["shared-fact", "report-instructions", "truth-leave", "sentinel-angels-pizza", "targets", "rubric"]) {
       expect(ids, id).toContain(id);
     }
   });

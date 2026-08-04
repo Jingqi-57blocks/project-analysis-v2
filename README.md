@@ -3,29 +3,26 @@
 A knowledge base for a target project's code.
 
 Point it at any number of source folders — git or not, any language — and it
-analyzes them once into a structured, queryable knowledge base. Reports are
-rendered from that knowledge base by editable templates, never by re-reading
-the source.
+analyzes them once into a structured, queryable knowledge base. Reports are then
+written from that knowledge base, never by re-reading the source.
 
-The first two templates are a project overview and a per-module detail report.
-They are the first version, not the specification: the knowledge base is
-designed so a template nobody has written yet still works against it.
+Two report types exist today: a project overview and a per-capability detail
+report, both for a non-technical reader. They are the first version, not the
+specification — adding a report type is adding one Markdown file.
 
 ## Status
 
-Under active development on the `feat/project-intelligence-v1` branch. See the
-[Linear project](https://linear.app/57blocks-prd/project/项目智能-v1-图优先分析与报告流水线-0fe80a5b5868)
-for the plan (milestones M0–M7). The versioned product, fact and acceptance
-contracts live in `engine/contracts/`; verify them with `pnpm verify:contracts`
-(see `docs/m0-contracts.md`).
+Under active development. The versioned product, fact and acceptance contracts
+live in `engine/contracts/`; verify them with `pnpm verify:contracts` (see
+`docs/m0-contracts.md`).
 
 ## Layout
 
 ```
 engine/            deterministic analysis and the knowledge base
-engine/contracts/  versioned product, fact and acceptance contracts
-templates/         prompt templates over the knowledge base
-truth-set/         frozen acceptance truth and target manifest (test data)
+engine/contracts/  versioned contracts
+skills/            the report skill: SKILL.md plus the references it reads
+truth-set/         frozen acceptance truth, target manifest and accepted reports
 scripts/           development tooling
 tests/             unit, contract and real-target tests
 ```
@@ -37,12 +34,7 @@ pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowl
                      [--index-root dir]          #   put the code index elsewhere
                      [--no-code-index]           #   or skip it entirely
 pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
-pnpm run export  -- --as json                    # the knowledge base as one JSON document
-pnpm run report  -- --project --module leave     # one project report + one module detail
-pnpm run report  -- --module leave               # module-only report
-pnpm run report  -- --project \
-  --module worklog --module leave --module application --module reimbursement \
-  --out /path/outside/the/target
+pnpm audit:report -- <report.md> [--db kb.sqlite] # check a written report against the base
 ```
 
 `analyze` is the only command that touches the project, and it reads
@@ -53,24 +45,31 @@ say so too. `--index-root` moves it, at the cost of indexing only what is
 under the directory you name; `--no-code-index` skips it and declares the
 missing symbols as a gap.
 
-Everything after that reads the knowledge base and needs no access to the
-source. `report` reuses module classification and authored-document caches only
-when their fact, model, prompt and snapshot identities still match.
+Everything after that reads the knowledge base and needs no access to the source.
 
 ### Reports
 
-A report request is a flexible set of `scope × audience` targets. The current
-delivery command supports the Chinese non-technical audience at project scope,
-module scope, or both. It classifies one bounded module-candidate list, resolves
-each section from the frozen KB, batches authored sections once per document,
-validates every claim and flow reference, then exports one static HTML site.
+A report is written by the `project-report` skill, which reads the knowledge base
+directly and writes one document. The skill is one folder — `skills/project-report/`,
+with `SKILL.md` and the three references it reads: how to read the base, how to write
+and how to investigate, and which chapters this report type has. Adding a report type
+is adding a reference file.
 
-The analysis and report engine stay model-agnostic. The CLI uses the generic
-JSON-agent port (`engine/host/json-agent.ts`) with Codex CLI by default; it sends
-only bounded facts, never a source checkout. Deterministic facts, citations,
-coverage accounting, module membership and the final HTML structure are code-
-generated. The model may summarize or group those facts but cannot introduce a
-foreign fact id, omit an evidenced module flow, or write outside its slice.
+The folder is the unit: hand it to another tool and it works. `.claude/skills/` holds
+a symlink to it rather than a copy, so there is one source of truth and nothing to
+keep in step.
+
+There is no pipeline around the skill, deliberately. The one thing an author
+cannot do is check itself, so that is the one thing the engine does:
+`pnpm audit:report` resolves every identity the report says it read against the
+base, checks every cited path against the files that were actually analysed, and
+checks every proportion against a quantity the base can justify. **A report
+without a passing `audit.json` beside it is not a deliverable.**
+
+That check is not a formality. In a three-model trial over one knowledge base,
+the three outputs were indistinguishable by appearance — the fabricated one was
+just as well formatted, just as complete, and the second longest. Only pulling
+each statement back to the base separated them.
 
 ## Development
 

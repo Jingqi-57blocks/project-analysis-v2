@@ -11,15 +11,13 @@
  */
 
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { loadTargetManifest } from "./targets/manifest.js";
 import { GATES, GOLDEN_SLICE_THRESHOLDS } from "./rubric/gates.js";
 import { loadAngelsPizzaSentinels } from "./truth/sentinel.js";
 import { loadLeaveTruthLedger } from "./truth/leave.js";
-import { DOCUMENT_PRESETS } from "./report/presets.js";
-import { SECTION_CATALOG } from "./report/catalog.js";
-import { loadSpecRegistry } from "./report/specs.js";
-import { CLAIM_CONTRACT_ID, CLAIM_CONTRACT_VERSION, claimId } from "./claim/index.js";
+import { CHECKLIST_IDS } from "./report/checklist.js";
 import { MODULE_CATEGORIES, MODULE_CONTRACT_ID, MODULE_CONTRACT_VERSION } from "./module/index.js";
 import {
   KB_CONTRACT_ID,
@@ -31,12 +29,26 @@ import {
   WORKSPACE_LEVEL_KINDS,
   loadKbContractGuide,
 } from "./kb/index.js";
-import { REPORT_CONTRACT_ID, REPORT_CONTRACT_VERSION } from "./report/version.js";
 import { COVERAGE_STATES } from "./shared-fact/applicability.js";
 import { FACT_FAMILIES } from "./shared-fact/families.js";
 import { RESOLUTION_CLASSES } from "./shared-fact/provenance.js";
 import { stableStringify } from "./shared-fact/merge.js";
 import { SHARED_FACT_CONTRACT_ID, SHARED_FACT_CONTRACT_VERSION } from "./shared-fact/version.js";
+
+/**
+ * The skill, entire. Prose, versioned by digest — an edit to any chapter is a
+ * contract change and must fail the drift gate.
+ *
+ * It lives under `skills/` rather than in a vendor directory so the whole folder can
+ * be handed to another tool; `.claude/skills/project-report` is a symlink to it.
+ */
+const REPORT_INSTRUCTION_PATHS: readonly string[] = [
+  "skills/project-report/SKILL.md",
+  "skills/project-report/references/reading-the-kb.md",
+  "skills/project-report/references/writing-rules.md",
+  "skills/project-report/references/project-product.md",
+  "skills/project-report/references/feature-product.md",
+];
 
 export interface ContractDescriptor {
   readonly id: string;
@@ -55,7 +67,6 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
   const leave = loadLeaveTruthLedger();
   const sentinels = loadAngelsPizzaSentinels();
   const targets = loadTargetManifest();
-  const specs = loadSpecRegistry();
   return [
     {
       id: SHARED_FACT_CONTRACT_ID,
@@ -63,31 +74,16 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
       snapshot: { families: FACT_FAMILIES, resolutions: RESOLUTION_CLASSES, coverageStates: COVERAGE_STATES },
     },
     {
-      id: REPORT_CONTRACT_ID,
-      version: REPORT_CONTRACT_VERSION,
+      id: "report-instructions",
+      version: "1.0.0",
       snapshot: {
-        presets: DOCUMENT_PRESETS.map((p) => ({
-          id: p.id,
-          required: p.requiredSectionIds,
-          optional: p.optionalSectionIds,
-        })),
-        sections: SECTION_CATALOG.map((s) => s.id),
-        // Specs are prose contracts, so their text is load-bearing: the digest
-        // makes an edit to any chapter fail the drift gate, not just an edit to
-        // the frontmatter.
-        writingContract: {
-          id: specs.contract.id,
-          version: specs.contract.version,
-          digest: digestText(specs.contract.body),
-        },
-        specs: specs.specs.map((s) => ({
-          id: s.id,
-          scope: s.scope,
-          audience: s.audience,
-          version: s.version,
-          inherits: s.inherits,
-          requires: s.requires,
-          digest: digestText(s.body),
+        // The instructions are prose contracts, so their text is load-bearing:
+        // the digest makes an edit to any chapter fail the drift gate. The
+        // checklist ids are pinned separately because the audit reads them.
+        checklist: CHECKLIST_IDS,
+        documents: REPORT_INSTRUCTION_PATHS.map((path) => ({
+          path,
+          digest: digestText(readFileSync(new URL(`../../${path}`, import.meta.url), "utf8")),
         })),
       },
     },
@@ -131,23 +127,6 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
         workspaceLevel: WORKSPACE_LEVEL_KINDS,
         // The reader-facing guide is prose, so its text is load-bearing too.
         guideDigest: digestText(loadKbContractGuide()),
-      },
-    },
-    {
-      id: CLAIM_CONTRACT_ID,
-      version: CLAIM_CONTRACT_VERSION,
-      snapshot: {
-        // The identity function is the contract. Pinning a worked example makes
-        // any change to how a claimId is formed fail the drift gate, because
-        // that change would silently renumber every persisted claim.
-        identityShape: "claim:<predicate>:<subject.type>:<subject.ref>",
-        identityExample: claimId("table-written-by-multiple-services", { type: "entity", ref: "example_table" }),
-        excludedFromIdentity: ["qualifiers", "factIds", "usedBy"],
-        invariants: [
-          "a claim without factIds is invalid",
-          "a predicate is a lowercase token, never a sentence",
-          "an aggregate is a roll-up over a predicate, never its own claim",
-        ],
       },
     },
     {

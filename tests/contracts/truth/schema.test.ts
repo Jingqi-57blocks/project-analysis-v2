@@ -67,25 +67,12 @@ describe("validateLedger — M3 report-section routing", () => {
     if (!audienceMismatch.ok) expect(audienceMismatch.reasons.some((r) => r.includes("audience developer not in requiredAudience"))).toBe(true);
   });
 
-  it("rejects a named section that does not exist in the report catalog", () => {
-    const result = validateLedger(ledger({ reportSections: [{ scope: "module", audience: "product", sectionId: "not-a-real-section" }] }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reasons.some((r) => r.includes("unknown catalog section not-a-real-section"))).toBe(true);
-  });
 
-  it("rejects a named section whose catalog scope the document does not reach", () => {
-    // module-notifications-data is a module/product section; naming it under a
-    // developer document is unreachable.
-    const result = validateLedger(
-      ledger({ requiredAudience: ["developer"], reportSections: [{ scope: "module", audience: "developer", sectionId: "module-notifications-data" }] }),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reasons.some((r) => r.includes("not reachable from developer"))).toBe(true);
-  });
 
-  it("accepts a shared catalog section named from any scope × audience", () => {
-    // coverage is a shared/shared section — it folds into every document, so a
-    // module/developer reference is reachable and valid.
+  it("accepts a section name from any scope × audience the item requires", () => {
+    // The section name is a routing hint the ledger records. It is no longer
+    // checked against a catalog: a report's chapters are the spec's prose now,
+    // not a compiled section graph.
     const result = validateLedger(ledger({ requiredAudience: ["developer"], reportSections: [{ scope: "module", audience: "developer", sectionId: "coverage" }] }));
     expect(result).toEqual({ ok: true });
   });

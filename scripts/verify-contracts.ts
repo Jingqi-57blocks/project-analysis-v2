@@ -12,16 +12,7 @@
 import { readFileSync } from "node:fs";
 
 import { computeLock, type ContractLock } from "../engine/contracts/bundle.js";
-import {
-  DOCUMENT_PRESETS,
-  ILLEGAL_REQUEST_EXAMPLES,
-  LEGAL_COMBINATION_EXAMPLES,
-  loadSpecRegistry,
-  validatePreset,
-  validateRequest,
-  validateSpecRegistry,
-} from "../engine/contracts/report/index.js";
-import { INVALID_CLAIM_EXAMPLES, VALID_CLAIM_EXAMPLES, validateClaim } from "../engine/contracts/claim/index.js";
+import { CHECKLIST_IDS } from "../engine/contracts/report/checklist.js";
 import { validateKbContract } from "../engine/contracts/kb/index.js";
 import { MODULE_CATEGORIES, categorize } from "../engine/contracts/module/index.js";
 import { INVALID_PROVENANCE_EXAMPLES, validateProvenance } from "../engine/contracts/shared-fact/index.js";
@@ -53,21 +44,19 @@ const sentinels = validateSentinelLedger(loadAngelsPizzaSentinels());
 check("angels-pizza sentinels", sentinels.ok, sentinels.ok ? "" : sentinels.reasons.join("; "));
 const targets = validateManifest(loadTargetManifest());
 check("target manifest", targets.ok, targets.ok ? "" : targets.reasons.join("; "));
-for (const preset of DOCUMENT_PRESETS) {
-  const v = validatePreset(preset);
-  check(`report preset ${preset.id}`, v.ok, v.ok ? "" : v.reason);
-}
-const specs = validateSpecRegistry(loadSpecRegistry());
-check("output specs", specs.ok, specs.ok ? "" : specs.reasons.join("; "));
+// The checklist ids the audit enforces must match the table the author reads.
+// They live in two places because one is instruction and the other is a check;
+// drifting apart would silently stop enforcing an item.
+const rules = readFileSync("skills/project-report/references/writing-rules.md", "utf8");
+const checklistSection = rules.split(/^## /m).find((s) => s.startsWith("Checklist")) ?? "";
+const documented = [...checklistSection.matchAll(/^\| `([a-z-]+)` \|/gm)].map((m) => m[1]);
+check(
+  "checklist ids match writing-rules.md",
+  documented.length === CHECKLIST_IDS.length && documented.every((id, i) => id === CHECKLIST_IDS[i]),
+  `documented [${documented.join(", ")}] vs enforced [${CHECKLIST_IDS.join(", ")}]`,
+);
 const kb = validateKbContract();
 check("knowledge-base read contract", kb.ok, kb.ok ? "" : kb.reasons.join("; "));
-for (const example of VALID_CLAIM_EXAMPLES) {
-  const v = validateClaim(example.claim);
-  check(`valid claim (${example.name})`, v.ok, v.ok ? "" : v.reasons.join("; "));
-}
-for (const example of INVALID_CLAIM_EXAMPLES) {
-  check(`invalid claim rejected (${example.why})`, !validateClaim(example.claim).ok);
-}
 check(
   "module categorization is total",
   MODULE_CATEGORIES.includes(
@@ -76,8 +65,6 @@ check(
 );
 
 // 3. Positive / negative fixtures behave as specified.
-for (const ex of LEGAL_COMBINATION_EXAMPLES) check(`legal combination ${ex.name}`, validateRequest(ex.request).ok);
-for (const ex of ILLEGAL_REQUEST_EXAMPLES) check(`illegal request rejected (${ex.why})`, !validateRequest(ex.request).ok);
 for (const ex of INVALID_PROVENANCE_EXAMPLES) {
   check(`invalid provenance rejected (${ex.why})`, !validateProvenance(ex.value).ok);
 }
