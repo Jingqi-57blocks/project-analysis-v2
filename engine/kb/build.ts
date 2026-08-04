@@ -46,6 +46,8 @@ export interface ReaderOptions {
   readonly indexRoot?: string;
   /** Skip the code index entirely, and declare the resulting absence. */
   readonly noCodeIndex?: boolean;
+  /** Accept a code index that cannot be read as verified, and the missing call graph with it. */
+  readonly allowDegraded?: boolean;
 }
 
 /**
@@ -70,6 +72,7 @@ export function defaultReaders(
           // pair ambiguous rather than agreed.
           skipSymbolsIn: (relPath) => languageOf(relPath) !== null,
           ...(options.indexRoot === undefined ? {} : { indexRoot: options.indexRoot }),
+          ...(options.allowDegraded === true ? { allowDegraded: true } : {}),
         }),
       ];
 

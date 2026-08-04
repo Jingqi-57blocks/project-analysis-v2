@@ -20,6 +20,8 @@
  */
 
 import type { Store } from "../store/types.js";
+import { MARKERS, citedIdentitiesBySection, parseClaims, reportSections } from "./claims.js";
+import type { Readiness } from "./readiness.js";
 
 export type FindingCode =
   | "cited-path-not-in-workspace"
@@ -35,7 +37,16 @@ export type FindingCode =
   | "no-checkable-coverage-figure"
   | "verdict-missing-its-basis"
   | "no-open-kb-finding"
-  | "nothing-validated-against-source";
+  | "nothing-validated-against-source"
+  | "claims-block-missing"
+  | "claim-marker-unknown"
+  | "claim-without-evidence"
+  | "claim-missing-reason"
+  | "claim-evidence-not-in-its-section"
+  | "body-id-not-declared"
+  | "queries-log-missing"
+  | "query-not-scoped-to-snapshot"
+  | "snapshot-not-ready-for-spec";
 
 /**
  * Whether a finding stops delivery.
@@ -395,6 +406,28 @@ export interface AuditInput {
   readonly checklist?: string;
   /** Resolves cited identities against the base. Omitted in fixture replays. */
   readonly resolveIds?: (ids: readonly string[]) => ReadonlySet<string>;
+  /** Contents of `claims.json` — what each chapter's statements rest on. */
+  readonly claims?: string;
+  /**
+   * The identity namespaces this snapshot uses, from `identityNamespaces`.
+   *
+   * Without it the body's identities cannot be told from its paths and endpoints,
+   * so the body checks are skipped rather than guessed at. Fixture replays that
+   * have no store omit it.
+   */
+  readonly namespaces?: ReadonlySet<string>;
+  /** Contents of `scratch/queries.log`, when the run kept one. */
+  readonly queriesLog?: string;
+  /** Whether the run was required to keep a query log. */
+  readonly requireQueriesLog?: boolean;
+  /**
+   * What the snapshot holds against what the report's type needs.
+   *
+   * Checked again here, having been checked before writing, because the earlier
+   * check is advice and this one decides delivery. A report written anyway from
+   * a base with no call graph is exactly the artefact that must not ship.
+   */
+  readonly readiness?: Readiness;
 }
 
 /**
@@ -403,6 +436,149 @@ export interface AuditInput {
  * A failing audit means the report **MUST NOT** be exported as a deliverable. It
  * may still be written out as a diagnostic artefact.
  */
+/**
+ * Whether each chapter's statements rest on rows that exist.
+ *
+ * Two directions, both required. Downwards: every identity a claim declares must
+ * exist in the snapshot and appear in the chapter that claims it — a claim citing
+ * a row its chapter never mentions is bookkeeping, not evidence. Upwards: every
+ * identity the body cites must be declared by a claim for that chapter — this is
+ * what closes the hole the checklist left, where prose could name rows nothing
+ * ever resolved.
+ *
+ * Skipped entirely when the run supplied no namespaces: with no way to tell an
+ * identity from a path, guessing would produce findings against correct reports.
+ */
+function auditClaims(input: AuditInput, findings: AuditFinding[]): void {
+  const namespaces = input.namespaces;
+  if (namespaces === undefined) return;
+
+  if (input.claims === undefined) {
+    findings.push({
+      code: "claims-block-missing",
+      severity: "blocking",
+      detail: "no claims.json beside the report, so nothing the body states can be traced to a row",
+      evidence: "claims.json",
+    });
+    return;
+  }
+
+  const claims = parseClaims(input.claims);
+  const sections = reportSections(input.report);
+  const cited = citedIdentitiesBySection(input.report, namespaces);
+  const declared = input.resolveIds?.(claims.flatMap((claim) => claim.evidenceIds)) ?? null;
+
+  for (const claim of claims) {
+    if (!MARKERS.has(claim.marker)) {
+      findings.push({
+        code: "claim-marker-unknown",
+        severity: "blocking",
+        detail: `marker "${claim.marker}" is not one of ${[...MARKERS].join(", ")}`,
+        evidence: claim.id,
+      });
+      continue;
+    }
+
+    if (claim.marker === "unavailable") {
+      if (claim.reason === undefined) {
+        findings.push({
+          code: "claim-missing-reason",
+          severity: "blocking",
+          detail: "states the base cannot answer, without saying why",
+          evidence: claim.id,
+        });
+      }
+      continue;
+    }
+
+    if (claim.evidenceIds.length === 0) {
+      findings.push({
+        code: "claim-without-evidence",
+        severity: "blocking",
+        detail: `is marked "${claim.marker}" while naming no row it rests on`,
+        evidence: claim.id,
+      });
+      continue;
+    }
+
+    const section = sections[claim.section - 1];
+    for (const id of claim.evidenceIds) {
+      if (declared !== null && !declared.has(id)) {
+        findings.push({
+          code: "cited-id-not-in-base",
+          severity: "blocking",
+          detail: `"${claim.id}" cites an identity the knowledge base does not contain`,
+          evidence: id,
+        });
+        continue;
+      }
+      if (section === undefined || !section.includes(id)) {
+        findings.push({
+          code: "claim-evidence-not-in-its-section",
+          severity: "blocking",
+          detail: `"${claim.id}" claims chapter ${claim.section}, which never cites this row`,
+          evidence: id,
+        });
+      }
+    }
+  }
+
+  const declaredBySection = new Map<number, Set<string>>();
+  for (const claim of claims) {
+    const into = declaredBySection.get(claim.section) ?? new Set<string>();
+    for (const id of claim.evidenceIds) into.add(id);
+    declaredBySection.set(claim.section, into);
+  }
+
+  for (const [section, ids] of cited) {
+    const accounted = declaredBySection.get(section) ?? new Set<string>();
+    for (const id of ids) {
+      if (accounted.has(id)) continue;
+      findings.push({
+        code: "body-id-not-declared",
+        severity: "blocking",
+        detail: `chapter ${section} cites a row that no claim accounts for`,
+        evidence: id,
+      });
+    }
+  }
+}
+
+/**
+ * Whether the run's own record of what it asked is present and scoped.
+ *
+ * A query that omits `snapshot_id` reads across every analysis in the file and
+ * returns a larger number that looks correct. The log is the only place that is
+ * visible afterwards, so an unscoped query in it is a finding about the numbers
+ * in the report, not a note about tidiness.
+ */
+function auditQueryLog(input: AuditInput, findings: AuditFinding[]): void {
+  if (input.requireQueriesLog !== true) return;
+
+  const log = input.queriesLog;
+  if (log === undefined || log.trim() === "") {
+    findings.push({
+      code: "queries-log-missing",
+      severity: "blocking",
+      detail: "no queries.log beside the report, so how the report was reached cannot be told from what it asserts",
+      evidence: "queries.log",
+    });
+    return;
+  }
+
+  for (const line of log.split("\n")) {
+    const query = line.trim();
+    if (query === "" || !/\bsnapshot_id\b/.test(query)) continue;
+    if (query.includes(":snapshot") || /snapshot_id\s*=\s*\d+/.test(query)) continue;
+    findings.push({
+      code: "query-not-scoped-to-snapshot",
+      severity: "blocking",
+      detail: "a logged query names snapshot_id but binds it to nothing, so its result spans every analysis in the base",
+      evidence: query.slice(0, 160),
+    });
+  }
+}
+
 export function auditReport(input: AuditInput): AuditResult {
   const findings: AuditFinding[] = [];
   const { report, inventory } = input;
@@ -458,6 +634,20 @@ export function auditReport(input: AuditInput): AuditResult {
         evidence: `${pair.percent}% (${pair.numerator}/${pair.denominator})`,
       });
     }
+  }
+
+  auditClaims(input, findings);
+  auditQueryLog(input, findings);
+
+  if (input.readiness !== undefined && !input.readiness.ready) {
+    findings.push({
+      code: "snapshot-not-ready-for-spec",
+      severity: "blocking",
+      detail:
+        `a ${input.readiness.specId} report cannot be written from this snapshot: it holds no ` +
+        `${input.readiness.missing.join(", ")}`,
+      evidence: input.readiness.missing.join(", "),
+    });
   }
 
   const required = input.requiredChecklistIds ?? [];

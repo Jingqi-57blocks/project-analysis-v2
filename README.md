@@ -10,6 +10,16 @@ Two report types exist today: a project overview and a per-capability detail
 report, both for a non-technical reader. They are the first version, not the
 specification — adding a report type is adding one Markdown file.
 
+## Requirements
+
+Node 22 or later, pnpm 10, and **CodeGraph 1.5.0** for the call graph. The
+version is pinned rather than detected: the adapter reads CodeGraph's own index
+database, because 1.5 has no batch edge export and the alternative is one
+subprocess per symbol. A different version, or an index schema other than the
+one this build reads, refuses the run — the fallback supplies symbols without
+call relationships, and a report written from that has every chapter and nothing
+connecting them. `--allow-degraded` accepts that trade explicitly.
+
 ## Status
 
 Under active development. The versioned product, fact and acceptance contracts
@@ -34,8 +44,20 @@ pnpm run analyze -- <path...> [--db kb.sqlite]   # read the project into a knowl
                      [--index-root dir]          #   put the code index elsewhere
                      [--no-code-index]           #   or skip it entirely
 pnpm run status  -- <path>    [--db kb.sqlite]   # what a knowledge base holds
-pnpm audit:report -- <report.md> [--db kb.sqlite] # check a written report against the base
+pnpm kb:query --sql "select ..." [--run <runId>]  # read one snapshot, scoped to it
+pnpm kb:readiness --spec <specId> [--run <runId>] # can this base answer this report type
+
+pnpm audit:report <report.md> [--db kb.sqlite]    # check a written report against the base
 ```
+
+A knowledge base is append-only: one file can hold several workspaces, several
+runs, and snapshots left inert by runs that failed before publishing. So both
+readers work on one named snapshot rather than on the file. `kb:query` binds
+`:snapshot` and refuses a query that reads a snapshot-scoped table without it;
+`audit:report` reads the `manifest.json` beside the report and refuses if the
+snapshot it names is not the one the base resolves. Neither can create or migrate
+a database — a reader that creates answers a mistyped `--db` with an empty base
+instead of an error.
 
 `analyze` is the only command that touches the project, and it reads
 everything except one thing: the code indexer writes a cache into the
@@ -60,16 +82,20 @@ a symlink to it rather than a copy, so there is one source of truth and nothing 
 keep in step.
 
 There is no pipeline around the skill, deliberately. The one thing an author
-cannot do is check itself, so that is the one thing the engine does:
-`pnpm audit:report` resolves every identity the report says it read against the
-base, checks every cited path against the files that were actually analysed, and
+cannot do is check itself, so that is the one thing the engine does.
+`pnpm audit:report` resolves every identity the report cites — in the body as
+well as in `checklist.json` and `claims.json` — against the snapshot the report
+names, checks every cited path against the files that were actually analysed, and
 checks every proportion against a quantity the base can justify. **A report
 without a passing `audit.json` beside it is not a deliverable.**
 
-That check is not a formality. In a three-model trial over one knowledge base,
-the three outputs were indistinguishable by appearance — the fabricated one was
-just as well formatted, just as complete, and the second longest. Only pulling
-each statement back to the base separated them.
+Be precise about what that does and does not settle. It settles whether the rows
+a statement rests on exist and were read; it does not settle whether the statement
+follows from them. Nothing mechanical can. What it removes is the case where the
+prose rests on nothing at all — which is not hypothetical: in a three-model trial
+over one knowledge base the three outputs were indistinguishable by appearance,
+and the fabricated one was just as well formatted, just as complete, and the
+second longest.
 
 ## Development
 

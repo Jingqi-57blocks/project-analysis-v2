@@ -2,20 +2,32 @@
  * The entire CodeGraph surface this tool touches. If `grep -r codegraph engine/`
  * hits anything outside this directory, the boundary has leaked.
  *
- * Queries go through the documented CLI. The index database inside
- * `.codegraph/` is never read — that store is theirs to change between
- * versions.
+ * Queries go through the documented CLI. Its index database is read too, by
+ * `batchdb.ts` beside this file — CodeGraph 1.5 has no batch edge export, and
+ * the alternative was one subprocess per symbol. That store is theirs to change
+ * between versions, so the read is pinned: `VERIFIED_VERSION` here and
+ * `SUPPORTED_DB_SCHEMA` there, and a run against anything else refuses rather
+ * than degrading. Silently falling back to the CLI produced a report with every
+ * chapter present and no call relationships in any of them.
  */
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
+import { codeIndexDirName } from "../../artifacts.js";
+
 /** The version this adapter was written and verified against. */
 export const VERIFIED_VERSION = "1.5.0";
 
-/** Where CodeGraph puts its index. Named here only to detect prior indexing — never opened. */
-const INDEX_DIRECTORY = ".codegraph";
+/**
+ * Where CodeGraph puts its index — resolved, not assumed.
+ *
+ * `CODEGRAPH_DIR` renames it, and CodeGraph reads that variable live. Naming
+ * the default here would make this tool look for a database CodeGraph is not
+ * writing, on exactly the machines the variable exists for.
+ */
+const indexDirectory = (): string => codeIndexDirName();
 
 /** Declared as a capability limit, so hitting it reports truncation rather than a partial whole. */
 export const NODE_LIMIT = 100_000;
@@ -120,19 +132,20 @@ export function sharedIndexRoot(rootPaths: readonly string[]): string | null {
 }
 
 export function isIndexed(rootPath: string): boolean {
-  return existsSync(join(rootPath, INDEX_DIRECTORY));
+  return existsSync(join(rootPath, indexDirectory()));
 }
 
 /**
- * Writes `.codegraph/` inside the directory it is pointed at, which CodeGraph
- * offers no flag to relocate. Callers point it at the directory *containing*
- * the analyzed roots for exactly that reason — see `sharedIndexRoot`.
+ * Writes its index directory inside the directory it is pointed at, which
+ * CodeGraph offers no flag to relocate. Callers point it at the directory
+ * *containing* the analyzed roots for exactly that reason — see
+ * `sharedIndexRoot`.
  */
 export function ensureIndexed(rootPath: string): void {
   run(isIndexed(rootPath) ? ["index", "-q", rootPath] : ["init", rootPath]);
 }
 
-const LOCK_DIRECTORY = ".codegraph.lock";
+const lockDirectory = (): string => `${codeIndexDirName()}.lock`;
 const LOCK_POLL_MS = 200;
 const LOCK_WAIT_MS = 180_000;
 /** Long enough that no live run holds a lock this old; short enough to recover. */
@@ -160,7 +173,7 @@ function lockAge(path: string): number {
  * run must not make the directory permanently unusable.
  */
 export function withIndexLock<T>(rootPath: string, work: () => T): T {
-  const lockPath = join(rootPath, LOCK_DIRECTORY);
+  const lockPath = join(rootPath, lockDirectory());
   const deadline = Date.now() + LOCK_WAIT_MS;
 
   for (;;) {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { SUPPORTED_SCHEMA_VERSION } from "../../engine/store/migrations.js";
-import { IN_MEMORY, openStore } from "../../engine/store/open.js";
+import { IN_MEMORY, NoSuchStoreError, openStore, openStoreReadonly } from "../../engine/store/open.js";
 import { SchemaTooNewError, type Store } from "../../engine/store/types.js";
 
 let store: Store;
@@ -74,6 +74,50 @@ describe("migration", () => {
     created.close();
 
     expect(() => openStore(path)).toThrow(SchemaTooNewError);
+  });
+});
+
+describe("opening a base read-only", () => {
+  it("refuses a path that holds nothing, rather than creating one there", () => {
+    const path = join(workDir, "typo.sqlite");
+
+    expect(() => openStoreReadonly(path)).toThrow(NoSuchStoreError);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("reads an existing base without rewriting its schema history", () => {
+    const path = join(workDir, "kb.sqlite");
+    const created = openStore(path, { now: "2020-01-01T00:00:00.000Z" });
+    created.run("INSERT INTO workspaces (path, created_at) VALUES (?, ?)", ["/a", "t0"]);
+    const before = created.all("SELECT * FROM schema_migrations");
+    created.close();
+
+    const reader = openStoreReadonly(path);
+    expect(reader.get<{ path: string }>("SELECT path FROM workspaces")?.path).toBe("/a");
+    expect(reader.all("SELECT * FROM schema_migrations")).toEqual(before);
+    reader.close();
+  });
+
+  it("cannot write, whatever the caller asks for", () => {
+    const path = join(workDir, "kb.sqlite");
+    openStore(path).close();
+
+    const reader = openStoreReadonly(path);
+    expect(() => reader.run("INSERT INTO workspaces (path, created_at) VALUES (?, ?)", ["/a", "t0"])).toThrow();
+    reader.close();
+  });
+
+  it("refuses a database written by a newer build", () => {
+    const path = join(workDir, "future.sqlite");
+    const created = openStore(path);
+    created.run("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)", [
+      SUPPORTED_SCHEMA_VERSION + 1,
+      "from-the-future",
+      "2030-01-01T00:00:00.000Z",
+    ]);
+    created.close();
+
+    expect(() => openStoreReadonly(path)).toThrow(SchemaTooNewError);
   });
 });
 

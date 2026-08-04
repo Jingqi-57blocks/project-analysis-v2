@@ -11,7 +11,7 @@ import {
   gradeRoutes,
   type ReferenceRoute,
 } from "../../engine/structural/routegate.js";
-import { announceSkip } from "../support/targets.js";
+import { announceSkip, codeIndexAvailability } from "../support/targets.js";
 import type { RouteRecord } from "../../engine/structural/boundaries.js";
 
 const referencePath = join(process.cwd(), "references", "wcp-auth", "routes.json");
@@ -123,7 +123,12 @@ describe("everyRouteAccountedFor", () => {
 const wcpV2 = resolveTarget("wcp-v2");
 if (!wcpV2.ok) announceSkip("route gate on wcp-auth", wcpV2.unavailable.reason);
 
-describe.skipIf(!wcpV2.ok)("the gate against real extraction", () => {
+const codeIndex = codeIndexAvailability();
+if (!codeIndex.available) announceSkip("route gate on wcp-auth", codeIndex.reason);
+
+const canRun = wcpV2.ok && codeIndex.available;
+
+describe.skipIf(!canRun)("the gate against real extraction", () => {
   // Extracted once and shared: indexing plus a callee query per callable
   // symbol costs about half a minute, and re-running it per assertion would
   // triple that for no additional coverage.
@@ -191,7 +196,7 @@ describe.skipIf(!wcpV2.ok)("the gate against real extraction", () => {
   });
 });
 
-describe.skipIf(!wcpV2.ok)("the gate against framework-aware extraction", () => {
+describe.skipIf(!canRun)("the gate against framework-aware extraction", () => {
   let reading: ReturnType<ReturnType<typeof createGinReader>["read"]>;
   let grade: ReturnType<typeof gradeRoutes>;
 

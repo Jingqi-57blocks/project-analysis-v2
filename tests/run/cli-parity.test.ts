@@ -15,6 +15,12 @@ import { runAnalyze } from "../../engine/run/analyze.js";
  * leave the same knowledge base behind, so this compares the persisted rows
  * rather than the printed text: stdout formatting is a presentation choice,
  * the database is the actual result.
+ *
+ * Both sides pass `--allow-degraded`, and both sides equally: this is about the
+ * two paths agreeing, not about what a code index contributes. Where CodeGraph
+ * is installed it still takes part on both sides and is still compared; where
+ * it is not, both sides do without it, which is what these tests did before
+ * analysis began requiring the indexer.
  */
 
 const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -90,8 +96,8 @@ describe("library and command paths", () => {
     const libraryDb = join(workDir, "library.sqlite");
     const commandDb = join(workDir, "command.sqlite");
 
-    const libraryResult = runAnalyze({ paths: [join(workDir, "alpha"), join(workDir, "beta")], dbPath: libraryDb });
-    runScript("analyze.ts", [join(workDir, "alpha"), join(workDir, "beta"), "--db", commandDb]);
+    const libraryResult = runAnalyze({ paths: [join(workDir, "alpha"), join(workDir, "beta")], dbPath: libraryDb, allowDegraded: true });
+    runScript("analyze.ts", [join(workDir, "alpha"), join(workDir, "beta"), "--db", commandDb, "--allow-degraded"]);
 
     expect(comparableState(commandDb, libraryResult.workspacePath)).toEqual(
       comparableState(libraryDb, libraryResult.workspacePath),
@@ -106,6 +112,7 @@ describe("library and command paths", () => {
       paths: [join(workDir, "alpha"), join(workDir, "beta")],
       exclude: ["beta"],
       dbPath: libraryDb,
+      allowDegraded: true,
     });
     runScript("analyze.ts", [
       join(workDir, "alpha"),
@@ -114,6 +121,7 @@ describe("library and command paths", () => {
       "beta",
       "--db",
       commandDb,
+      "--allow-degraded",
     ]);
 
     const fromCommand = comparableState(commandDb, libraryResult.workspacePath);
@@ -125,7 +133,7 @@ describe("library and command paths", () => {
 describe("status command", () => {
   it("reports a workspace the analyze command just wrote", { timeout: 600_000 }, () => {
     const dbPath = join(workDir, "kb.sqlite");
-    const result = runAnalyze({ paths: [join(workDir, "alpha"), join(workDir, "beta")], dbPath });
+    const result = runAnalyze({ paths: [join(workDir, "alpha"), join(workDir, "beta")], dbPath, allowDegraded: true });
 
     const output = runScript("status.ts", ["--workspace", result.workspacePath, "--db", dbPath]);
 
@@ -137,7 +145,7 @@ describe("status command", () => {
 
   it("says a never-analyzed workspace was never analyzed, rather than failing", { timeout: 600_000 }, () => {
     const dbPath = join(workDir, "kb.sqlite");
-    runAnalyze({ paths: [join(workDir, "alpha")], dbPath });
+    runAnalyze({ paths: [join(workDir, "alpha")], dbPath, allowDegraded: true });
 
     const output = runScript("status.ts", ["--workspace", join(workDir, "nowhere"), "--db", dbPath]);
     expect(output).toContain("never analyzed");

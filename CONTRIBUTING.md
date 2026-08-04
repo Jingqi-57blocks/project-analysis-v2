@@ -25,13 +25,21 @@ command-layer code enumerates the combinations, and none should start to.
 3. **Add the self-checks.** The appendix lists the questions the report must be
    able to answer. It is an acceptance gate, not part of the report.
 
-4. **Decide whether a new deriver is needed.** If a chapter needs a fact the
+4. **Declare what it cannot be written without.** If the report type describes
+   how something moves through the system rather than what the system contains,
+   name the kinds it needs in `engine/report/readiness.ts`. A type with no entry
+   is one that stays truthful on a thin base, and that is a claim about the type
+   — make it deliberately. A capability report written from a base with no call
+   graph has every chapter, cites real rows in each, and describes a system in
+   which nothing calls anything.
+
+5. **Decide whether a new deriver is needed.** If a chapter needs a fact the
    knowledge base does not hold, the exit is a deriver in the analysis layer —
    never an ad-hoc source read at report time. Only consistency checks, whose
    criterion comes from the project contradicting itself, may become derivers;
    expectation checks stay in the author's hypothesis loop.
 
-5. **Regenerate the lock.** Instruction text is load-bearing and digested into
+6. **Regenerate the lock.** Instruction text is load-bearing and digested into
    `engine/contracts/lock.json`. Run `pnpm relock`, then confirm
    `pnpm verify:contracts` passes.
 
@@ -48,11 +56,28 @@ both, in the same order — `pnpm verify:contracts` compares them, because an it
 that drifts out of the enforced list is silently no longer required, and a dropped
 item reads exactly like one that searched and found nothing.
 
+## Changing the CodeGraph version
+
+`VERIFIED_VERSION` in `engine/providers/codegraph/cli.ts`, `SUPPORTED_DB_SCHEMA`
+in `batchdb.ts`, the version in `.github/workflows/ci.yml`, and the one named in
+the README are one decision written four times. Move them together, and let
+`pnpm compat:codegraph` decide whether the move holds — it indexes
+`tests/fixtures/codegraph-compat` and checks that nodes, call edges and the
+schema are all still what the adapter expects.
+
+That fixture is for this and nothing else. It carries no business truth and is
+not an acceptance target; a compatibility failure there means the external tool
+moved, not that a report is wrong.
+
 ## Accepting a run
 
 A report is a deliverable only with a passing `audit.json` beside it. When a run
-is accepted, commit its artefacts — the report, the agent transcript and the audit
-verdict — under `truth-set/`.
+is accepted, commit its artefacts — the report, its `manifest.json`, the agent
+transcript and the audit verdict — under `truth-set/`.
+
+The manifest is what makes the rest re-checkable: it names the snapshot, and
+without it the report can only be re-audited against whatever the base happens to
+hold later.
 
 This is part of accepting it, not an optional extra. The fixtures the audit
 regresses against are the committed ones; a run left only in `.analysis/` is

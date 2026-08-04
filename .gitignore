@@ -5,6 +5,10 @@ dist/
 # Analysis output — the knowledge base is always rebuildable from source.
 .analysis/
 
+# CodeGraph's index of the compatibility fixture. Written by
+# `pnpm compat:codegraph`, rebuilt whenever it runs.
+tests/fixtures/codegraph-compat/.codegraph*/
+
 # Derived target variants. Real targets live outside this repository and are
 # never vendored into it; derivations are working copies only.
 .targets/
