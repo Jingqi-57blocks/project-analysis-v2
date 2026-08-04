@@ -16,9 +16,14 @@ import {
   DOCUMENT_PRESETS,
   ILLEGAL_REQUEST_EXAMPLES,
   LEGAL_COMBINATION_EXAMPLES,
+  loadSpecRegistry,
   validatePreset,
   validateRequest,
+  validateSpecRegistry,
 } from "../engine/contracts/report/index.js";
+import { INVALID_CLAIM_EXAMPLES, VALID_CLAIM_EXAMPLES, validateClaim } from "../engine/contracts/claim/index.js";
+import { validateKbContract } from "../engine/contracts/kb/index.js";
+import { MODULE_CATEGORIES, categorize } from "../engine/contracts/module/index.js";
 import { INVALID_PROVENANCE_EXAMPLES, validateProvenance } from "../engine/contracts/shared-fact/index.js";
 import { loadTargetManifest, validateManifest } from "../engine/contracts/targets/index.js";
 import { loadAngelsPizzaSentinels, validateSentinelLedger } from "../engine/contracts/truth/sentinel.js";
@@ -52,6 +57,23 @@ for (const preset of DOCUMENT_PRESETS) {
   const v = validatePreset(preset);
   check(`report preset ${preset.id}`, v.ok, v.ok ? "" : v.reason);
 }
+const specs = validateSpecRegistry(loadSpecRegistry());
+check("output specs", specs.ok, specs.ok ? "" : specs.reasons.join("; "));
+const kb = validateKbContract();
+check("knowledge-base read contract", kb.ok, kb.ok ? "" : kb.reasons.join("; "));
+for (const example of VALID_CLAIM_EXAMPLES) {
+  const v = validateClaim(example.claim);
+  check(`valid claim (${example.name})`, v.ok, v.ok ? "" : v.reasons.join("; "));
+}
+for (const example of INVALID_CLAIM_EXAMPLES) {
+  check(`invalid claim rejected (${example.why})`, !validateClaim(example.claim).ok);
+}
+check(
+  "module categorization is total",
+  MODULE_CATEGORIES.includes(
+    categorize({ endpointCount: 0, dataEntityCount: 0, outboundTargetCount: 0, symbolCount: 0, dependentCount: 0 }),
+  ),
+);
 
 // 3. Positive / negative fixtures behave as specified.
 for (const ex of LEGAL_COMBINATION_EXAMPLES) check(`legal combination ${ex.name}`, validateRequest(ex.request).ok);

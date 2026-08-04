@@ -13,4 +13,5 @@ export * from "./blocks.js";
 export * from "./catalog.js";
 export * from "./presets.js";
 export * from "./pipeline.js";
+export * from "./specs.js";
 export * from "./version.js";

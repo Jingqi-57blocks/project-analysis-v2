@@ -17,7 +17,8 @@
     "analyze": "tsx scripts/analyze.ts",
     "report": "tsx scripts/report.ts",
     "status": "tsx scripts/status.ts",
-    "export": "tsx scripts/export.ts"
+    "export": "tsx scripts/export.ts",
+    "report:skill": "tsx scripts/report-skill.ts"
   },
   "devDependencies": {
     "@ast-grep/lang-go": "^0.0.6",

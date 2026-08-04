@@ -18,6 +18,19 @@ import { loadAngelsPizzaSentinels } from "./truth/sentinel.js";
 import { loadLeaveTruthLedger } from "./truth/leave.js";
 import { DOCUMENT_PRESETS } from "./report/presets.js";
 import { SECTION_CATALOG } from "./report/catalog.js";
+import { loadSpecRegistry } from "./report/specs.js";
+import { CLAIM_CONTRACT_ID, CLAIM_CONTRACT_VERSION, claimId } from "./claim/index.js";
+import { MODULE_CATEGORIES, MODULE_CONTRACT_ID, MODULE_CONTRACT_VERSION } from "./module/index.js";
+import {
+  KB_CONTRACT_ID,
+  KB_CONTRACT_VERSION,
+  KB_TABLES,
+  LINE_ANCHORED_KINDS,
+  READING_ORDER,
+  SET_VALUED_KINDS,
+  WORKSPACE_LEVEL_KINDS,
+  loadKbContractGuide,
+} from "./kb/index.js";
 import { REPORT_CONTRACT_ID, REPORT_CONTRACT_VERSION } from "./report/version.js";
 import { COVERAGE_STATES } from "./shared-fact/applicability.js";
 import { FACT_FAMILIES } from "./shared-fact/families.js";
@@ -32,11 +45,17 @@ export interface ContractDescriptor {
   readonly snapshot: unknown;
 }
 
+/** Digest of a contract written as prose, whose text is itself load-bearing. */
+function digestText(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
 /** Every M0 contract, with a canonical snapshot of its load-bearing shape. */
 export function contractDescriptors(): readonly ContractDescriptor[] {
   const leave = loadLeaveTruthLedger();
   const sentinels = loadAngelsPizzaSentinels();
   const targets = loadTargetManifest();
+  const specs = loadSpecRegistry();
   return [
     {
       id: SHARED_FACT_CONTRACT_ID,
@@ -53,6 +72,23 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
           optional: p.optionalSectionIds,
         })),
         sections: SECTION_CATALOG.map((s) => s.id),
+        // Specs are prose contracts, so their text is load-bearing: the digest
+        // makes an edit to any chapter fail the drift gate, not just an edit to
+        // the frontmatter.
+        writingContract: {
+          id: specs.contract.id,
+          version: specs.contract.version,
+          digest: digestText(specs.contract.body),
+        },
+        specs: specs.specs.map((s) => ({
+          id: s.id,
+          scope: s.scope,
+          audience: s.audience,
+          version: s.version,
+          inherits: s.inherits,
+          requires: s.requires,
+          digest: digestText(s.body),
+        })),
       },
     },
     {
@@ -76,6 +112,55 @@ export function contractDescriptors(): readonly ContractDescriptor[] {
           id: t.id,
           roots: t.roots.map((r) => ({ name: r.name, rev: r.revision })),
         })),
+      },
+    },
+    {
+      id: KB_CONTRACT_ID,
+      version: KB_CONTRACT_VERSION,
+      snapshot: {
+        tables: KB_TABLES.map((t) => ({
+          table: t.table,
+          identity: t.identityColumn,
+          layer: t.layer,
+          kinds: t.kinds,
+          publicColumns: t.publicColumns,
+        })),
+        readingOrder: READING_ORDER,
+        lineAnchored: LINE_ANCHORED_KINDS,
+        setValued: SET_VALUED_KINDS,
+        workspaceLevel: WORKSPACE_LEVEL_KINDS,
+        // The reader-facing guide is prose, so its text is load-bearing too.
+        guideDigest: digestText(loadKbContractGuide()),
+      },
+    },
+    {
+      id: CLAIM_CONTRACT_ID,
+      version: CLAIM_CONTRACT_VERSION,
+      snapshot: {
+        // The identity function is the contract. Pinning a worked example makes
+        // any change to how a claimId is formed fail the drift gate, because
+        // that change would silently renumber every persisted claim.
+        identityShape: "claim:<predicate>:<subject.type>:<subject.ref>",
+        identityExample: claimId("table-written-by-multiple-services", { type: "entity", ref: "example_table" }),
+        excludedFromIdentity: ["qualifiers", "factIds", "usedBy"],
+        invariants: [
+          "a claim without factIds is invalid",
+          "a predicate is a lowercase token, never a sentence",
+          "an aggregate is a roll-up over a predicate, never its own claim",
+        ],
+      },
+    },
+    {
+      id: MODULE_CONTRACT_ID,
+      version: MODULE_CONTRACT_VERSION,
+      snapshot: {
+        categories: MODULE_CATEGORIES,
+        invariants: [
+          "identity is structural; a display name is an attribute of it",
+          "changing language changes neither the module count nor the boundaries",
+          "an unresolved reference fails closed and never widens to the project",
+          "a glossary entry carries all three columns",
+        ],
       },
     },
     {
