@@ -97,14 +97,6 @@ export type SnapshotOutcome =
   | { readonly ok: true; readonly snapshot: CodeGraphSnapshot }
   | { readonly ok: false; readonly degradation: DegradationReason };
 
-/**
- * The batch adapter. One `read` enumerates the whole index for an index root
- * that lives outside every analyzed source root. Implemented in PI-6.
- */
-export interface BatchAdapter {
-  read(indexRoot: string): SnapshotOutcome;
-}
-
 export const VERIFIED_CODEGRAPH_VERSION = VERIFIED_VERSION;
 
 /** The snapshot schema this adapter contract understands. Bumped by a breaking change. */

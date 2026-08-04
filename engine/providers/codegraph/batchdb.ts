@@ -17,7 +17,6 @@ import { DatabaseSync } from "node:sqlite";
 
 import { codeIndexDirName } from "../../artifacts.js";
 import type {
-  BatchAdapter,
   CodeGraphEdgeRecord,
   CodeGraphNodeRecord,
   CodeGraphSnapshot,
@@ -182,8 +181,4 @@ export function readBatchDb(dbPath: string, indexRoot: string): SnapshotOutcome 
   } finally {
     db.close();
   }
-}
-
-export function createBatchDbAdapter(): BatchAdapter {
-  return { read: (indexRoot: string) => readBatchDb(codeIndexDbPath(indexRoot), indexRoot) };
 }

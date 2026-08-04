@@ -148,12 +148,3 @@ function readValueSets(
   }
   return { sets, failures };
 }
-
-/** Records of one kind from an assembled model, already merged. */
-export function recordsOfKind<T>(model: AssembledModel, kind: string): T[] {
-  const records: T[] = [];
-  for (const assembled of model.records) {
-    if (assembled.kind === kind) records.push(assembled.record as T);
-  }
-  return records;
-}

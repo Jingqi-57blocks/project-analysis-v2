@@ -117,10 +117,6 @@ export const MULTI_TABLE_KINDS: readonly string[] = READABLE_KINDS.filter(
   (kind) => KB_TABLES.filter((table) => table.kinds.includes(kind)).length > 1,
 );
 
-export function isMultiTableKind(kind: string): boolean {
-  return MULTI_TABLE_KINDS.includes(kind);
-}
-
 /**
  * Kinds whose identity embeds a file line, measured on the reference snapshot.
  *
