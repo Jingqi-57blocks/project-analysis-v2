@@ -39,7 +39,9 @@ one snapshot can be compared.
 spec and language, plus the subject when there is one — for example
 `08-04_14-32_project-product-zh-CN`. The report goes in `report.md` inside it.
 Put every intermediate file in a `scratch/` subdirectory of the same run, and
-delete `scratch/` once the report is written and the audit has passed.
+delete `scratch/` once the report is written and the audit has passed — but copy
+`scratch/queries.log` next to the report first, since it is the evidence of how the
+report was reached.
 
 ## 2 — Read three files, then the base
 
@@ -61,6 +63,10 @@ it is the one artefact everything here depends on, and rebuilding it costs a ful
 analysis run.
 
 ## 3 — Census, then investigate
+
+Append every query you run to `scratch/queries.log`, one per line, as you run it.
+Reconstructing the count afterwards is guesswork, and the count is how anyone later
+tells an investigation from a census.
 
 Both passes are defined in `reading-the-kb.md`. Do them in order and do not skip
 the second: the census gives you the shape, the investigation gives you the
@@ -85,7 +91,7 @@ item's id, its verdict, and the identities behind it.
 ## 5 — Audit it
 
 ```
-pnpm audit:report -- <run directory>/report.md --db <kbPath>
+pnpm audit:report <run directory>/report.md --db <kbPath>
 ```
 
 The audit checks every identity the closing block names against the base, every
@@ -109,6 +115,7 @@ separated them.
 - [ ] Every `unavailable` item is stated, not silently dropped.
 - [ ] Every coverage figure carries its denominator.
 - [ ] No table name, enum value or code spelling left untranslated in the body.
+- [ ] `queries.log` was kept, and you are reporting its line count.
 - [ ] `scratch/` is gone; nothing of yours sits outside the run directory.
 - [ ] The audit ran, and you are reporting its verdict rather than your own.
 - [ ] You did not read the analysed project's source.

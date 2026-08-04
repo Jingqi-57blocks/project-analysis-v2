@@ -50,6 +50,23 @@ select rel_path, start_line, substr(text, 1, 400) from evidence_items
 read at, whether it carried uncommitted changes, how many files were analysed and
 how many were not, and why.
 
+## An identity is copied, never rebuilt
+
+Anything destined for the closing block — a `record_key`, `fact_id` or `item_key` —
+**MUST** be `select`ed as that column, verbatim, and pasted unchanged. These are
+composite strings: pipe-delimited, with segments that may be empty, repeated, or
+carry escaped delimiters inside embedded expression text. Reconstructing one from
+the fields you happened to project produces something that looks right and does not
+exist, and the audit rejects it.
+
+So when a query is exploring, project whatever is readable; when its rows are going
+to be cited, carry the identity column along:
+
+```sql
+select fact_id, json_extract(payload, '$.payload.test') from behavior_facts
+ where kind = 'guard' and ...;
+```
+
 ## Two traps
 
 **Thirteen kinds are served by more than one table, with different counts.** On one
@@ -123,13 +140,14 @@ test, group by it, and read the group for a member whose negation differs from i
 peers:
 
 ```sql
-select json_extract(payload,'$.payload.test')    as test,
+select fact_id,
+       json_extract(payload,'$.payload.test')                            as test,
        json_extract(payload,'$.evidence[0].provenance.source.relPath')   as path,
        json_extract(payload,'$.evidence[0].provenance.source.startLine') as line
   from behavior_facts
  where kind = 'guard'
    and json_extract(payload,'$.payload.test') like '%' || ? || '%'
- order by 1;
+ order by 2;
 ```
 
 The odd one out is only visible side by side. Sites separated by a thousand lines in

@@ -20,16 +20,38 @@ import { CHECKLIST_IDS } from "../engine/contracts/report/checklist.js";
 import { auditReport, explainAudit, readInventory, resolveIdentities } from "../engine/report/kb-audit.js";
 import { openStore } from "../engine/store/open.js";
 
+/**
+ * Argument parsing, walked once rather than searched.
+ *
+ * The first version searched for the positional with `argv.find`, which broke on a
+ * bare `--` — pnpm forwards one through, and the search then skipped every
+ * argument whose predecessor started with a dash. The command printed in the
+ * instructions was unrunnable as written. Walking the list and consuming each
+ * flag's value cannot go wrong that way.
+ */
 const argv = process.argv.slice(2);
-function flag(name: string, fallback: string): string {
-  const index = argv.indexOf(`--${name}`);
-  const value = index === -1 ? undefined : argv[index + 1];
-  return value === undefined || value.startsWith("--") ? fallback : value;
+const flags = new Map<string, string>();
+const positionals: string[] = [];
+for (let index = 0; index < argv.length; index += 1) {
+  const arg = argv[index] ?? "";
+  if (arg === "--") continue;
+  if (arg.startsWith("--")) {
+    const value = argv[index + 1];
+    if (value !== undefined && !value.startsWith("--")) {
+      flags.set(arg.slice(2), value);
+      index += 1;
+    } else {
+      flags.set(arg.slice(2), "");
+    }
+    continue;
+  }
+  positionals.push(arg);
 }
+const flag = (name: string, fallback: string): string => flags.get(name) || fallback;
 
-const reportPath = argv.find((arg) => !arg.startsWith("--") && argv[argv.indexOf(arg) - 1]?.startsWith("--") !== true);
+const reportPath = positionals[0];
 if (reportPath === undefined) {
-  console.error("usage: pnpm audit:report -- <reportPath> [--db <kb.sqlite>]");
+  console.error("usage: pnpm audit:report <reportPath> [--db <kb.sqlite>]");
   process.exit(2);
 }
 

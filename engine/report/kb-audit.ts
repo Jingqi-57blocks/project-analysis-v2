@@ -241,7 +241,18 @@ export function readInventory(store: Store, snapshotId: number): WorkspaceInvent
   return { paths, extensions, denominators };
 }
 
+/**
+ * Paths the analysis itself produced.
+ *
+ * A report may legitimately name the knowledge base it was written from, or its own
+ * run directory. Those are artefacts of this tool, not files in the analysed
+ * project, and checking them against the project's file list marks a correct report
+ * as fabricated.
+ */
+const ANALYSIS_ARTIFACT = /(^|\/)\.analysis\//;
+
 function pathIsKnown(inventory: WorkspaceInventory, cited: string): boolean {
+  if (ANALYSIS_ARTIFACT.test(cited)) return true;
   if (inventory.paths.has(cited)) return true;
   for (const known of inventory.paths) {
     if (known.endsWith(`/${cited}`) || cited.endsWith(`/${known}`)) return true;

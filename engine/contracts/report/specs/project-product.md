@@ -2,7 +2,7 @@
 id: project-product
 scope: project
 audience: product
-version: 2.0.0
+version: 2.1.0
 title: Project overview, non-technical
 ---
 
@@ -27,17 +27,43 @@ This spec defines only the chapters and what belongs in each.
 
 ### 1. What this project is
 
-The one sentence, then a short paragraph or two: what it is for, who it serves, and
-one honest number about its size. Then the shape — how many parts, of what kinds —
-named in a sentence, leaving the inventory to chapter 2.
+This chapter is an **introduction**, not an answer sheet. It is prose, and it is the
+only chapter written as though the reader has asked "what is this?" and nothing else.
 
-| Question | Marker |
-| -- | -- |
-| What the project is and what it is for | `inferred`, from the facts named |
-| What the project says about itself | `fact` from `readme-section` / `project-title`, or `unavailable` if it carries none |
-| Which user roles it defines | `fact` |
-| Which capabilities are inside the project, and which come from outside | `fact` |
-| Project stage — pilot, mature, maintenance | `unavailable` |
+**The test this chapter MUST pass:** delete every marker, every parenthetical and
+every citation from it. What is left has to be something you could read aloud to a
+business owner who has never heard of the project, and they would come away knowing
+what it does. If deleting the evidence leaves a chapter that says nothing, it was
+not written — it was answered.
+
+Open with **one sentence** naming what the system connects to what, and what comes
+out. "An HR platform" is a label, not a sentence: it fits a hundred systems and
+tells the reader nothing they did not already assume. What makes a system legible is
+its shape — that work hours become both a client's invoice and an employee's
+performance record; that a booking holds stock until payment clears. Name that.
+
+Then two or three short paragraphs:
+
+* **Who uses it and what each of them comes here to do**, in the words those people
+  would use — "managers approve leave and confirm their team's monthly billing", not
+  a list of role identifiers.
+* **What it does and does not cover**, as capabilities, and which of them are
+  actually somebody else's system.
+* **One number a business reader can use** — how many kinds of user, how many
+  distinct areas of the business it touches. **MUST NOT** be a count of code
+  artifacts; how many endpoints, tables, modules or repositories exist is not a fact
+  about the business, and belongs in chapter 13 if anywhere.
+
+Where the project describes itself, quote it, briefly, in the reader's language.
+Where it does not, say so — that is a fact about the project, and a substitute you
+invent is not.
+
+Project stage — pilot, mature, maintenance — is `unavailable`; say so once, in a
+line, and do not elaborate.
+
+Evidence for everything above goes in the collapsed evidence layer, not in the
+sentences. This is the one chapter where a marker in the middle of a paragraph does
+more harm than the citation does good.
 
 ### 2. Systems and repositories
 

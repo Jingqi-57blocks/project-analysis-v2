@@ -229,3 +229,14 @@ describe("denominators a subject-scoped report can legitimately cite", () => {
     expect(result.findings.map((f) => f.code)).toEqual(["proportion-denominator-unknown"]);
   });
 });
+
+describe("the analysis's own artefacts are not project citations", () => {
+  it("does not flag the knowledge base the report was written from", () => {
+    // A correct report names its own snapshot. That is this tool's output, not a
+    // file in the analysed project, and checking it against the project's file
+    // list marked a correct report as fabricated.
+    const inventory = { paths: new Set(["a/b.go"]), extensions: new Set(["go"]), denominators: new Set([1]) };
+    const report = "本报告基于 `.analysis/kb.sqlite` 的快照生成，见 `.analysis/reports/08-04_11-10_x/report.md`。";
+    expect(auditReport({ report, inventory }).findings).toEqual([]);
+  });
+});

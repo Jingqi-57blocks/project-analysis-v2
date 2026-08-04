@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Writing rules
@@ -75,10 +75,21 @@ Consequences are constrained rather than banned — see Part III, risk format.
   list products and buyers order them, with payment and delivery handled in between.*
   No jargon, no hedging. If the evidence will not support a sentence that confident,
   write the most confident one it does support and say what is missing.
-* **Never write a file path, a table name, an endpoint path, or a repository name
-  where a plain description will do.** "The web application people use" beats a
-  repository identifier. Where a part's name is genuinely how people refer to it, use
-  it once and move on. Identifiers belong in the evidence layer and the glossary.
+* **Never write a file path, a table name, an endpoint path, a repository name or a
+  code identifier where a plain description will do.** "The web application people
+  use" beats a repository identifier; "human resources" beats an enum member spelled
+  `HRC`. Where a part's name is genuinely how people refer to it, use it once and
+  move on. Identifiers belong in the evidence layer and the glossary.
+* **The analysis's own vocabulary never appears in the body.** The names of fact
+  kinds — and every other word that exists because of how the base is organised —
+  are how the analyser talks to itself. A sentence that has to name one has not
+  finished being written.
+* **Counts of code artifacts are not facts about the business.** How many endpoints,
+  tables, entities, modules, routes or repositories exist tells a business reader
+  nothing they can act on, and reads as substance while carrying none. Where the size
+  of something matters, count what the reader recognises: kinds of user, areas of the
+  business, steps in a flow. Coverage figures in the final chapter are the exception,
+  because measuring the analysis is that chapter's subject.
 * **Do not describe the analysis.** The reader wants the system, not the tool that
   read it. The opening **MUST** describe the subject and **MUST NOT** open with
   method. Coverage and method have their own chapter at the end.
