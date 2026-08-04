@@ -3,14 +3,11 @@
  *
  * A behavior fact is a shared-fact `FactEnvelope` in the `behavioral` family — it
  * reuses the canonical identity, evidence and provenance rather than a parallel
- * model, and its kinds are exactly the migration matrix's `M2_FACT_KINDS`, not a
- * hand-copied second list. What this contract adds on top of the shared fact is
- * the M2-specific structure the derivers (PI-11/PI-12/PI-37/PI-38/PI-39/PI-40)
- * and the store (PI-63/PI-64) must agree on before any of them runs:
+ * model. What this contract adds on top of the shared fact is the structure the
+ * derivers and the store must agree on before any of them runs:
  *
- *   - a per-kind ownership split between PI-11 (behaviour semantics) and PI-12
- *     (side effects) that the matrix only states per unit, so the two never
- *     claim the same kind;
+ *   - a per-kind ownership split between behaviour semantics and side effects,
+ *     so the two never claim the same kind;
  *   - the relations between behaviour facts (a decision's branches, a
  *     transition's endpoint states, a rule's value set) and from a behaviour
  *     fact to a structural one (a guard's subject symbol/entity), keyed by
@@ -21,31 +18,54 @@
  *     kind-specific shape left unjudged, never silently dropped.
  *
  * `entry`, `trace` and control-flow facts are structural/derived kinds owned by
- * PI-10 and the logic provider — a behaviour fact *references* them through a
- * relation, it does not redefine them here (the same "extend, don't parallel"
- * rule the vocabulary follows). It carries no report-audience or target-project
- * field: those belong to the report layer and to no fact.
+ * the logic provider — a behaviour fact *references* them through a relation, it
+ * does not redefine them here (the same "extend, don't parallel" rule the
+ * vocabulary follows). It carries no report-audience or target-project field:
+ * those belong to the report layer and to no fact.
  *
  * `BehaviorRelation` is the `FactId`-keyed form of engine/kb `DerivedLink`
- * (fromKind/fromKey/role/toKind/toKey); PI-63 persistence maps between the two.
+ * (fromKind/fromKey/role/toKind/toKey); persistence maps between the two.
  */
 
 import type { FactEnvelope } from "../shared-fact/envelope.js";
 import type { FactId } from "../shared-fact/identity.js";
 import { validateProvenance } from "../shared-fact/provenance.js";
-import { M2_FACT_KINDS } from "../migration/schema.js";
 
 export const BEHAVIOR_SCHEMA_VERSION = "1.0.0";
 
-/** The behaviour fact vocabulary is the matrix's M2 list — one source, no copy. */
-export const BEHAVIOR_KINDS: readonly string[] = M2_FACT_KINDS;
+/**
+ * The behaviour fact vocabulary.
+ *
+ * Every kind here is either derived by some reader or declared absent; nothing
+ * downstream may invent one. It lived in a migration matrix that planned the
+ * move to this model — the plan is spent, the list is not, so the list stays and
+ * the plan around it is gone.
+ */
+export const BEHAVIOR_KINDS: readonly string[] = [
+  "condition",
+  "decision",
+  "guard",
+  "discarded-error",
+  "value-set",
+  "business-rule",
+  "validation-rule",
+  "transaction-boundary",
+  "error-handling",
+  "auth-annotation",
+  "notification-call",
+  "outbound-call",
+  "data-access",
+  "test-relation",
+  "state",
+  "transition",
+];
 
 /**
- * Who owns a kind's derivation. PI-11 owns the kinds whose subject is internal
- * business logic, values or state; PI-12 owns the kinds whose subject is a
- * boundary crossing or an external interaction; `test` (PI-40) owns the test
- * linkage. The three sets partition the vocabulary — that disjointness is what
- * keeps PI-11 and PI-12 from deriving the same kind twice.
+ * Who owns a kind's derivation. `behavior-semantics` owns the kinds whose
+ * subject is internal business logic, values or state; `side-effect` owns the
+ * kinds whose subject is a boundary crossing or an external interaction; `test`
+ * owns the test linkage. The three sets partition the vocabulary — that
+ * disjointness is what keeps two derivers from producing the same kind twice.
  */
 export type BehaviorOwner = "behavior-semantics" | "side-effect" | "test";
 
