@@ -1,7 +1,7 @@
 ---
 id: writing-rules
 kind: shared-writing-rules
-version: 4.1.0
+version: 5.0.0
 ---
 
 # Writing rules
@@ -98,22 +98,21 @@ This file's own vocabulary never reaches the report either. `MUST`, `MUST NOT`,
 `SHOULD` and `MAY` are how a contract talks to the author; a report carrying them has
 handed the reader the instructions instead of the answer.
 
-The names above are structural tokens for this document, not words for the report.
-Every one of them **MUST** be rendered into the target language; a report carrying
-the token as written here has left this contract's scaffolding in the reader's way.
+The marker names above are semantic tokens for this contract, not required visible
+wording. The author **MUST** render each one naturally in the requested target
+language, in concise wording a business reader would understand, and **MUST** keep
+that rendering consistent within one report.
 
-The same applies to the one fixed lead-in the chapters share. Renderings:
+The visible report **MUST NOT** carry the raw tokens `fact`, `verified`, `inferred`
+or `unavailable` where those words are not natural in that language. The chapter
+synthesis lead-in follows the same rule: render it as a natural heading rather than
+copying a phrase out of this file.
 
-| Token | zh-CN | en |
-| -- | -- | -- |
-| `fact` | 事实 | Fact |
-| `verified` | 验证 | Verified |
-| `inferred` | 推断 | Inferred |
-| `unavailable` | 不可得 | Unavailable |
-| the synthesis lead-in | 这意味着什么 | What this means |
-
-A language not listed takes the reading that language's own business writing would
-use; the point is that the reader never meets a token from this file.
+**Adding an output language MUST NOT require editing this file.** A table of
+renderings here would make every new language a change to the contract, and would
+quietly make the contract the authority on wording it has no business deciding.
+Machine checks therefore **MUST** key on the semantic tokens and the recorded
+metadata, never on the visible wording a run chose.
 
 ## 2. Say what things are
 
@@ -204,10 +203,11 @@ Consequences are constrained rather than banned — see Part III, risk format.
    supports. Every section that makes an evidenced statement has one.
 
    Where a marked statement needs its grounds visible, the parenthesis carries the
-   **reasoning, in words** — "推断，依据：评审服务的 README 自述，以及工时、账单、
-   绩效共用同一批员工与项目档案" — and the identifiers behind that reasoning sit in
-   the collapsed block. A parenthesis that has become a list of identity strings has
-   taken the evidence layer's job and put it in the reader's way.
+   **reasoning, in words** — the marker, then what it rests on said plainly: which
+   document said so, which records share which data. The identifiers behind that
+   reasoning stay in the collapsed block. A parenthesis that has become a list of
+   identity strings has taken the evidence layer's job and put it in the reader's
+   way.
 
    The exception is the glossary, whose subject is the mapping itself.
 2. **Punctuation follows the output language.** A report in Chinese uses full-width

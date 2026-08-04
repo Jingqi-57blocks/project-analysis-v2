@@ -313,23 +313,15 @@ describe("the checklist lives beside the report, not inside it", () => {
   });
 });
 
-describe("every chapter carries a synthesis", () => {
-  const inventory = { paths: new Set(["a/b.go"]), extensions: new Set(["go"]), denominators: new Set([1]) };
-
-  it("notices a chapter that ends on a fact", () => {
-    // Inferring this from formatting failed: a chapter closing "**Project stage**
-    // — unavailable" is shaped exactly like one closing on a synthesis. Fixing
-    // the lead-in's wording is what made it checkable, the same move the evidence
-    // markers already use.
-    const report = "# r\n\n## 一\n\n有五个仓库。\n\n**项目所处阶段**——不可得。\n";
-    const result = auditReport({ report, inventory });
-    expect(result.findings.map((f) => f.code)).toEqual(["chapter-without-synthesis"]);
-    expect(result.passed).toBe(true);
-  });
-
-  it("accepts the fixed lead-in in either language", () => {
-    for (const lead of ["这意味着什么", "What this means"]) {
-      const report = `# r\n\n## 一\n\n有五个仓库。\n\n**${lead}。** 五个仓库不是五套业务。\n`;
+describe("what the audit deliberately does not check", () => {
+  it("never keys on the wording a run chose for a token", () => {
+    // Renderings are the author's, so that adding an output language is not a
+    // change to the contract. A check that looked for a fixed phrase would fail
+    // every report that chose different words for the same thing — and it would
+    // make this file the authority on wording it has no business deciding.
+    const inventory = { paths: new Set(["a/b.go"]), extensions: new Set(["go"]), denominators: new Set([1]) };
+    for (const lead of ["这意味着什么", "本章要点", "What this means", "The upshot"]) {
+      const report = `# r\n\n## 一\n\n有五个部件。\n\n**${lead}。** 五个部件不是五套业务。\n`;
       expect(auditReport({ report, inventory }).findings).toEqual([]);
     }
   });
