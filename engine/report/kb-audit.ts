@@ -2,36 +2,44 @@
  * Auditing a report back against the knowledge base.
  *
  * The three trial outputs were indistinguishable by appearance — the fabricated
- * one was just as well formatted, with just as many complete sections. The only
- * thing that separated them was pulling each statement back to the store. Human
- * review cannot do that at this volume, which is why this step is not optional.
+ * one was just as well formatted, with just as many complete sections, and it was
+ * the second longest. The only thing that separated them was pulling each
+ * statement back to the store. Human review cannot do that at this volume, which
+ * is why this step is not optional.
  *
- * This module performs the checks that hold **whatever language the report is
- * written in**: cited paths, cited proportions, and whether a fact kind was used
- * at all. Comparing what a report *asserts* against what the store concluded is a
- * claim-level check — claims are language-independent, prose is not — and belongs
- * with the claim layer, not here.
+ * This is the whole of the report layer's engine code, and it is deliberately the
+ * only part. Reading the base, resolving a subject, choosing what to investigate
+ * and writing the document are all the author's job — a second implementation of
+ * any of them would only be a second thing to disagree with the first. What the
+ * author cannot do is check itself: an agent grading its own report is exactly the
+ * failure this module exists to catch.
+ *
+ * Every check here holds **whatever language the report is written in**: cited
+ * paths, cited proportions, and whether the identities the report says it read are
+ * real.
  */
 
 import type { Store } from "../store/types.js";
-import type { FactPack } from "../kb/fact-pack.js";
 
 export type FindingCode =
   | "cited-path-not-in-workspace"
   | "cited-extension-absent"
   | "proportion-denominator-unknown"
   | "proportion-mismatch"
-  | "kind-never-used"
-  | "chapter-without-its-kind";
+  | "checklist-block-missing"
+  | "checklist-item-missing"
+  | "checklist-verdict-unknown"
+  | "cited-id-not-in-base"
+  | "verdict-without-evidence"
+  | "no-open-finding";
 
 /**
  * Whether a finding stops delivery.
  *
- * A fabricated citation or an arithmetic error means the report says something
- * untrue, and it is not a deliverable. An unread fact kind is worth telling the
- * reader about, but it is not untruth — and the contract explicitly directs the
- * author to read the derived layer first, so leaving raw kinds unread is the
- * documented behaviour, not a defect.
+ * A fabricated citation, an arithmetic error, or an identity that does not exist
+ * means the report says something untrue, and it is not a deliverable. A missing
+ * open-ended finding means the author executed the checklist without investigating
+ * — worth knowing, and a reason to reject the run, but not itself untruth.
  */
 export type FindingSeverity = "blocking" | "notice";
 
@@ -47,8 +55,15 @@ export interface AuditResult {
   /** True when nothing blocking was found. Notices do not stop delivery. */
   readonly passed: boolean;
   readonly findings: readonly AuditFinding[];
-  /** Kinds in the pack, and how many of their rows the report cited. */
-  readonly kindUsage: readonly { readonly kind: string; readonly available: number; readonly cited: number }[];
+  /** Each checklist item's verdict, and how many of its cited ids resolved. */
+  readonly checklist: readonly ChecklistAudit[];
+}
+
+export interface ChecklistAudit {
+  readonly id: string;
+  readonly verdict: string;
+  readonly cited: number;
+  readonly resolved: number;
 }
 
 /**
@@ -66,8 +81,7 @@ const PATH_PATTERN = /(?:^|[^\w./-])((?:[\w.-]+\/)*[\w-]+\.[A-Za-z]{1,6})(?::\d+
  * This is knowledge about languages, not about any project. A bare filename is
  * only treated as a citation when its extension is one of these: prose is full of
  * `example.com`, `Node.js` and `req.user`, and treating those as citations buries
- * the real finding in noise. A qualified path is unambiguous and needs no such
- * filter.
+ * the real finding in noise. A qualified path is unambiguous and needs no filter.
  */
 const SOURCE_EXTENSIONS = new Set([
   "c", "cc", "cjs", "clj", "cpp", "cs", "css", "cts", "dart", "ex", "exs", "go",
@@ -83,6 +97,9 @@ const SOURCE_EXTENSIONS = new Set([
  * checking those produces false positives on correct reports.
  */
 const PROPORTION_PATTERN = /(\d+)\s*%\s*[（(]\s*(\d[\d,]*)\s*(?:\/|of)\s*(\d[\d,]*)\s*[)）]/g;
+
+/** Verdicts the closing block may carry. Anything else is a malformed report. */
+const VERDICTS = new Set(["hit", "searched-not-found", "cannot-determine"]);
 
 function matches(text: string, pattern: RegExp): readonly RegExpExecArray[] {
   const found: RegExpExecArray[] = [];
@@ -115,6 +132,41 @@ export function citedProportions(report: string): readonly CitedProportion[] {
     .filter((pair) => Number.isFinite(pair.numerator) && Number.isFinite(pair.denominator) && pair.denominator > 0);
 }
 
+export interface ChecklistEntry {
+  readonly id: string;
+  readonly verdict: string;
+  readonly evidence: readonly string[];
+}
+
+/**
+ * The machine-readable block the report ends with.
+ *
+ * Last one wins: a report may quote the block's shape while explaining itself, and
+ * the real one is the one it finishes on.
+ */
+export function readChecklistBlock(report: string): readonly ChecklistEntry[] | null {
+  const blocks = matches(report, /```json\s*([\s\S]*?)```/g);
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    let parsed: { checklist?: unknown };
+    try {
+      parsed = JSON.parse(blocks[index]?.[1] ?? "") as typeof parsed;
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed.checklist)) continue;
+    const entries: ChecklistEntry[] = [];
+    for (const raw of parsed.checklist as readonly Record<string, unknown>[]) {
+      if (typeof raw?.id !== "string" || typeof raw?.verdict !== "string") continue;
+      const evidence = Array.isArray(raw.evidence)
+        ? (raw.evidence as readonly unknown[]).filter((value): value is string => typeof value === "string")
+        : [];
+      entries.push({ id: raw.id, verdict: raw.verdict, evidence });
+    }
+    if (entries.length > 0) return entries;
+  }
+  return null;
+}
+
 export interface WorkspaceInventory {
   readonly paths: ReadonlySet<string>;
   readonly extensions: ReadonlySet<string>;
@@ -127,12 +179,31 @@ function extensionOf(path: string): string {
   return dot === -1 ? "" : path.slice(dot + 1).toLowerCase();
 }
 
+function collectCardinalities(payload: string, into: Set<number>): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return;
+  }
+  if (typeof parsed !== "object" || parsed === null) return;
+  for (const value of Object.values(parsed as Record<string, unknown>)) {
+    if (Array.isArray(value) && value.length > 0) into.add(value.length);
+    else if (typeof value === "number" && Number.isInteger(value) && value > 0) into.add(value);
+  }
+}
+
 /**
  * What the workspace actually contains, as far as citations are concerned.
  *
- * Paths are matched on suffix rather than equality: a report may cite
- * `internal/handlers/leave/service.go` while the store holds it under a root, and
- * a citation that names a real file should not be called fabricated over a prefix.
+ * Paths are matched on suffix rather than equality: a report may cite a path
+ * while the store holds it under a root, and a citation that names a real file
+ * should not be called fabricated over a prefix.
+ *
+ * Denominators include the cardinalities inside derived payloads — how many
+ * endpoints a capability has, how many entities it touches. Without them a
+ * correct subject-scoped report is rejected: "50% (13/26)" is about that
+ * capability's 26 endpoints, and no workspace-wide count equals 26.
  */
 export function readInventory(store: Store, snapshotId: number): WorkspaceInventory {
   const files = store.all(
@@ -153,11 +224,15 @@ export function readInventory(store: Store, snapshotId: number): WorkspaceInvent
     [snapshotId, snapshotId, snapshotId],
   ) as readonly { n: number }[];
   for (const row of kindCounts) denominators.add(row.n);
-  const signals = store.all(
-    `select payload from derived_records where snapshot_id = ? and kind in ('health-signal','coverage-note')`,
+
+  const payloads = store.all(
+    `select payload from derived_records
+      where snapshot_id = ?
+        and kind in ('health-signal','coverage-note','feature','module','component','structural-finding')`,
     [snapshotId],
   ) as readonly { payload: string }[];
-  for (const row of signals) {
+  for (const row of payloads) {
+    collectCardinalities(row.payload, denominators);
     for (const match of matches(row.payload, /(\d[\d,]*)\s*(?:\/|of)\s*(\d[\d,]*)/g)) {
       const denominator = Number((match[2] ?? "").replace(/,/g, ""));
       if (Number.isFinite(denominator) && denominator > 0) denominators.add(denominator);
@@ -187,25 +262,44 @@ export function inventoryFrom(data: {
   };
 }
 
+/**
+ * Which of the given identities exist in the base.
+ *
+ * This is what replaced the persisted claim layer. The report names the rows it
+ * read; every name is looked up. An identity that does not resolve was not read,
+ * whatever the prose around it says.
+ */
+export function resolveIdentities(store: Store, snapshotId: number, ids: readonly string[]): Set<string> {
+  const found = new Set<string>();
+  if (ids.length === 0) return found;
+  const columns: readonly [string, string][] = [
+    ["structural_records", "record_key"],
+    ["derived_records", "record_key"],
+    ["behavior_facts", "fact_id"],
+    ["evidence_items", "item_key"],
+  ];
+  const unique = [...new Set(ids)];
+  for (let start = 0; start < unique.length; start += 400) {
+    const batch = unique.slice(start, start + 400);
+    const placeholders = batch.map(() => "?").join(",");
+    for (const [table, column] of columns) {
+      const rows = store.all(
+        `select ${column} as id from ${table} where snapshot_id = ? and ${column} in (${placeholders})`,
+        [snapshotId, ...batch],
+      ) as readonly { id: string }[];
+      for (const row of rows) found.add(row.id);
+    }
+  }
+  return found;
+}
+
 export interface AuditInput {
   readonly report: string;
   readonly inventory: WorkspaceInventory;
-  /** The pack the report was written from, when there is one. */
-  readonly pack?: FactPack;
-  /**
-   * The claim set the report was written from.
-   *
-   * Usage is measured through claims, not through paths in the prose. Derived
-   * kinds — the coverage ledger, the computed findings — carry no file path at
-   * all, so a path-based measure marks them unused however carefully they were
-   * read, and buries the real finding under noise on every correct report.
-   */
-  readonly claims?: readonly { readonly factIds: readonly string[] }[];
-  /**
-   * Kinds whose chapter the report demonstrably wrote — supplied by the caller,
-   * since which chapter exists is a property of the spec, not of this module.
-   */
-  readonly chaptersWritten?: readonly string[];
+  /** Checklist ids the governing rules require. Empty skips the completeness check. */
+  readonly requiredChecklistIds?: readonly string[];
+  /** Resolves cited identities against the base. Omitted in fixture replays. */
+  readonly resolveIds?: (ids: readonly string[]) => ReadonlySet<string>;
 }
 
 /**
@@ -216,7 +310,7 @@ export interface AuditInput {
  */
 export function auditReport(input: AuditInput): AuditResult {
   const findings: AuditFinding[] = [];
-  const { report, inventory, pack } = input;
+  const { report, inventory } = input;
 
   for (const cited of citedPaths(report)) {
     if (pathIsKnown(inventory, cited)) continue;
@@ -224,7 +318,7 @@ export function auditReport(input: AuditInput): AuditResult {
     if (extension.length > 0 && SOURCE_EXTENSIONS.has(extension) && !inventory.extensions.has(extension)) {
       findings.push({
         code: "cited-extension-absent",
-      severity: "blocking",
+        severity: "blocking",
         detail: `cites a .${extension} file, but the workspace contains no .${extension} file at all`,
         evidence: cited,
       });
@@ -241,26 +335,11 @@ export function auditReport(input: AuditInput): AuditResult {
     });
   }
 
-  // A scoped report cites quantities from its own pack, not from the whole
-  // snapshot: "13 of 25" is about the 25 rows in this module, and checking it
-  // against workspace-wide totals rejects a correct statement.
-  const denominators = new Set(inventory.denominators);
-  if (pack !== undefined) {
-    for (const entry of pack.coverage) {
-      denominators.add(entry.inScope);
-      denominators.add(entry.inSnapshot);
-    }
-    for (const kind of new Set(pack.rows.map((row) => row.kind))) {
-      denominators.add(pack.rows.filter((row) => row.kind === kind).length);
-    }
-    denominators.add(pack.rows.length);
-    denominators.add(pack.subjects.length);
-  }
   for (const pair of citedProportions(report)) {
-    if (!denominators.has(pair.denominator)) {
+    if (!inventory.denominators.has(pair.denominator)) {
       findings.push({
         code: "proportion-denominator-unknown",
-      severity: "blocking",
+        severity: "blocking",
         detail: `cites ${pair.numerator}/${pair.denominator}, but no quantity in the store equals ${pair.denominator}`,
         evidence: `${pair.percent}% (${pair.numerator}/${pair.denominator})`,
       });
@@ -270,43 +349,89 @@ export function auditReport(input: AuditInput): AuditResult {
     if (Math.abs(actual - pair.percent) > 1) {
       findings.push({
         code: "proportion-mismatch",
-      severity: "blocking",
+        severity: "blocking",
         detail: `states ${pair.percent}% but ${pair.numerator}/${pair.denominator} is ${actual}%`,
         evidence: `${pair.percent}% (${pair.numerator}/${pair.denominator})`,
       });
     }
   }
 
-  const kindUsage: { kind: string; available: number; cited: number }[] = [];
-  if (pack !== undefined && input.claims !== undefined) {
-    const citedFactIds = new Set(input.claims.flatMap((claim) => claim.factIds));
-    for (const kind of [...new Set(pack.rows.map((row) => row.kind))].sort()) {
-      const rows = pack.rows.filter((row) => row.kind === kind);
-      const cited = rows.filter((row) => citedFactIds.has(row.key)).length;
-      kindUsage.push({ kind, available: rows.length, cited });
-    }
-    for (const kind of pack.requires) {
-      const usage = kindUsage.find((entry) => entry.kind === kind);
-      if (usage === undefined || usage.available === 0) continue;
-      if (usage.cited > 0) continue;
+  const required = input.requiredChecklistIds ?? [];
+  const entries = readChecklistBlock(report);
+  const checklist: ChecklistAudit[] = [];
+
+  if (entries === null) {
+    if (required.length > 0) {
       findings.push({
-        code: "kind-never-used",
-      severity: "notice",
-        detail: `${usage.available} "${kind}" rows were available and none is cited`,
-        evidence: kind,
+        code: "checklist-block-missing",
+        severity: "blocking",
+        detail: "the report ends with no machine-readable checklist block, so nothing it claims to have read can be checked",
+        evidence: "closing block",
       });
-      if ((input.chaptersWritten ?? []).includes(kind)) {
-        findings.push({
-          code: "chapter-without-its-kind",
+    }
+    return { passed: findings.every((f) => f.severity !== "blocking"), findings, checklist };
+  }
+
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  for (const id of required) {
+    if (byId.has(id)) continue;
+    findings.push({
+      code: "checklist-item-missing",
       severity: "blocking",
-          detail: `the chapter fed by "${kind}" was written without citing any of its ${usage.available} rows`,
-          evidence: kind,
+      detail: `checklist item "${id}" has no verdict; every item is reportable, including the ones that found nothing`,
+      evidence: id,
+    });
+  }
+
+  const resolved = input.resolveIds?.(entries.flatMap((entry) => entry.evidence)) ?? null;
+
+  for (const entry of entries) {
+    if (!VERDICTS.has(entry.verdict)) {
+      findings.push({
+        code: "checklist-verdict-unknown",
+        severity: "blocking",
+        detail: `verdict "${entry.verdict}" is not one of hit, searched-not-found, cannot-determine`,
+        evidence: entry.id,
+      });
+    }
+    if (entry.verdict !== "cannot-determine" && entry.evidence.length === 0) {
+      findings.push({
+        code: "verdict-without-evidence",
+        severity: "blocking",
+        detail: `"${entry.id}" reports "${entry.verdict}" while naming no row it read; only cannot-determine may cite nothing`,
+        evidence: entry.id,
+      });
+    }
+    let resolvedCount = entry.evidence.length;
+    if (resolved !== null) {
+      resolvedCount = entry.evidence.filter((id) => resolved.has(id)).length;
+      for (const id of entry.evidence) {
+        if (resolved.has(id)) continue;
+        findings.push({
+          code: "cited-id-not-in-base",
+          severity: "blocking",
+          detail: `"${entry.id}" cites an identity the knowledge base does not contain`,
+          evidence: id,
         });
       }
     }
+    checklist.push({ id: entry.id, verdict: entry.verdict, cited: entry.evidence.length, resolved: resolvedCount });
   }
 
-  return { passed: findings.every((finding) => finding.severity !== "blocking"), findings, kindUsage };
+  // The open-ended item is the only one that tests whether the author
+  // investigated rather than executed a list. A run that closes it without a
+  // finding is worth accepting only deliberately.
+  const open = byId.get("open");
+  if (required.includes("open") && (open === undefined || open.verdict !== "hit")) {
+    findings.push({
+      code: "no-open-finding",
+      severity: "notice",
+      detail: "no finding came from a hypothesis the checklist did not name; the author executed the list rather than investigating",
+      evidence: "open",
+    });
+  }
+
+  return { passed: findings.every((finding) => finding.severity !== "blocking"), findings, checklist };
 }
 
 /** A short, ordered account of why an audit failed. */

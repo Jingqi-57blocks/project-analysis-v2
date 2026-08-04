@@ -14,7 +14,6 @@ import {
   tablesFor,
   validateKbContract,
 } from "../../../engine/contracts/kb/read-contract.js";
-import { REQUIRABLE_FACT_KINDS, loadSpecRegistry } from "../../../engine/contracts/report/specs.js";
 
 describe("knowledge-base read contract", () => {
   it("validates", () => {
@@ -57,17 +56,5 @@ describe("knowledge-base read contract", () => {
     // carry unscoped facts that also cannot be attributed.
     for (const kind of WORKSPACE_LEVEL_KINDS) expect(isLineAnchored(kind)).toBe(false);
     for (const kind of LINE_ANCHORED_KINDS) expect(isWorkspaceLevelKind(kind)).toBe(false);
-  });
-});
-
-describe("the specs and the read contract agree", () => {
-  it("lets a spec require exactly what the contract serves", () => {
-    expect([...REQUIRABLE_FACT_KINDS].sort()).toEqual([...READABLE_KINDS].sort());
-  });
-
-  it("has every spec's requires served by a real table", () => {
-    for (const spec of loadSpecRegistry().specs) {
-      for (const kind of spec.requires) expect(tablesFor(kind).length).toBeGreaterThan(0);
-    }
   });
 });

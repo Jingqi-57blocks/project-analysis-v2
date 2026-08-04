@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 
 export * from "./read-contract.js";
 
-const GUIDE_URL = new URL("./kb-contract.md", import.meta.url);
+const GUIDE_URL = new URL("./reading-the-kb.md", import.meta.url);
 
 /** The reader-facing guide the skill loads. Prose, and part of the contract. */
 export function loadKbContractGuide(): string {

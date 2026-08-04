@@ -7,9 +7,9 @@
       "digest": "e0e38c05e4a2d3ad9795a7b54ef7868bb804161d6160601733fb7a68eae3d6e5"
     },
     {
-      "id": "report",
-      "version": "2.0.0",
-      "digest": "a1961c05179214af9ce729568c4aa6a93a85e8a7d92b38922976dc85e41d7ad5"
+      "id": "report-instructions",
+      "version": "1.0.0",
+      "digest": "351468f33ad5758e14e78bf074c6d2a2d87dc34b698ef26db5e2b6e460980c5b"
     },
     {
       "id": "truth-leave",
@@ -29,12 +29,7 @@
     {
       "id": "kb-read",
       "version": "2.0.0",
-      "digest": "fbd2cbc9e593a9350dbff5fa334323f14823c2f0f779f4041ef6ff0f4b0f8b12"
-    },
-    {
-      "id": "claim",
-      "version": "1.0.0",
-      "digest": "7e5421c4e0179d555cc430b65a6a56a0d19b8e6478a06b0ee5649ef2f254cafa"
+      "digest": "3fe12ab5f03dfc48b732c54dc31d1f6cf25c1ee99c1deefb95146283a0dcc82f"
     },
     {
       "id": "module-identity",
@@ -47,5 +42,5 @@
       "digest": "4f409a9fcdfbbc8cb8e4217ce7b0a0b3039dc7793e8b27c89e9dadaf46ff0177"
     }
   ],
-  "bundleDigest": "d9c8aca21f5a245493b85821786f3f621c269e936c1513121c17b5855ec22cc3"
+  "bundleDigest": "d34884dd76b1aca65e7a21e8f44e6f5dd02a8b8e2a42496ef2f2c3d0fa11e83d"
 }
